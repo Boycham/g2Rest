@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.next/
+*.ehpk
+.env
+.env.*
+!.env.example
+*.wav
+*.m4a
+*.mp3
+.DS_Store
