@@ -1,0 +1,69 @@
+{
+  "restaurant": "Floor Sense demo kitchen (fictional)",
+  "dishes": [
+    {
+      "name": "Scallop Crudo",
+      "aliases": ["scallops", "crudo"],
+      "course": "appetizer",
+      "temperature": "cold",
+      "allergens": ["shellfish", "citrus"],
+      "allowed_alterations": ["no chili", "no citrus", "extra olive oil"]
+    },
+    {
+      "name": "Roasted Tomato Soup",
+      "aliases": ["soup", "tomato soup"],
+      "course": "appetizer",
+      "temperature": "hot",
+      "allergens": ["dairy", "gluten"],
+      "allowed_alterations": ["no cream", "no croutons", "extra basil"]
+    },
+    {
+      "name": "Burrata",
+      "aliases": ["burrata salad"],
+      "course": "appetizer",
+      "temperature": "room",
+      "allergens": ["dairy", "tree nuts"],
+      "allowed_alterations": ["no pesto", "no bread", "extra tomato"]
+    },
+    {
+      "name": "Pan-Roasted Halibut",
+      "aliases": ["halibut"],
+      "course": "main",
+      "temperature": "hot",
+      "allergens": ["fish", "dairy"],
+      "allowed_alterations": ["no butter", "no capers", "sauce on the side"]
+    },
+    {
+      "name": "Cedar Plank Salmon",
+      "aliases": ["salmon"],
+      "course": "main",
+      "temperature": "hot",
+      "allergens": ["fish"],
+      "allowed_alterations": ["no dill", "sauce on the side", "well done"]
+    },
+    {
+      "name": "Dry-Aged Ribeye",
+      "aliases": ["ribeye", "steak"],
+      "course": "main",
+      "temperature": "hot",
+      "allergens": ["dairy"],
+      "allowed_alterations": ["rare", "medium rare", "medium", "medium well", "well done", "no butter", "sauce on the side"]
+    },
+    {
+      "name": "Wild Mushroom Risotto",
+      "aliases": ["risotto", "mushroom risotto"],
+      "course": "main",
+      "temperature": "hot",
+      "allergens": ["dairy"],
+      "allowed_alterations": ["no parmesan", "no truffle oil"]
+    },
+    {
+      "name": "Dark Chocolate Torte",
+      "aliases": ["chocolate torte", "torte", "chocolate cake"],
+      "course": "dessert",
+      "temperature": "warm",
+      "allergens": ["dairy", "egg", "tree nuts"],
+      "allowed_alterations": ["no whipped cream", "no hazelnuts", "extra sauce"]
+    }
+  ]
+}
