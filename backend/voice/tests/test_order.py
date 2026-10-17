@@ -133,3 +133,13 @@ def test_bad_calls_return_errors_without_raising(book, tool, params):
 def test_numeric_strings_are_accepted(book):
     result, err = call(book, "add_item", table="12", seat="2", dish="salmon", qty="1")
     assert not err and result["table"] == 12 and result["seat"] == 2
+
+
+def test_speech_end_offset_finds_last_voiced_frame():
+    import array
+
+    from voice_session import FRAME_BYTES, speech_end_offset
+
+    loud = array.array("h", [8000, -8000] * (FRAME_BYTES // 4)).tobytes()
+    pcm = bytes(FRAME_BYTES) + loud * 3 + bytes(FRAME_BYTES) * 5
+    assert speech_end_offset(pcm) == pytest.approx(0.4)
