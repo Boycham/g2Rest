@@ -1,0 +1,130 @@
+# Voice spike notes (backend/voice)
+
+Status: code, menu, guards and tests are done. **Nothing has been run against ElevenLabs yet**:
+`ELEVENLABS_API_KEY` was not set in the Devin environment. Everything marked `TO-VERIFY` needs that
+first real run. Docs read 2026-10-17.
+
+## What the docs say (checked)
+
+### Scribe realtime STT
+Docs: [API ref](https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime),
+[commit strategies](https://elevenlabs.io/docs/eleven-api/guides/how-to/speech-to-text/realtime/transcripts-and-commit-strategies),
+[event reference](https://elevenlabs.io/docs/eleven-api/guides/how-to/speech-to-text/realtime/event-reference),
+[server-side streaming](https://elevenlabs.io/docs/eleven-api/guides/how-to/speech-to-text/realtime/server-side-streaming)
+
+- Endpoint `wss://api.elevenlabs.io/v1/speech-to-text/realtime`. Auth is the `xi-api-key` header
+  (backend) or a single-use `token` query param (client side).
+- `model_id=scribe_v2_realtime`, the only allowed value. `audio_format=pcm_16000` (the default) is
+  16-bit LE mono at 16 kHz, so G2 mic frames go through unchanged. Only mono is supported.
+- `commit_strategy`: `manual` (the default), `vad`, or `turn_prediction`. VAD settings:
+  `vad_silence_threshold_secs`, `vad_threshold`, `min_speech_duration_ms`, `min_silence_duration_ms`.
+  The docs recommend VAD for mic input.
+- Client sends `{"message_type":"input_audio_chunk","audio_base_64":…,"commit":bool,"sample_rate":16000}`.
+  All four fields are required. `previous_text` is allowed on the first chunk only.
+- Server sends `session_started`, `partial_transcript` (later ones replace earlier ones), and
+  `committed_transcript` (final for that segment; there is no `final_transcript` event). Errors
+  come as `message_type` values like `auth_error`, `input_error`, `commit_throttled`, …, sent
+  before the socket closes.
+- Transcription starts after the first ~2 s of audio. 100 ms frames should be fine; there is a
+  chunk-size-exceeded error for chunks that are too large, but the docs don't give the limit.
+- The optional `keepalive_interval_ms` makes the server send an empty `partial_transcript` about
+  once per interval. It's for clients or proxies that close idle sockets during long silences. Not
+  used: we stream silence frames instead.
+- **There is no separate "close" message in the Scribe protocol.** Our close sequence is about 2 s
+  of trailing silence, then a final chunk with `commit: true`, then wait up to 5 s for the
+  `committed_transcript`, then close the socket. TO-VERIFY: that `commit: true` is accepted when
+  `commit_strategy=vad`.
+- `keyterms` (biasing toward dish names) exists, but the docs don't show how an array is encoded
+  in the query string. Not used yet. TO-VERIFY before relying on it for rare dish names.
+
+### Agents: text-only (chat) mode
+Docs: [chat mode](https://elevenlabs.io/docs/eleven-agents/guides/chat-mode),
+[create agent](https://elevenlabs.io/docs/api-reference/agents/create),
+[agent WebSocket](https://elevenlabs.io/docs/eleven-agents/api-reference/eleven-agents/websocket),
+[signed URL](https://elevenlabs.io/docs/api-reference/conversations/get-signed-url)
+
+- Set `conversation_config.conversation.text_only = true` on the agent. A runtime override also
+  exists, but the agent's Security tab has to allow it, so we set it on the agent instead.
+- Create with `POST /v1/convai/agents/create`. The prompt goes in
+  `conversation_config.agent.prompt.prompt`, plus `llm`, `temperature` (default 0) and `tool_ids`
+  (inline `tools` is deprecated). The `llm` enum includes `gemini-2.5-flash` (our default),
+  `gpt-4.1-mini`, `claude-haiku-4-5`, and others.
+- Conversation socket: `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=…`. The backend
+  gets a signed URL from `GET /v1/convai/conversation/get-signed-url?agent_id=…` with
+  `xi-api-key`, so the key never leaves the backend.
+- Client → server: `conversation_initiation_client_data`, `user_message {text}`,
+  `pong {event_id}`, `client_tool_result {tool_call_id, result: string, is_error}`, and
+  `contextual_update`.
+- Server → client: `conversation_initiation_metadata`, `ping {ping_event.event_id}`,
+  `agent_response {agent_response_event.agent_response}`,
+  `client_tool_call {client_tool_call: {tool_name, tool_call_id, parameters, event_id, expects_response}}`,
+  and `agent_tool_response`.
+- Chat mode has its own concurrency pool, 25× the voice limits (Free: 100 chat conversations).
+
+### Tools: client vs server (webhook)
+Docs: [client tools](https://elevenlabs.io/docs/eleven-agents/customization/tools/client-tools),
+[server tools](https://elevenlabs.io/docs/eleven-agents/customization/tools/server-tools),
+[create tool](https://elevenlabs.io/docs/api-reference/tools/create)
+
+- Create with `POST /v1/convai/tools {"tool_config": {"type":"client", name, description,
+  parameters, expects_response, response_timeout_secs}}`, then reference the tool by id from the
+  agent. `expects_response: true` makes the agent wait for our `client_tool_result`. Timeout is
+  1–120 s (default 20); we use 10.
+- Webhook (server) tools call an HTTPS URL that ElevenLabs can reach, so they need a public
+  endpoint or a tunnel. Client tools don't.
+- Parameter schema: each property has a `type` and a `description`; arrays have `items`. The doc
+  doesn't list the allowed literal types, so we use `integer` for table, seat and qty.
+  TO-VERIFY at tool creation.
+
+### Text to speech (fixtures)
+Docs: [create speech](https://elevenlabs.io/docs/api-reference/text-to-speech/convert)
+
+- `POST /v1/text-to-speech/{voice_id}?output_format=pcm_16000` with
+  `{"text", "model_id": "eleven_multilingual_v2"}` (the default model). It returns raw PCM.
+  `JBFqnCBsd6RMkjVDRZzb` is the premade voice from the reference example; `ELEVENLABS_VOICE_ID`
+  overrides it.
+
+## Tool path
+
+- **Planned: client tools over the conversation WebSocket.** The docs say client tools work with
+  any conversation socket, and chat mode only removes audio. The docs don't say client tools are
+  excluded from chat mode, but they don't say they're supported there either. **TO-VERIFY** with
+  the first real run.
+- The fallbacks (webhook tool via a tunnel; Scribe plus a different tool-calling LLM) aren't built.
+  Only needed if client tools fail in text-only mode.
+- The whole pipeline (STT socket, agent socket, ping/pong, tool dispatch, results, latency timer)
+  has been exercised against a local fake server written from the shapes above. That proves our
+  side of the protocol, not ElevenLabs' behavior.
+
+## Guards (in `order.py`, tested in `tests/test_order.py`, no network)
+
+- Dish names resolve by exact name or alias, ignoring case, hyphens and a leading "the".
+  Anything else returns an error with the 3 closest menu names.
+- Each alteration is checked against that dish's `allowed_alterations`. Allowed ones are applied.
+  Others go in `flagged_alterations` with a warning in the result and are never applied.
+- `confirm_order` / `cancel_order` only add a proposal and return `needs_confirmation`.
+  `cancel_order` items can be dish names or a course ("dessert").
+- `set_allergy` is pinned to the seat and survives later removals. It and `add_item` report
+  conflicts with the menu allergens ("Scallop Crudo contains shellfish").
+- Every argument is validated; numeric strings like "12" are accepted. `dispatch()` never raises:
+  unknown tools, wrong types and internal errors all come back as `is_error` results.
+- `remove_item` for a dish that isn't on the seat returns `status: not_found`, not an error. This
+  is fixture 2 ("no soup for seat two" when no soup was ordered).
+
+## Latency (end of speech → first tool call)
+
+Not measured yet (no key). How to measure: `python run_spike.py --repeat 5 fixtures/0*.pcm`.
+"End of speech" is the send time of the last 100 ms frame above −40 dBFS. The time is taken when
+the `client_tool_call` arrives. The median goes here.
+
+| Run set | Median | Min | Max |
+|---|---|---|---|
+| clean TTS, 4 fixtures × 5 runs | TO-MEASURE | | |
+| white noise, 5 dB SNR (`make_fixtures.py --snr-db 5`) | TO-MEASURE | | |
+
+The expected floor is the VAD silence threshold (0.8 s) plus STT commit plus one LLM turn.
+
+## HW-PENDING
+
+- A real G2 mic stream through the same path. Frame size and format match on paper.
+- Accuracy in restaurant / judging-hall noise. White noise is only a stand-in.
