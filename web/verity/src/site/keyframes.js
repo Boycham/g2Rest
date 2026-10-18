@@ -173,6 +173,19 @@ export function zoomPoint(x, y, s) {
   return [CENTER.x + s * (x - CENTER.x), CENTER.y + s * (y - CENTER.y)]
 }
 
+/**
+ * Per scene, the first keyframe where every one of its layers is in: the welcome at KF0, the
+ * task card at KF25, the full ticket at KF75, the doors' copy at KF75, the dashboard sign at
+ * KF100. The scene dots land here, and reduced motion holds each scene here.
+ */
+export const BUILT = [0, 0.25, 0.75, 0.75, 1]
+
+/** Global progress where scene `index` is fully built. Stays inside the scene's own range. */
+export function builtAt(index) {
+  const s = SCENES[index]
+  return +(s.start + BUILT[index] * (s.end - s.start)).toFixed(4)
+}
+
 /** Every keyframe as a global progress value: the snap points for "scroll to the next page". */
 export function snapPoints() {
   const out = new Set()

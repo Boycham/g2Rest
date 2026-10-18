@@ -1,5 +1,6 @@
 import type {
   Alert,
+  AlertKind,
   AlertLevel,
   Allergy,
   BackendMessage,
@@ -37,6 +38,7 @@ const BACKEND_TYPES: readonly BackendMessage['type'][] = [
   'voice.unknown',
   'task.rejected',
 ]
+const ALERT_KINDS: readonly AlertKind[] = ['unacked', 'slow', 'course_wait', 'vip', '86']
 const INTENTS = ['up', 'down', 'back', 'confirm', 'clip', 'accept', 'decline', 'done', 'handoff', 'nevermind', 'revert', 'menu', 'queue', 'table']
 const REJECTED_ACTIONS = ['accept', 'done', 'bounce', 'handoff', 'revert']
 const CLOSED_STATUSES = ['fired', 'cancelled']
@@ -79,7 +81,8 @@ export function isAlert(v: unknown): v is Alert {
     isStr(v.text) &&
     (v.table === undefined || isStr(v.table)) &&
     (v.sinceSec === undefined || (isNum(v.sinceSec) && v.sinceSec >= 0)) &&
-    (v.cleared === undefined || typeof v.cleared === 'boolean')
+    (v.cleared === undefined || typeof v.cleared === 'boolean') &&
+    (v.kind === undefined || ALERT_KINDS.includes(v.kind as AlertKind))
   )
 }
 

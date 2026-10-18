@@ -89,3 +89,9 @@ def test_open_reservation_closes_at_the_last_event() -> None:
     events.append(ev(65, "pass.run", runId="run-1", taskId="t", plates=["o1:0"]))
     m = compute(events, DISHES, ["s1", "s2"])
     assert m["idleReservedSec"]["perServer"] == {"s1": 60, "s2": 0}
+
+
+def test_hot_course_hold_floor() -> None:
+    # o1's two steaks came up 10 s apart: the first must wait 10 s for its course, whatever runs it
+    m = compute(EVENTS, DISHES, ["s1", "s2"])
+    assert m["hotCourseHoldSec"] == {"n": 3, "median": 0.0, "p90": 10.0, "max": 10.0}

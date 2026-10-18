@@ -230,6 +230,8 @@ class AlertExt(Alert):
     table: str | None = None
     sinceSec: int | None = None
     cleared: bool | None = None
+    # what it is about (CONTRACT.md §4): "86" also goes to every server, as a card banner
+    kind: Literal["unacked", "slow", "course_wait", "vip", "86"] | None = None
 
 
 class OrderClosed(Strict):

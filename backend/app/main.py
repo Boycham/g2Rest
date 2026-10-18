@@ -42,6 +42,7 @@ class TaskIn(BaseModel):
 
 class StatusIn(BaseModel):
     status: str
+    vip: bool = False  # seating a VIP party: the manager gets "VIP seated T7" once
 
 
 class RerouteIn(BaseModel):
@@ -199,6 +200,26 @@ def create_app(
     def menu() -> dict[str, Any]:
         return store.menu.to_dict()
 
+    @app.get("/menu/86", dependencies=auth)
+    def menu_86_list() -> dict[str, Any]:
+        return {"eightySix": store.eighty_six}
+
+    @app.post("/menu/{dish}/{action}", dependencies=auth)
+    async def menu_86(dish: str, action: str) -> dict[str, Any]:
+        """86 a dish (`/menu/halibut/86`) or bring it back (`/menu/halibut/un86`)."""
+        if action not in ("86", "un86"):
+            raise HTTPException(404, "action must be 86 or un86")
+        found = store.menu.find(dish)
+        if found is None:
+            close = store.menu.closest(dish)
+            raise HTTPException(
+                404, f"'{dish}' is not on the menu. Did you mean: {', '.join(close)}?"
+            )
+        alert = store.set_86(found, out=action == "86")
+        if alert is not None:
+            await hub.push_86(alert)
+        return {"dish": found.name, "eightySix": store.eighty_six}
+
     @app.get("/floor", dependencies=auth)
     def floor() -> dict[str, Any]:
         return store.floor.to_dict()
@@ -299,9 +320,10 @@ def create_app(
     @app.post("/tables/{table_id}/status", dependencies=auth)
     async def table_status(table_id: str, body: StatusIn) -> dict[str, Any]:
         try:
-            store.set_table_status(table_id, body.status)
+            out = store.set_table_status(table_id, body.status, vip=body.vip)
         except DataError as e:
             raise HTTPException(400, str(e)) from None
+        await hub.deliver(out)
         await hub.push_floor()
         return store.table_wire(table_id)
 

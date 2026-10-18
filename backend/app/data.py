@@ -29,6 +29,11 @@ class Dish:
     allergens: tuple[str, ...]
     allowed_alterations: tuple[str, ...]
 
+    @property
+    def short(self) -> str:
+        """What the floor calls it: "halibut" for Pan-Roasted Halibut."""
+        return self.aliases[0] if self.aliases else self.name.lower()
+
 
 class Menu:
     def __init__(self, restaurant: str, dishes: list[Dish]) -> None:

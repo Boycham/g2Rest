@@ -62,6 +62,8 @@ def table(results: dict[str, dict[str, Any]], servers: list[str]) -> str:
         add(f"{temp} plates", lambda m, t=temp: m["waitSec"][t]["n"])
         for stat in ("median", "p90", "max"):
             add(f"  {temp} wait {stat} (s)", lambda m, t=temp, s=stat: m["waitSec"][t][s])
+    add("  hot hold floor median (s)", lambda m: m["hotCourseHoldSec"]["median"])
+    add("  hot hold floor p90 (s)", lambda m: m["hotCourseHoldSec"]["p90"])
     add("hot plate to table median (s)", lambda m: m["toTableSec"]["hot"]["median"])
     add("hot plate to table p90 (s)", lambda m: m["toTableSec"]["hot"]["p90"])
     add("hot plate to table max (s)", lambda m: m["toTableSec"]["hot"]["max"])

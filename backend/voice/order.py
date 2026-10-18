@@ -220,6 +220,7 @@ class OrderBook:
         # The last set_order's guest entries, so set_talk numbers guests the same way.
         self.clip_entries: list[dict[str, Any]] = []
         self._next_proposal = 1
+        self.out: set[str] = set()  # 86'd dish names, from the backend's menu.86 frame
 
     def hear(self, transcript: str) -> None:
         """A new clip's transcript; its summary and answers replace the last clip's."""
@@ -325,6 +326,9 @@ class OrderBook:
         t, table = self._table(p)
         seat_n = _int_arg(p, "seat", 1, 50)
         dish = self.menu.resolve(_str_arg(p, "dish"))
+        if dish.name in self.out:
+            table.uncertain.append(_short(f"? s{seat_n} {self._label(dish.name)} 86'd"))
+            raise ToolError(f"{dish.name} is 86'd tonight; don't sell it")
         qty = _int_arg(p, "qty", 1, MAX_QTY, default=1)
         ok, flagged = self._split_alterations(dish, _str_list_arg(p, "alterations"))
         seat = table.seat(seat_n)
@@ -483,6 +487,9 @@ class OrderBook:
             except ToolError:
                 close = [self._label(d) for d in self.menu.closest(name, 2)]
                 uncertain.append(f"? s{seat} '{name}' not on menu: {' or '.join(close)}")
+                continue
+            if dish.name in self.out:
+                uncertain.append(f"? s{seat} {self._label(dish.name)} 86'd")
                 continue
             if not self.dish_said(dish):
                 unheard.append(f"s{seat} {dish.name}")

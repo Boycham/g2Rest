@@ -62,6 +62,7 @@ class Order:
     allergies: dict[int, list[str]] = field(default_factory=dict)
     status: OrderStatus = "draft"
     proposal: Literal["confirm", "cancel"] | None = None
+    uncertain: list[str] = field(default_factory=list)  # "? s2 halibut 86'd"
 
     def allergy_wire(self) -> list[dict[str, Any]]:
         by_allergen: dict[str, list[int]] = {}
@@ -78,6 +79,7 @@ class Order:
             "table": self.table,
             "lines": [line.wire() for line in self.lines],
             "allergies": self.allergy_wire(),
+            **({"uncertain": list(self.uncertain)} if self.uncertain else {}),
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -134,6 +136,7 @@ class OrderBook:
         self.menu = menu
         self.tables = tables
         self.orders: dict[str, Order] = {}
+        self.out: set[str] = set()  # dishes 86'd tonight (POST /menu/{dish}/86): never sold
 
     # ---------- lookups ----------
 
@@ -227,6 +230,9 @@ class OrderBook:
     def tool_add_item(self, order: Order, p: dict[str, Any]) -> dict[str, Any]:
         seat = _int_arg(p, "seat", 1, MAX_SEAT)
         dish = self._dish(p)
+        if dish.name in self.out:
+            order.uncertain.append(f"? s{seat} {dish.short} 86'd")
+            raise ToolError(f"{dish.name} is 86'd tonight; don't sell it", eightySixed=dish.name)
         qty = _int_arg(p, "qty", 1, MAX_QTY, default=1)
         ok, flagged = self._split(dish, _str_list_arg(p, "alterations"))
         line = Line(seat, qty, dish.name, ok, flagged)

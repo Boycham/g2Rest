@@ -111,6 +111,7 @@ def test_end_of_chain_raises_one_alert_and_done_clears_it(book: TaskBook) -> Non
         "text": "",
         "table": "T1",
         "sinceSec": 0,
+        "kind": "unacked",
         "cleared": True,
     }
 
