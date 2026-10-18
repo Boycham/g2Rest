@@ -23,3 +23,11 @@ Restaurant floor on Even Realities G2 glasses. See `AGENTS.md` for the brief.
 - [ruff](https://pypi.org/project/ruff/): lint and format
 - ElevenLabs APIs: Scribe realtime STT (`scribe_v2_realtime`), Agents (text-only mode, client
   tools), and text to speech for test fixtures
+
+### Restaurant brain (`backend/`, `data/`)
+- Python 3.11, type hints, [ruff](https://pypi.org/project/ruff/) and [pytest](https://pypi.org/project/pytest/)
+- [FastAPI](https://fastapi.tiangolo.com/) + [uvicorn](https://www.uvicorn.org/): HTTP API and the WebSocket hub
+- [pydantic](https://docs.pydantic.dev/) v2: Python mirror of `glasses/src/contract.ts`, every frame checked
+- [websockets](https://pypi.org/project/websockets/): the step-0 mock server and the walkthrough client
+- [httpx](https://pypi.org/project/httpx/): the walkthrough script and FastAPI's test client
+- Shared fictional data in `data/menu.json` and `data/floor.json`; message contract in `backend/CONTRACT.md`
