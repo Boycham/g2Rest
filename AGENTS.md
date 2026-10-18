@@ -141,9 +141,10 @@ before any work in `glasses/` or `backend/voice/`. The short version:
   arrive as those two events on the event-capture container, with no source, so ring and temple can't be told
   apart. Only one container per page captures input.
 - **Our gestures** (one table in `glasses/src/controls.ts`): tap = accept, then tap again = done; tap also
-  confirms a popup or sends a draft. Swipe back = clip the last 2 minutes as an order. Swipe fwd = Controls
-  menu (every gesture with its voice command, plus the queue). Long press = hand the task off (`Confirm
-  handoff?`, then a tap). Double tap = exit. Every gesture also has a voice command: "verity" + a fixed word
+  confirms a popup or sends a draft. The server HUD is three stacked tabs, top to bottom Controls (a
+  reference of every gesture and its voice command), Queue, Card (home): swipe fwd goes one tab up, swipe back
+  one tab down, and swipe back on the Card = clip the last 2 minutes as an order. Long press on the Card = hand
+  the task off (`Confirm handoff?`, then a tap); on Queue or Controls it goes back to the Card. Double tap = exit. Every gesture also has a voice command: "verity" + a fixed word
   (`backend/voice/commands.py`); other words after "verity" go to Gemini, which may only pick one of those.
 - **Double tap on the root page must call `shutDownPageContainer(1)`.** Anything else gets the app auto-rejected
   by Even Hub review. Never reuse double tap for anything else.

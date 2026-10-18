@@ -44,7 +44,7 @@ Write each answer in `NOTES.md` when someone reports it. Ask for these in your P
 2. A task card appears within about 1 s of the backend sending it, fits at the real font, and wraps correctly.
 3. Is `rebuildPageContainer` flicker acceptable when switching screens?
 4. Tap arrives as a click: accept, then done.
-5. Swipe back arrives as `SCROLL_BOTTOM_EVENT` and clips the last 2 minutes; swipe fwd (`SCROLL_TOP_EVENT`) opens Controls; long press opens the handoff popup.
+5. Swipe back arrives as `SCROLL_BOTTOM_EVENT` and clips the last 2 minutes on the Card; swipe fwd (`SCROLL_TOP_EVENT`) moves Card → Queue → Controls; long press opens the handoff popup on the Card. Does the tab rail flicker on a tab switch?
 6. Double tap shows the real system exit dialog.
 7. Lock the phone for 5 minutes: does the socket reconnect, and does the queue come back?
 8. Speak an order in a noisy room: how much of it does speech-to-text get?

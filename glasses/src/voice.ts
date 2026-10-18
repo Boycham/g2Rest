@@ -1,4 +1,4 @@
-import type { GlassesJsonMessage, Task, VoiceCommand, VoiceIntent } from './contract'
+import type { GlassesJsonMessage, Task, TaskRejected, VoiceCommand, VoiceIntent } from './contract'
 
 // "verity <command>" from the relay -> what the glasses do. Task intents send the same frames
 // as the gestures; the backend decides and answers task.updated or task.rejected (its reason
@@ -44,6 +44,21 @@ export function voiceAction(intent: VoiceIntent, head: Task | undefined, name?: 
       // The relay already bound the draft (or refused); the glasses only say what happened.
       return { kind: 'refuse', line: 'say verity table and a number' }
   }
+}
+
+const REJECTED_VERB: Record<TaskRejected['action'], string> = {
+  accept: 'accept',
+  done: 'finish',
+  bounce: 'decline',
+  handoff: 'hand off',
+  revert: 'revert',
+}
+
+/** The card line for a task.rejected: the action in plain words, then the backend's reason. */
+export function rejectionLine(msg: Pick<TaskRejected, 'action' | 'reason'>, task?: Task): string {
+  if (msg.action === 'bounce' && (task?.state === 'accepted' || /accepted/i.test(msg.reason)))
+    return "Can't decline: already accepted"
+  return `Can't ${REJECTED_VERB[msg.action]}: ${msg.reason}`
 }
 
 /** "verity table 4": `Table T3 → T4`, `Heard: table T4`, or the relay's reason. */

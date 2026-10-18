@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { makeTask } from './fixtures.test-helpers'
 import { handoffFrame, handoffPrompt } from './handoff'
-import { didntGet, tableLine, voiceAction } from './voice'
+import { didntGet, rejectionLine, tableLine, voiceAction } from './voice'
 
 describe('voiceAction', () => {
   const assigned = makeTask({ id: 't1' })
@@ -45,6 +45,26 @@ describe('didntGet', () => {
   it('shows the words and the reason Gemini could not help', () => {
     expect(didntGet('sing louder')).toBe("Didn't get: sing louder")
     expect(didntGet('sing', 'timeout')).toBe("Didn't get: sing (timeout)")
+  })
+})
+
+describe('rejectionLine', () => {
+  const accepted = { ...makeTask({ id: 't1' }), state: 'accepted' as const }
+
+  it('says exactly why a decline of an accepted task was refused', () => {
+    expect(rejectionLine({ action: 'bounce', reason: 'task-t1 is accepted, cannot bounce' })).toBe(
+      "Can't decline: already accepted",
+    )
+    expect(rejectionLine({ action: 'bounce', reason: 'not yours' }, accepted)).toBe("Can't decline: already accepted")
+  })
+
+  it('names the other actions in plain words and keeps the backend reason', () => {
+    expect(rejectionLine({ action: 'revert', reason: 'nothing to revert' })).toBe("Can't revert: nothing to revert")
+    expect(rejectionLine({ action: 'handoff', reason: 'Ben already accepted it' })).toBe(
+      "Can't hand off: Ben already accepted it",
+    )
+    expect(rejectionLine({ action: 'bounce', reason: 'not your task' })).toBe("Can't decline: not your task")
+    expect(rejectionLine({ action: 'done', reason: 'not accepted' })).toBe("Can't finish: not accepted")
   })
 })
 

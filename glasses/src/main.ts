@@ -32,7 +32,7 @@ void telemetry.startTelemetry({ wsUrl: BACKEND_URL, token: FS_TOKEN, tags: { rol
 telemetry.watchLens(bridge, MAIN_ID)
 log('role', role, 'restored queue', restoredQueue.length, 'alerts', restoredManager.exceptions.open.length)
 
-const socket = new BackendSocket(urlFor(role), {
+const socket = new BackendSocket(() => urlFor(role), {
   onMessage: msg => {
     if (msg.type !== 'floor.state') telemetry.crumb('frame.in', msg.type, telemetry.frameData(msg))
     if (msg.type === 'voice.command') telemetry.noteInput(`verity ${msg.intent}`)
@@ -93,7 +93,7 @@ async function switchRole(next: Role): Promise<void> {
   telemetry.setTags({ role, staff: staffOf(role) })
   await saveRole(bridge, role)
   // The backend routes by the role/staff on the socket, so a new role is a new connection.
-  socket.redial(urlFor(role))
+  socket.reconnectNow()
   await active().enter()
   syncPhone()
 }

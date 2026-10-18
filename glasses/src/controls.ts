@@ -1,73 +1,76 @@
-import { CARD_MAX_LINES, CARD_TEXT_WIDTH, spread } from './card'
+import { CARD_MAX_LINES, TAB_TEXT_WIDTH, spread } from './card'
 
-// The gesture map in one place. MAIN_GESTURES is what each gesture does on the main card;
-// giving swipe back (SDK `down`) to the queue instead of clip is `down: 'queue'`.
-// On the G2 touchpad SDK `up` is a swipe fwd (toward the eyes) and `down` a swipe back (toward the ear). Double tap is always exit (Even Hub
-// review rule) and lives in main.ts.
+// The gesture map in one place. The server HUD is a vertical stack of three tabs, top to bottom
+// TABS; swipe fwd (SDK `up`) goes one tab up and swipe back (SDK `down`) one tab down. The Card is
+// the bottom tab, so its swipe back is free for clip: CARD_GESTURES says what each gesture does there.
+// On the G2 touchpad SDK `up` is a swipe fwd (toward the eyes) and `down` a swipe back (toward the
+// ear). Double tap is always exit (Even Hub review rule) and lives in main.ts.
 
-export type MainAction = 'task' | 'controls' | 'queue' | 'clip' | 'handoff'
+export const TABS = ['controls', 'queue', 'card'] as const
+export type Tab = (typeof TABS)[number]
 
-export const MAIN_GESTURES: Record<'tap' | 'up' | 'down' | 'hold', MainAction> = {
+export const TAB_LABELS: Record<Tab, string> = { controls: 'Controls', queue: 'Queue', card: 'Card' }
+
+/** The tab a swipe moves to; null past the ends (swipe back on the Card is clip instead). */
+export function tabAfter(tab: Tab, dir: 'up' | 'down'): Tab | null {
+  const i = TABS.indexOf(tab) + (dir === 'up' ? -1 : 1)
+  return TABS[i] ?? null
+}
+
+export type CardAction = 'task' | 'queue' | 'clip' | 'handoff'
+
+export const CARD_GESTURES: Record<'tap' | 'up' | 'down' | 'hold', CardAction> = {
   tap: 'task',
-  up: 'controls',
+  up: 'queue',
   down: 'clip',
   hold: 'handoff',
 }
 
-/** Always on the main card, bottom right. */
-export const CONTROLS_HINT = 'fwd: controls'
-
-export type ControlAction = MainAction | 'decline' | 'revert' | 'table' | 'exit' | 'close'
+/** The Card's corner hint (bottom right): the Queue tab is above it. */
+export const CARD_HINT = 'fwd: queue'
 
 export interface ControlItem {
   label: string
   gesture: string
   voice: string
-  action: ControlAction
 }
 
-const GESTURE_NAMES: Record<'tap' | 'up' | 'down' | 'hold', string> = {
-  tap: 'tap',
-  up: 'swipe fwd',
-  down: 'swipe back',
-  hold: 'hold',
-}
-
-function gestureFor(action: MainAction): string {
-  const g = (Object.keys(MAIN_GESTURES) as (keyof typeof MAIN_GESTURES)[]).find(k => MAIN_GESTURES[k] === action)
-  return g ? GESTURE_NAMES[g] : 'menu'
-}
-
-/** The Controls menu: every gesture and its "verity" command; a tap picks the selected row. */
+/**
+ * The Controls tab: a read-only reference of every gesture and its "verity" command. Swipes
+ * switch tabs, so nothing here is picked; decline and revert are voice only, from any tab.
+ */
 export const CONTROLS: readonly ControlItem[] = [
-  { label: 'Clip last 2 min', gesture: gestureFor('clip'), voice: 'verity clip', action: 'clip' },
-  { label: 'Queue', gesture: gestureFor('queue'), voice: 'verity queue', action: 'queue' },
-  { label: 'Accept / done', gesture: gestureFor('task'), voice: 'verity accept/done', action: 'task' },
-  { label: 'Hand off', gesture: gestureFor('handoff'), voice: 'verity handoff', action: 'handoff' },
-  { label: 'Decline', gesture: 'menu', voice: 'verity decline', action: 'decline' },
-  { label: 'Revert last', gesture: 'menu', voice: 'verity revert', action: 'revert' },
-  { label: 'Set table', gesture: 'voice', voice: 'verity table N', action: 'table' },
-  { label: 'Exit', gesture: 'double tap', voice: '-', action: 'exit' },
-  { label: 'Close', gesture: 'hold', voice: 'verity back', action: 'close' },
+  { label: 'Accept / done', gesture: 'tap', voice: 'verity accept/done' },
+  { label: 'Clip last 2 min', gesture: 'swipe back', voice: 'verity clip' },
+  { label: 'Hand off', gesture: 'hold', voice: 'verity handoff' },
+  { label: 'Queue, Controls', gesture: 'swipe fwd', voice: 'verity queue/menu' },
+  { label: 'Back to the card', gesture: 'hold', voice: 'verity back' },
+  { label: 'Decline', gesture: 'voice', voice: 'verity decline' },
+  { label: 'Revert last', gesture: 'voice', voice: 'verity revert' },
+  { label: 'Set table', gesture: 'voice', voice: 'verity table N' },
+  { label: 'Exit', gesture: 'double tap', voice: '-' },
 ]
 
-export function controlRow(item: ControlItem, selected: boolean, width = CARD_TEXT_WIDTH): string {
-  const left = `${selected ? '> ' : '  '}${item.label} (${item.gesture})`
-  return spread(left, item.voice, width)
+export function controlRow(item: ControlItem, width = TAB_TEXT_WIDTH): string {
+  return spread(`${item.label} (${item.gesture})`, item.voice, width)
 }
 
-/** Last line of the Controls menu. */
-export const CONTROLS_FOOTER = 'fwd/back: move · tap: pick · hold: back'
+/** Rows per Controls page; the last line is the footer. */
+export const CONTROLS_PER_PAGE = CARD_MAX_LINES - 1
+export const CONTROLS_PAGES = Math.ceil(CONTROLS.length / CONTROLS_PER_PAGE)
 
-/** A window of rows that keeps the selected row on screen, then the footer. */
-export function formatControls(selected: number, width = CARD_TEXT_WIDTH): string {
-  const room = CARD_MAX_LINES - 1
-  const start = Math.max(0, Math.min(selected - 2, CONTROLS.length - room))
-  const rows = CONTROLS.slice(start, start + room).map((item, i) => controlRow(item, start + i === selected, width))
-  return [...rows, spread('', CONTROLS_FOOTER, width)].join('\n')
+/** Right side of the Controls footer: tap flips the page, swipe back is the Queue tab. */
+export const CONTROLS_FOOTER = 'tap: more · back: queue'
+
+/** One page of the reference, then `n/N` and the footer. */
+export function formatControls(page: number, width = TAB_TEXT_WIDTH): string {
+  const p = ((page % CONTROLS_PAGES) + CONTROLS_PAGES) % CONTROLS_PAGES
+  const rows = CONTROLS.slice(p * CONTROLS_PER_PAGE, (p + 1) * CONTROLS_PER_PAGE).map(item => controlRow(item, width))
+  const pad = Array<string>(CONTROLS_PER_PAGE - rows.length).fill('')
+  return [...rows, ...pad, spread(`${p + 1}/${CONTROLS_PAGES}`, CONTROLS_FOOTER, width)].join('\n')
 }
 
-/** Swipe fwd/back (SDK up/down) in the menu; it stops at the ends. Hold, Close or "verity back" close it. */
-export function moveSelection(selected: number, dir: 'up' | 'down'): number {
-  return dir === 'up' ? Math.max(0, selected - 1) : Math.min(CONTROLS.length - 1, selected + 1)
+/** A tap on Controls shows the next page, wrapping around. */
+export function nextControlsPage(page: number): number {
+  return (page + 1) % CONTROLS_PAGES
 }

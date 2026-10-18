@@ -37,9 +37,9 @@ On real glasses: `npx evenhub qr --url http://<your-ip>:5173`. To pack: `npm run
 | Gesture | Server | Manager |
 |---|---|---|
 | Tap | accept the task; tap again when it's done | dismiss the top exception (on this device only); on the minimap, back to exceptions |
-| Swipe fwd (toward the eyes) | Controls menu: every gesture and its "verity" command, the queue | back to exceptions from the minimap |
-| Swipe back (toward the ear) | clip the last minute: the order shows as a draft | floor minimap |
-| Long press | hand the task off (`Confirm handoff?`, then tap) | - |
+| Swipe fwd (toward the eyes) | one tab up: Card → Queue → Controls (every gesture and its "verity" command) | back to exceptions from the minimap |
+| Swipe back (toward the ear) | one tab down; on the Card (bottom tab), clip the last minute: the order shows as a draft | floor minimap |
+| Long press | on the Card, hand the task off (`Confirm handoff?`, then tap); on Queue or Controls, back to the Card | - |
 | Double tap | exit (`shutDownPageContainer(1)`) | exit (`shutDownPageContainer(1)`) |
 
 Minimap glyphs: `!` needs you, `S` seated, `O` ordered, `W` waiting on food, `E` eating (mains out),

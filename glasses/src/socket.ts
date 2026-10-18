@@ -19,20 +19,32 @@ const BACKOFF_MAX_MS = 10000
 const OUTBOX_MAX = 50
 
 /**
- * One WebSocket to the backend with reconnect and backoff. Gestures made while offline
- * wait in a small outbox and are flushed in order on reconnect.
+ * Wait before reconnect attempt `attempt` (0-based): doubling from 500 ms, capped at 10 s, and
+ * jittered to between half and all of that so glasses don't all redial a restarted backend at once.
+ */
+export function retryDelay(attempt: number, random: () => number = Math.random): number {
+  const base = Math.min(BACKOFF_MIN_MS * 2 ** attempt, BACKOFF_MAX_MS)
+  return Math.round(base / 2 + (random() * base) / 2)
+}
+
+/**
+ * One WebSocket to the backend with reconnect and backoff. Every dial asks `urlFor` for the URL,
+ * so a retry after a backend restart carries the current role and staff, not the ones at startup.
+ * Gestures made while offline wait in a small outbox and are flushed in order on reconnect.
  */
 export class BackendSocket {
   private ws: WebSocket | null = null
   private status: SocketStatus = 'offline'
-  private backoff = BACKOFF_MIN_MS
+  private attempt = 0
+  private url = ''
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private connectTimer: ReturnType<typeof setTimeout> | null = null
   private outbox: GlassesJsonMessage[] = []
 
   constructor(
-    private url: string,
+    private readonly urlFor: () => string,
     private readonly handlers: SocketHandlers,
+    private readonly random: () => number = Math.random,
   ) {}
 
   get online(): boolean {
@@ -43,6 +55,7 @@ export class BackendSocket {
     this.clearTimers()
     this.teardown()
     this.setStatus('connecting')
+    this.url = this.urlFor()
     log('ws connecting', redactToken(this.url))
     let ws: WebSocket
     try {
@@ -61,8 +74,8 @@ export class BackendSocket {
 
     ws.onopen = () => {
       if (this.ws !== ws) return
-      if (this.connectTimer) clearTimeout(this.connectTimer)
-      this.backoff = BACKOFF_MIN_MS
+      this.clearTimers()
+      this.attempt = 0
       this.setStatus('online')
       log('ws open; flushing', this.outbox.length)
       const pending = this.outbox
@@ -83,6 +96,7 @@ export class BackendSocket {
       log('ws closed', ev.code)
       this.handlers.onClose?.(ev.code)
       this.ws = null
+      this.clearTimers()
       this.scheduleRetry()
     }
     ws.onerror = () => log('ws error')
@@ -92,15 +106,9 @@ export class BackendSocket {
     return this.url
   }
 
-  /** Role switch: the backend routes by the role/staff on the socket, so dial the new URL now. */
-  redial(url: string): void {
-    this.url = url
-    this.reconnectNow()
-  }
-
-  /** Drop the current socket and dial again now (e.g. on the foreground event). */
+  /** Drop the current socket and dial again now: on a role switch and on the foreground event. */
   reconnectNow(): void {
-    this.backoff = BACKOFF_MIN_MS
+    this.attempt = 0
     this.connect()
   }
 
@@ -124,8 +132,7 @@ export class BackendSocket {
   private scheduleRetry(): void {
     this.setStatus('offline')
     if (this.retryTimer) return
-    const delay = this.backoff
-    this.backoff = Math.min(this.backoff * 2, BACKOFF_MAX_MS)
+    const delay = retryDelay(this.attempt++, this.random)
     log('ws retry in ms', delay)
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null

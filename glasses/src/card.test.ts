@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { getTextWidth } from '@evenrealities/pretext'
-import { CARD_MAX_LINES, CARD_TEXT_WIDTH, fitBytes, formatCard, formatQueue, queueRow, taskLine, ORDER_HINT, QUEUE_FOOTER } from './card'
+import { CARD_MAX_LINES, CARD_TEXT_WIDTH, TAB_TEXT_WIDTH, fitBytes, formatCard, formatQueue, queueRow, taskLine, ORDER_HINT, QUEUE_FOOTER } from './card'
 import { makeTask } from './fixtures.test-helpers'
 
 const lines = (text: string) => text.split('\n')
@@ -105,14 +105,14 @@ describe('queueRow', () => {
 })
 
 describe('formatQueue', () => {
-  it('says the queue is empty, with only the back footer', () => {
+  it('says the queue is empty, with only the fwd: controls footer', () => {
     const l = lines(formatQueue([]))
     expect(l[0]).toBe('Queue empty')
     expect(l).toHaveLength(CARD_MAX_LINES)
     expect(l.at(-1)?.trim()).toBe(QUEUE_FOOTER)
   })
 
-  it('lists table and kind per task, the current one marked, then the back footer', () => {
+  it('lists table and kind per task, the current one marked, then the fwd: controls footer', () => {
     const q = [
       makeTask({ id: 'a', allergies: [{ allergen: 'shellfish', seats: [3] }] }),
       makeTask({ id: 'b', kind: 'CLEAR', table: 'T7', items: [] }),
@@ -121,7 +121,7 @@ describe('formatQueue', () => {
     expect(l.slice(0, 2)).toEqual(['> T12 · RUN · ! SHELLFISH', '  T7 · CLEAR'])
     expect(l.slice(2, -1).every(x => x === '')).toBe(true)
     expect(l.at(-1)?.trim()).toBe(QUEUE_FOOTER)
-    expect(l.join('\n')).not.toMatch(/controls|verity|queued/)
+    expect(l.slice(0, -1).join('\n')).not.toMatch(/controls|verity|queued|tap:/)
   })
 
   it('caps the screen and counts the rest', () => {
@@ -130,7 +130,7 @@ describe('formatQueue', () => {
     expect(l).toHaveLength(CARD_MAX_LINES)
     expect(l[CARD_MAX_LINES - 2]).toBe(`  +${9 - (CARD_MAX_LINES - 2)} more`)
     expect(l[CARD_MAX_LINES - 1].trim()).toBe(QUEUE_FOOTER)
-    for (const line of l) expect(getTextWidth(line)).toBeLessThanOrEqual(CARD_TEXT_WIDTH)
+    for (const line of l) expect(getTextWidth(line)).toBeLessThanOrEqual(TAB_TEXT_WIDTH)
   })
 })
 
