@@ -131,6 +131,23 @@ class Hub:
     async def after_cancel(self, order: Any) -> None:
         await self.to_organizers({"type": "order.cancelled", "order": order.to_dict()})
 
+    async def reroute_overdue(self) -> None:
+        """Accepted tasks held past `done_sec`: alert the manager and let the router move them."""
+        book = self.store.book
+        for task in book.overdue(self.store.now()):
+            to = await router.pick(
+                self.store,
+                self.http,
+                task.kind,
+                task.table,
+                task.notes,
+                exclude=frozenset({task.assignee}),
+            )
+            out = book.reroute(task.id, self.store.now(), to)
+            if out:
+                await self.deliver(out)
+                await self.replan()
+
     async def replan(self, *, push: bool = False) -> bool:
         """Hand out any run a free server can take now; push pass.state if something moved."""
         out = self.store.dispatch()

@@ -163,6 +163,7 @@ Operations (used by the organizer page, the walkthrough script and the simulator
 |---|---|
 | `GET /health` | `{ok, tasksOpen, clients}` (no token) |
 | `GET /state` | tables, orders, tasks, open alerts |
+| `GET /stats` | how long each server takes: `{doneSec, servers: [{id, name, done, avgSec, avgSecByKind: {CHECK: 60}, open: [{taskId, kind, table, state, heldSec}]}]}`; `avgSec` is accept to done over this service's finished tasks (`null` before the first), `heldSec` counts from accept (or from assignment if not accepted yet) |
 | `GET /events?since=<n>` | append-only event log (`seq`, `at`, `type`, `data`) |
 | `GET /menu`, `GET /floor` | the loaded `data/menu.json`, `data/floor.json` |
 | `POST /tasks` | create a task: `{kind, table, items?, allergies?, notes?, assignee?}`; without `assignee` Gemini picks the server (`app/router.py`), falling back to the table's section server |
@@ -220,6 +221,10 @@ Backend state -> what the glasses see (`Task.state` in `contract.ts`):
   drop the card. The new assignee gets `task.assigned` with the same `id`.
 - Every transition is appended to the event log with `taskId`, `from`, `to`, `assignee`, `reason`.
 - Timeout is `FS_ESCALATION_SEC` (default 30); the walkthrough script lowers it.
+- **Done timer: an accepted task not done after `FS_DONE_SEC` (default 300) raises a `warn` alert**
+  to the manager (`id: "slow-<taskId>"`, text like `T4 check: Ava 5:00, moved to Ben`) and the router
+  moves it to someone else (`escalated`, same frames as a bounce; the new holder's timers start over).
+  A `RUN` is only flagged, never moved: its plates are in the server's hands. Done clears the alert.
 
 ## 7. Data files
 

@@ -71,6 +71,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
             await asyncio.sleep(min(TICK_SEC, settings.escalation_sec / 4))
             try:
                 await hub.deliver(store.book.tick(store.now()))
+                await hub.reroute_overdue()
                 await hub.replan()
             except Exception:  # noqa: BLE001 - the ticker must survive any one bad task
                 log.exception("[fs] tick failed")
@@ -184,6 +185,11 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
             raise HTTPException(404, str(e)) from None
         await hub.deliver(out)
         return task.to_dict()
+
+    @app.get("/stats", dependencies=auth)
+    def stats() -> dict[str, Any]:
+        """How long each server takes: for the manager dashboard (and the router's context)."""
+        return {"doneSec": settings.done_sec, "servers": store.book.stats(store.now())}
 
     @app.get("/tasks", dependencies=auth)
     def list_tasks() -> list[dict[str, Any]]:

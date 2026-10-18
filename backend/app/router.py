@@ -26,24 +26,24 @@ INSTRUCTIONS = (
     "You route tasks to servers in a restaurant. Pick the one server who should do this task. "
     "Prefer a server who covers the table's section. Avoid servers carrying food (an open RUN) "
     "or with more open tasks than the others. Keep tasks with allergies or notes with the "
-    "section's server unless they are swamped. Answer with the server id only."
+    "section's server unless they are swamped. Prefer servers who usually finish this kind of "
+    "task faster (avgSecByKind). Answer with the server id only."
 )
 
 
 def context(store: Store, kind: str, table: str, notes: list[str]) -> dict[str, Any]:
     """What Gemini sees: the task, its table and every server's current load."""
     section = store.floor.table(table).section
+    covers = store.floor.servers_for_section(section)
     servers = [
         {
-            "id": s.id,
-            "name": s.name,
-            "coversTable": s.id in store.floor.servers_for_section(section),
-            "openTasks": [
-                {"kind": t.kind, "table": t.table, "state": t.state}
-                for t in store.book.open_for(s.id)
-            ],
+            "id": s["id"],
+            "name": s["name"],
+            "coversTable": s["id"] in covers,
+            "openTasks": s["open"],  # with heldSec: how long they've had each one
+            "avgSecByKind": s["avgSecByKind"],  # accept to done, finished tasks this service
         }
-        for s in store.floor.servers.values()
+        for s in store.book.stats(store.now())
     ]
     return {
         "task": {"kind": kind, "table": table, "section": section, "notes": notes},

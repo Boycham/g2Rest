@@ -14,12 +14,14 @@ FS_TOKEN= .venv/bin/uvicorn app.main:app --port 8787                            
 Environment: `FS_TOKEN` (shared HTTP + WebSocket token; empty = no auth, for local dev only),
 `FS_ESCALATION_SEC` (default 30), `FS_PORT`, `FS_DATA_DIR` (default `../data`),
 `GEMINI_API_KEY` (empty = the router uses the rules only), `FS_GEMINI_MODEL` (default
-`gemini-3.1-flash-lite`), `FS_ROUTER_TIMEOUT_SEC` (default 1.5).
+`gemini-3.1-flash-lite`), `FS_ROUTER_TIMEOUT_SEC` (default 1.5), `FS_DONE_SEC` (default 300: an
+accepted task held this long alerts the manager and is rerouted, RUN tasks alert only).
 
 ## Task router (`app/router.py`)
 
 `POST /tasks` without `assignee` asks Gemini who should take the task: one call with the task, its
-table's section and every server's open tasks, answer constrained to the server ids. Any error, a
+table's section and every server's open tasks (with `heldSec`) and average accept-to-done time per
+task kind (`GET /stats`), answer constrained to the server ids. Any error, a
 timeout or no key falls back to the rule pick (the section's server). Each pick lands in the event
 log as `router.pick {assignee, rule, how: gemini|rules, ms}`; `ms` is the number to watch on stage.
 Escalation, bounces and RUN tasks from the pass stay on the rules.

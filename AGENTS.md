@@ -21,6 +21,9 @@ Floor Sense puts the floor of a high-end restaurant on Even Realities G2 smart g
 - **Task routing.** Gemini (Flash-Lite, about a second) picks which server gets each new task from the table's
   section and everyone's open tasks. The fixed rules take over if Gemini is slow, down or unset, and they still
   run escalation (next server after 30 s unaccepted, then the manager) and the run planner below.
+- **Task timing.** The backend times every task from accept to done per server (`GET /stats`, for the
+  manager dashboard and Gemini's context). A task accepted but not done after 5 minutes alerts the manager
+  and is rerouted to someone else; a RUN is only flagged, since the server is holding the plates.
 - **Run priority.** Food is scored: appetizers first, hot beats cold, hot plates rise fastest while they wait,
   hot plates for nearby tables are paired into one trip (max 3 per server), cold never holds up hot, and a
   table's whole course goes out together.
