@@ -23,6 +23,8 @@ export interface CardOptions {
   maxLines?: number
   /** A transient line under the allergies, e.g. `Heard: accept`. */
   banner?: string
+  /** Always-on corner hint (bottom right), e.g. `↑ controls`. */
+  hint?: string
 }
 
 export function seatsLabel(seats: readonly number[]): string {
@@ -67,7 +69,11 @@ export function formatCard(queue: readonly Task[], opts: CardOptions): CardView 
   const width = opts.width ?? CARD_TEXT_WIDTH
   const maxLines = opts.maxLines ?? CARD_MAX_LINES
   const head = queue[0]
-  if (!head) return { text: opts.banner ? fit(opts.banner, width) : opts.offline ? 'OFFLINE' : '', brightness: 4 }
+  if (!head) {
+    const top = opts.banner ? fit(opts.banner, width) : opts.offline ? 'OFFLINE' : ''
+    if (!opts.hint) return { text: top, brightness: 4 }
+    return { text: atBottom([top], spread('', opts.hint, width), maxLines), brightness: 2 }
+  }
 
   const lines: string[] = []
   const allergies = allergyLine(head.allergies)
@@ -79,14 +85,22 @@ export function formatCard(queue: readonly Task[], opts: CardOptions): CardView 
     .filter(Boolean)
     .join(' · ')
   const queued = queue.length > 1 ? `+${queue.length - 1} queued` : ''
-  const footer = status || queued ? spread(status, queued, width) : ''
+  const right = [queued, opts.hint ?? ''].filter(Boolean).join(' · ')
+  const footer = status || right ? spread(status, right, width) : ''
 
   const notes = head.kind === 'ORDER' && head.state === 'accepted' ? [...head.notes, ORDER_HINT] : head.notes
   const noteRoom = maxLines - lines.length - (footer ? 1 : 0)
   for (const note of notes.slice(0, Math.max(0, noteRoom))) lines.push(fit(note, width))
+  const brightness = head.state === 'assigned' ? 4 : 2
+  if (opts.hint) return { text: atBottom(lines, footer, maxLines), brightness }
   if (footer) lines.push(footer)
+  return { text: lines.join('\n'), brightness }
+}
 
-  return { text: lines.join('\n'), brightness: head.state === 'assigned' ? 4 : 2 }
+/** `footer` on the last line, so the corner hint sits bottom right under the card text. */
+function atBottom(lines: readonly string[], footer: string, maxLines: number): string {
+  const pad = Math.max(0, maxLines - 1 - lines.length)
+  return [...lines, ...Array<string>(pad).fill(''), footer].join('\n')
 }
 
 /** List items are capped by bytes (63 in the simulator), not pixels. */
