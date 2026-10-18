@@ -150,3 +150,34 @@ def test_vip_seated_comes_off_the_list_after_vip_alert_sec() -> None:
 def test_non_vip_seating_raises_nothing() -> None:
     store, _ = make()
     assert store.set_table_status("T6", "seated") == []
+
+
+# ---------- 86 ----------
+
+
+def test_86_guards_add_item_with_a_question_line_and_un86_lifts_it() -> None:
+    store, _ = make()
+    halibut = store.menu.find("halibut")
+    assert halibut is not None
+    alert = store.set_86(halibut, out=True)
+    assert alert == {
+        "type": "alert",
+        "id": "86-halibut",
+        "level": "warn",
+        "text": "86 halibut",
+        "table": "",
+        "sinceSec": 0,
+        "kind": "86",
+    }
+    assert store.set_86(halibut, out=True) is None  # already out
+    result, order = store.orders.dispatch("add_item", {"table": "T1", "seat": 2, "dish": "halibut"})
+    assert "86'd" in result["error"] and result["eightySixed"] == "Pan-Roasted Halibut"
+    assert order is not None and order.lines == []
+    assert order.draft_wire()["uncertain"] == ["? s2 halibut 86'd"]
+    assert store.snapshot()["eightySix"] == ["Pan-Roasted Halibut"]
+
+    cleared = store.set_86(halibut, out=False)
+    assert cleared is not None and cleared["cleared"] is True and cleared["id"] == "86-halibut"
+    assert "86-halibut" not in store.book.alerts
+    result, _ = store.orders.dispatch("add_item", {"table": "T1", "seat": 2, "dish": "halibut"})
+    assert result["status"] == "ok"

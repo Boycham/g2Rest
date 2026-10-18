@@ -90,9 +90,19 @@ class VoiceBridge:
         link = self.links.get(ws)
         if link is None:
             link = self.links[ws] = Link(send, staff)
+            await self._forward(link, json.dumps(self._menu_86(self.store.eighty_six)))
         if message.get("type") == "capture.start" and message.get("mode") != "command":
             link.capture_id = str(message.get("captureId", ""))
         await self._forward(link, json.dumps(message))
+
+    @staticmethod
+    def _menu_86(dishes: list[str]) -> dict[str, Any]:
+        return {"type": "menu.86", "dishes": dishes}
+
+    async def menu_86(self, dishes: list[str]) -> None:
+        """Tell every relay session what is 86'd; its set_order turns those into `?` lines."""
+        for link in list(self.links.values()):
+            await self._forward(link, json.dumps(self._menu_86(dishes)))
 
     async def audio(self, ws: Any, data: bytes) -> None:
         link = self.links.get(ws)

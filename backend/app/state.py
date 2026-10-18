@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.config import Settings
-from app.data import COURSES, TABLE_STATUSES, DataError, Floor, Menu
+from app.data import COURSES, TABLE_STATUSES, DataError, Dish, Floor, Menu
 from app.events import EventLog
 from app.orders import Order, OrderBook
 from app.runs import Pass, Plate, Run
@@ -234,6 +234,29 @@ class Store:
             out += outbound
         return out
 
+    # ---------- 86 ----------
+
+    @property
+    def eighty_six(self) -> list[str]:
+        return sorted(self.orders.out)
+
+    def set_86(self, dish: Dish, out: bool) -> dict[str, Any] | None:
+        """86 a dish (or bring it back). Returns the alert for every server and the manager,
+        or None if nothing changed. Open 86 alerts replay to anyone who connects (hub)."""
+        alert_id = f"86-{dish.short.replace(' ', '-')}"
+        if out == (dish.name in self.orders.out):
+            return None
+        if out:
+            self.orders.out.add(dish.name)
+            alert = Alert(alert_id, "warn", f"86 {dish.short}", "", kind="86")
+            self.book.alerts[alert_id] = alert
+            self.events.append("menu.86", dish=dish.name, alertId=alert_id)
+            return alert.wire()
+        self.orders.out.discard(dish.name)
+        cleared = self.book.alerts.pop(alert_id).clear()
+        self.events.append("menu.un86", dish=dish.name, alertId=alert_id)
+        return cleared.wire()
+
     # ---------- course waits ----------
 
     def _eaten_at(self, table: str) -> float | None:
@@ -347,6 +370,7 @@ class Store:
             "tasks": [t.to_dict() for t in self.book.tasks.values()],
             "orders": [o.to_dict() for o in self.orders.orders.values()],
             "alerts": [a.wire() for a in self.book.alerts.values()],
+            "eightySix": self.eighty_six,
             "captures": [c.__dict__ for c in self.captures.values()],
             "pass": self.pass_.state(self.now()),
             "events": len(self.events),
