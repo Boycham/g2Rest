@@ -165,7 +165,7 @@ class Hub:
             await self.handle(conn, msg)
         except (TaskError, ToolError) as e:
             log.warning("[fs] %s from %s rejected: %s", msg.type, conn.staff, e)
-            self.store.events.append("ws.rejected", staff=conn.staff, type=msg.type, error=str(e))
+            self.store.events.append("ws.rejected", staff=conn.staff, frame=msg.type, error=str(e))
 
     async def handle(self, conn: Conn, msg: Any) -> None:
         now = self.store.now()
