@@ -1,8 +1,8 @@
 # Floor Sense ("Verity")
 
 Floor Sense puts a restaurant floor on [Even Realities G2](https://www.evenrealities.com/) glasses. Servers see
-one task at a time ("RUN · T12 · 2× halibut s1+3") and confirm it with a tap, a voice command ("verity done")
-or a head nod; the screen stays blank when nothing needs them. A swipe back turns the last 2 minutes of table
+one task at a time ("RUN · T12 · 2× halibut s1+3") and confirm it with a tap or a voice command ("verity done");
+the screen stays blank when nothing needs them. A swipe back turns the last 2 minutes of table
 talk into an order by seat, with a summary and menu-checked answers to diners' questions. Managers see only
 exceptions plus a floor minimap, and a web dashboard runs the floor.
 
@@ -14,8 +14,8 @@ Everything else (code, fictional menu and floor data, designs) was built during 
 Devin (Cognition) and Claude Code (Anthropic). Who and what wrote each part is in [AI_USAGE.md](AI_USAGE.md).
 
 - **Glasses HUD** (`glasses/`): three tabs (Controls, Queue, Task), tap / swipe / long press / double tap
-  gestures, "verity" voice commands, the 2-minute order clip, ramp mode for new servers, nod to accept
-  (HW-PENDING), and a manager view with exceptions and a minimap.
+  gestures, "verity" voice commands, the 2-minute order clip, ramp mode for new servers, and a manager
+  view with exceptions and a minimap.
 - **Backend hub** (`backend/`): FastAPI + WebSocket hub, task state machine with escalation, run priority for
   plates at the pass, and a Gemini Flash-Lite router that picks the server (rules as fallback).
 - **Voice relay** (`backend/voice/`): ElevenLabs Scribe (realtime for commands, batch for clips) and ElevenLabs
@@ -73,7 +73,6 @@ local run; empty values turn the feature off.
 | `FS_FLOOR` | `demo` = `data/floor.demo.json` (Ava + 3 mock servers, see step 6); empty = `data/floor.json` |
 | `VITE_FS_TOKEN` | The same token, baked into the glasses bundle |
 | `VITE_FS_STAFF` | Which server id the glasses sign in as (default `s1`) |
-| `VITE_FS_NOD` | Nod-to-accept tuning, or `off` (HW-PENDING) |
 | `GEMINI_API_KEY` | Gemini key for the task router and for unknown "verity ..." words; empty = rules only |
 | `DATABASE_URL` | Tiger Data (TimescaleDB) Postgres URL for the event log; empty = in-memory only |
 | `SENTRY_DSN_BACKEND` | Sentry DSN for the backend |
@@ -174,7 +173,6 @@ Task (home).
 | Long hold | handoff: `Confirm handoff?`, then tap | back to the Task tab | back to the Task tab | `verity handoff [name]` / `verity back` |
 | Double tap | exit (`shutDownPageContainer(1)`, Even Hub review rule) | exit | exit | none |
 | Voice only | decline (`task.bounce`), revert (`task.revert`), cancel a popup, bind the unsent draft to table N | | | `verity decline` / `revert` / `nevermind` / `table N` |
-| Nod (IMU, HW-PENDING) | accept the waiting task (`task.accept`), only while one waits | same | same | `verity revert` undoes it |
 | Voice only (ramp) | the ramp view of the card's dishes (tap = next, hold = back); ramp hints on RUN cards | | | `verity ramp` / `ramp on` / `ramp off` |
 
 Manager: tap dismisses the top exception, swipe back opens the floor minimap, swipe fwd returns to exceptions,

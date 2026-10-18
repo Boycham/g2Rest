@@ -7,6 +7,4 @@ interface ImportMetaEnv {
   readonly VITE_FS_TOKEN?: string
   /** floor.json staff id for the server role (default s1). */
   readonly VITE_FS_STAFF?: string
-  /** Nod-to-accept tuning, `off` or `axis=y,sign=1,threshold=0.25,...` (src/nod.ts). */
-  readonly VITE_FS_NOD?: string
 }

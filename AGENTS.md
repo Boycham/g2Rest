@@ -38,6 +38,8 @@ Floor Sense puts the floor of a high-end restaurant on Even Realities G2 smart g
   table's whole course goes out together.
 - **Dinner-rush simulator.** Replays a two-hour service in about 3 minutes to drive the demo, once
   first-come-first-served and once with priority scoring, so we can show the hot-food wait times side by side.
+- **Out of scope:** head gestures (IMU nod) and add-on hardware (ESP32 haptic puck, knock sensor, kitchen
+  button, load cell, beacons; Raspberry Pi). The G2 glasses and a phone are the only devices.
 
 The full plan is the Claude Doc "Floor Sense — Build Plan". Your prompts come from it; if a prompt and this file
 disagree, the prompt wins for that task, and say so in your PR.

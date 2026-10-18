@@ -37,7 +37,7 @@
 - **Only one container per page captures input.** Design each page around that.
 - **Root-page double tap must call `shutDownPageContainer(1)`.** `0` or a custom exit screen gets the app
   auto-rejected.
-- IMU gives raw x/y/z only. A head-nod confirm would need our own detection, active only while a task waits.
+- IMU gives raw x/y/z only. Head gestures (nod) are out of scope for Floor Sense: accept is a tap or "verity accept".
 - Floor Sense mapping (`glasses/src/controls.ts`): three stacked tabs, top to bottom Controls, Queue, Card (home).
   Swipe fwd = one tab up, swipe back = one tab down; on the Card tap = accept, tap again = done, swipe back = clip
   the last 2 minutes as an order, long press = handoff popup; long press elsewhere = back to the Card; double tap = exit.

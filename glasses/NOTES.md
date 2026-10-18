@@ -375,7 +375,6 @@ one line); `GESTURE_EVENTS` in `src/main.ts` maps OS events to gestures.
 | Long hold | handoff: `Confirm handoff?`, then tap | back to the Task tab | back to the Task tab | `verity handoff [name]` / `verity back` |
 | Double tap | exit (`shutDownPageContainer(1)`, Even Hub review rule) | exit | exit | none |
 | Voice only | decline (`task.bounce`), revert (`task.revert`), cancel a popup, bind the unsent draft to table N | | | `verity decline` / `revert` / `nevermind` / `table N` |
-| Nod (IMU, HW-PENDING) | accept the waiting task (`task.accept`), only while one waits | same | same | `verity revert` undoes it |
 | Voice only (ramp) | the ramp view of the card's dishes (tap = next, hold = back); ramp hints on RUN cards | | | `verity ramp` / `ramp on` / `ramp off` |
 
 Controls is a read-only reference (swipes switch tabs, so there's nothing to move a selection with): every
@@ -516,33 +515,12 @@ with `--automation-port 9898`, role switched on the phone page.
   (upgrade 2 ms) → hold → `rebuild card` (1 ms) → "verity ramp on" → `ramp hints s1 on`, hint line on the card.
 - HW-PENDING: legibility of the 4 ramp lines on the lens; whether the new servers want the pairing on the hint.
 
-## Head nod to accept: IMU finding and detector (HW-PENDING)
+## Head nod: out of scope
 
-- **The SDK has an IMU.** `@evenrealities/even_hub_sdk` 0.0.16 `index.d.ts`: `bridge.imuControl(isOpen: boolean,
-  reportFrq?: ImuReportPace): Promise<boolean>` (`ImuReportPace` P100..P1000, "protocol pacing codes"),
-  `OsEventTypeList.IMU_DATA_REPORT = 8`, and `Sys_ItemEvent.imuData?: IMU_Report_Data { x?, y?, z? }` ("`double` on
-  wire"). README "IMU" section: `imuControl(true, ImuReportPace.P500)` then read `event.sysEvent.imuData` when
-  `eventType === IMU_DATA_REPORT`. Changelog: "Added IMU control and IMU data events".
-- **What it doesn't say:** no units, axis frame, sensor type (accelerometer, gyro or fused angles) or what the
-  pace codes mean in Hz/ms. The simulator can't help: its README says "`imuData` will always be null/None", and
-  0.9.5 rejects the call (`imu control failed unknown variant imuControl, expected one of getUserInfo, ...`).
-- **Detector (`src/nod.ts`):** one configurable axis against a slow EMA baseline (1.5 s): down past `threshold`,
-  then back up to `upLevel × threshold` (−0.5: back within half the dip, for an angle/gravity signal; +1: an
-  opposite swing, for an angular-rate signal) within `minMs`–`maxMs` (150–900 ms), then 1.5 s refractory. Held
-  down longer than `maxMs` (reading a plate) re-baselines and never fires; warm-up of 5 samples. All tunable at
-  build time with `VITE_FS_NOD` (`off`, or `axis=y,sign=1,threshold=0.25,...`). Defaults are guesses: HW-PENDING.
-- **Gating:** the IMU is on only while the head task is `assigned`, the server role is on, and neither the draft
-  nor the handoff popup is open (`nodWanted`); it turns off on accept, role switch and exit. A nod sends the same
-  `task.accept` as a tap (`taskTap`) and flashes `Heard: nod`; "verity revert" undoes it (`task.revert`).
-- **Tests:** `nod.test.ts`, 12 tests on synthetic 20 Hz samples (deliberate nod fires once; small bob, jitter,
-  slow drift, head held down, a 100 ms bump and an IMU turned on mid-nod don't; refractory; other axis/sign;
-  rate mode needs the opposite lobe; junk samples skipped). No recorded G2 samples exist yet.
-- **Simulator run:** `?debugImu=nod` feeds one synthetic nod through `onImu` 2.5 s after the IMU first turns on
-  (`imuControl` itself fails in the simulator, logged): `nod -> task.accept`, card `Heard: nod` / `ACCEPTED`, then
-  "verity revert" → `task.updated assigned`, `Heard: revert`.
-- HW-PENDING (tuning, needs a person with a G2): log `imu sample` lines (every 100th sample) while nodding and
-  while walking with plates; pick the axis, sign and threshold; check what `ImuReportPace.P100` means; check the
-  battery cost of the IMU while tasks wait; check that a nod is not triggered by looking down at the pass.
+Head gestures were scrapped by the owner ("we are scrapping head gestures and hardware"): the nod detector,
+IMU wiring and `VITE_FS_NOD` are removed. Tap and "verity accept" are the ways to accept a task. The SDK does
+have an IMU (`imuControl`, `IMU_DATA_REPORT`), but the simulator 0.9.5 rejects `imuControl` and its `imuData`
+is always null.
 
 ## Spoken requests (`request.ts`)
 
@@ -551,7 +529,7 @@ draft hint while the draft is open: `Request: CHECK T2? tap`, `Request: RUN T4 b
 tap`. A tap sends `task.request` (task only) or `table.status` (status; `check` also makes the CHECK)
 and flashes `Sent: CHECK T2`; "verity nevermind" drops it (`Request dropped`). A refused one
 (`reason`) flashes `Request: no table 12`. The pending request takes the tap before a handoff popup or
-the draft. Controls lists the request commands and every status (now 6 pages).
+the draft. Controls lists the request commands and every status (now 5 pages).
 
 ## Idle blank (server HUD)
 
@@ -570,7 +548,7 @@ back after a tap or when a task is assigned or something enters the queue".
   queue; an 86 alert; `voice.unknown` (a processing result); an `order.draft` while blank -> the draft; `verity
   menu` / `queue` / `ramp`. Other voice commands while blank stay blank (their flash isn't shown).
 - While blank: mic buffer and command stream keep running, swipe back clips (opens the draft), double tap still
-  calls `shutDownPageContainer(1)`, IMU stays off (no task waiting), socket untouched. An offline socket doesn't
+  calls `shutDownPageContainer(1)`, socket untouched. An offline socket doesn't
   wake it (nothing to do anyway); the next wake shows `OFFLINE`.
 - Simulator run (fake backend): 3 scripted tasks tapped through -> `Done` -> blank 1.5 s later (0 lit pixels);
   tap -> `No tasks` -> blank after 8 s; `POST /add` -> task card at once; done -> blank. Swipe back on blank opened
