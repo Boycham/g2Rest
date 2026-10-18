@@ -136,12 +136,12 @@ before any work in `glasses/` or `backend/voice/`. The short version:
   in a full-width card. Measure text with `@evenrealities/pretext` instead of guessing.
 - **Input:** tap, double tap, long press and two swipes. SDK 0.0.16 has `LONG_PRESS_EVENT = 9` (release
   = 10); the simulator 0.9.5 sends it, a real-G2 long press is HW-PENDING. On the G2 touchpad the swipes run
-  **forward** (toward the eyes, SDK `up` / scroll top) and **back** (toward the ear, SDK `down` / scroll
-  bottom), checked on a real G2 at 0.1.5; say forward/back, not up/down, in anything the wearer reads. Swipes
-  arrive as scroll events on the event-capture container, with no source, so ring and temple can't be told
+  **forward** (toward the eyes, SDK `up`, `SCROLL_TOP_EVENT`) and **back** (toward the ear, SDK `down`,
+  `SCROLL_BOTTOM_EVENT`), checked on a real G2 at 0.1.5; say "swipe fwd" / "swipe back", never up/down or scroll, in anything people read. Swipes
+  arrive as those two events on the event-capture container, with no source, so ring and temple can't be told
   apart. Only one container per page captures input.
 - **Our gestures** (one table in `glasses/src/controls.ts`): tap = accept, then tap again = done; tap also
-  confirms a popup or sends a draft. Swipe back = clip the last minute as an order. Swipe forward = Controls
+  confirms a popup or sends a draft. Swipe back = clip the last minute as an order. Swipe fwd = Controls
   menu (every gesture with its voice command, plus the queue). Long press = hand the task off (`Confirm
   handoff?`, then a tap). Double tap = exit. Every gesture also has a voice command: "verity" + a fixed word
   (`backend/voice/commands.py`); other words after "verity" go to Gemini, which may only pick one of those.

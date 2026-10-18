@@ -4,7 +4,7 @@
 
 - Run `evenhub-simulator` with its **automation port** so you can work without a person:
   - `GET /api/screenshot/glasses`: screenshot of what the glasses show
-  - `POST /api/input`: send tap, double tap, long press, swipe up, swipe down (simulator names; up = a forward swipe on the G2)
+  - `POST /api/input`: send tap, double tap, long press, swipe fwd, swipe back (the automation API calls the swipes `up` / `down`)
   - `GET /api/console`: read the app's console
   No `evenhub login` is needed. Check the simulator's `--help` for the current flags.
 - It uses the laptop mic (`--list-audio-input-devices`, pick one with `--aid`). In a cloud VM there may be no mic
@@ -44,7 +44,7 @@ Write each answer in `NOTES.md` when someone reports it. Ask for these in your P
 2. A task card appears within about 1 s of the backend sending it, fits at the real font, and wraps correctly.
 3. Is `rebuildPageContainer` flicker acceptable when switching screens?
 4. Tap arrives as a click: accept, then done.
-5. Swipe back arrives as scroll bottom and clips the last minute; swipe forward (scroll top) opens Controls; long press opens the handoff popup.
+5. Swipe back arrives as `SCROLL_BOTTOM_EVENT` and clips the last minute; swipe fwd (`SCROLL_TOP_EVENT`) opens Controls; long press opens the handoff popup.
 6. Double tap shows the real system exit dialog.
 7. Lock the phone for 5 minutes: does the socket reconnect, and does the queue come back?
 8. Speak an order in a noisy room: how much of it does speech-to-text get?

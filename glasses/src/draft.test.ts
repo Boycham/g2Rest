@@ -76,7 +76,7 @@ describe('formatDraft', () => {
 describe('draftGesture', () => {
   const pending = (action: 'remove' | 'cancel' | 'confirm') => state({ draft: draft({ pending: [{ id: 'p7', action, text: 'x' }] }) })
 
-  it('swipe down sends the last minute again', () => {
+  it('swipe back sends the last minute again', () => {
     expect(draftGesture('down', state())).toEqual({ send: null, then: 'clip' })
   })
 
@@ -103,7 +103,7 @@ describe('draftGesture', () => {
     expect(draftGesture('tap', state({ draft: null })).send).toBeNull()
   })
 
-  it('swipe up rejects the pending proposal, else goes back keeping the draft', () => {
+  it('swipe fwd rejects the pending proposal, else goes back keeping the draft', () => {
     expect(draftGesture('up', pending('remove'))).toEqual({
       send: { type: 'order.reject', orderId: 'o1', proposalId: 'p7' },
       then: 'none',

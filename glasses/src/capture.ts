@@ -31,7 +31,7 @@ const CLIP_TIMEOUT_MS = 30_000
 
 declare global {
   interface Window {
-    /** Dev measurement: swipe down -> draft from that clip shown on the glasses, ms. */
+    /** Dev measurement: swipe back -> draft from that clip shown on the glasses, ms. */
     __fsLatency?: number[]
   }
 }
@@ -223,7 +223,7 @@ export class CaptureScreen {
         if (this.clipAt !== null && !this.processing && this.draft?.captureId === this.clipId) {
           const ms = Math.round(t1 - this.clipAt)
           ;(window.__fsLatency ??= []).push(ms)
-          log('latency swipe down -> draft on glasses', `${ms} ms`)
+          log('latency swipe back -> draft on glasses', `${ms} ms`)
           this.clipAt = null
         }
       } while (this.dirty && this.active)
