@@ -16,6 +16,8 @@ html.lenis body {
 .story {
   position: relative;
   height: 1000vh;
+  /* Only a scroll spacer: it paints above the fixed .viewport, so let clicks reach the scenes. */
+  pointer-events: none;
 }
 
 .viewport {
