@@ -359,3 +359,21 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
     `toggle?: "on" | "off"` ("verity ramp on/off") turns the per-staff RUN-card dish hint on or off. Both
     mirrors: `app/contract.py` `VoiceCommand`, `glasses/src/contract.ts`. `data/menu.json` dishes gain
     `components: string[]` and `pairing: string` (§7); the glasses bundle the menu, nothing new on the wire.
+16. **Spoken floor requests and table statuses (glasses lane, `devin/spoken-requests`): additive.**
+    No new task kind: every request fits `CHECK`, `RUN` (bring something; the note says what),
+    `CLEAR` or `ORDER`. Table statuses are the existing six (`empty`, `seated` (+`vip`), `ordered`,
+    `waiting`, `eating`, `check`).
+    - relay -> glasses `voice.request {table: "T2", kind?, status?, vip?, note?, source: "clip" |
+      "voice", reason?}`: heard in a clip ("table 2 wants the check") or after "verity" ("verity
+      table five is free"; pattern first, Gemini `request` intent for loose wording). Nothing is
+      created yet: the card shows `Request: CHECK T2? tap` / `T5 → free? tap`. `reason` ("no table
+      12", checked against `data/floor.json`) means there is nothing to confirm.
+    - glasses -> backend, after the tap: `task.request {table, kind, note?}` (no status) is routed
+      like `POST /tasks` without an assignee (Gemini or the rules router picks); `table.status
+      {table, status, vip?, note?}` sets the status like `POST /tables/{id}/status`, logs
+      `table.status` with `by: <staff>` in the event log, and `check` also requests a `CHECK` task.
+      An open task of the same kind at that table is kept, not duplicated (event `task.request`
+      with `duplicate: true`). Both broadcast `floor.state` to manager and organizer sockets.
+    - An unknown table comes back as `task.rejected {taskId: null, action: "request" | "status",
+      reason}` to the sending socket. Mirrors: `app/contract.py` (`VoiceRequest`, `TaskRequest`,
+      `TableStatusSet`), `glasses/src/contract.ts`.

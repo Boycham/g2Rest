@@ -12,6 +12,10 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from floor_requests import Request
 
 WAKE_WORDS = frozenset({"verity"})
 WAKE_BIGRAMS = frozenset[tuple[str, str]]()
@@ -43,6 +47,8 @@ INTENTS = tuple(dict.fromkeys(COMMANDS.values()))
 BIGRAMS = {("hand", "off"): "handoff", ("never", "mind"): "nevermind"}
 # Words after "verity" in the same sentence that are kept for Gemini; longer runs are talk.
 MAX_UNKNOWN_WORDS = 5
+# Words that may follow "verity table N" and still mean set-table.
+SET_TABLE_TAIL = frozenset({"please", "thanks", "thank", "you", "now"})
 # "Verity is my sister's name": a sentence about someone called Verity, not a command, so it
 # isn't sent to Gemini (realtime Scribe commits it as its own segment once the gate is on).
 ABOUT_VERITY = frozenset({"is", "was", "s", "has", "had", "said", "says", "and", "who", "will"})
@@ -80,6 +86,7 @@ class Command:
     table: int | None = None  # "verity table 4"; None if no number followed
     words: str | None = None  # the unmatched words, for "unknown"
     toggle: str | None = None  # "verity ramp on/off": "on" or "off"; None opens the ramp view
+    request: Request | None = None  # "verity table 2 wants the check" (intent "request")
 
 
 def words(text: str) -> list[str]:
@@ -224,6 +231,10 @@ def parse_commands(text: str, soundalikes: bool = True) -> list[Command]:
                 i += 1
                 continue
             j = i + step
+            if exact and (req := _request_after(ws[j:])):
+                out.append(Command("request", request=req[0]))
+                i = j + req[1]
+                continue
             if (intent := BIGRAMS.get(tuple(ws[j : j + 2]))) is not None:
                 width = 2
             else:
@@ -246,6 +257,16 @@ def parse_commands(text: str, soundalikes: bool = True) -> list[Command]:
             name = None
             if intent == "table":
                 n, used = _table_after(ws[j + 1 : j + 3])
+                k0 = j + 1 + used
+                end = min([k for k in starts if k >= k0] + [len(ws)])
+                rest = ws[k0:end]
+                nxt = next((k for k in range(len(rest)) if rest[k] in WAKE_WORDS), len(rest))
+                if n is not None and any(w not in SET_TABLE_TAIL for w in rest[:nxt]):
+                    # "verity table two wants..." cut off: never set-table on a request
+                    if exact and 1 + used + nxt <= MAX_UNKNOWN_WORDS + 2:
+                        out.append(Command("unknown", words=" ".join(ws[j : j + 1 + used + nxt])))
+                    i = j + 1 + used + nxt
+                    continue
                 out.append(Command("table", table=n))
                 i = j + 1 + used
                 continue
@@ -261,6 +282,17 @@ def parse_commands(text: str, soundalikes: bool = True) -> list[Command]:
     return out
 
 
+def _request_after(rest: list[str]) -> tuple[Request, int] | None:
+    """ "verity table 2 wants the check" / "verity T4 needs bread" / "verity table five is
+    free": a floor request or table status, before the command words (so "clear table three"
+    isn't a clip and "table 2 ..." isn't set-table). A bare "table N" stays set-table."""
+    from floor_requests import parse_request
+
+    nxt = next((k for k in range(len(rest)) if rest[k] in WAKE_WORDS), len(rest))
+    req = parse_request(rest[:nxt], voice=True)
+    return (req, nxt) if req else None
+
+
 def find_commands(text: str) -> list[str]:
     """The fixed-list intents in `text` (no unknowns), in order."""
     return [c.intent for c in parse_commands(text) if c.intent != "unknown"]
@@ -274,6 +306,8 @@ KEYTERM_COMMANDS = (
     "up", "down", "back", "confirm", "clip", "accept", "decline", "done", "handoff",
     "nevermind", "revert", "menu", "queue", "table", "ramp", "exit",
 )  # fmt: skip
+# Floor requests and table statuses (floor_requests.py); the rest are plain words Scribe gets.
+KEYTERM_REQUESTS = ("check", "bill", "bread", "water", "refill", "seated", "free", "paid")
 KEYTERM_NUMBERS = ("one", "two", "three", "four", "five", "six", "seven", "eight")
 
 
@@ -290,6 +324,6 @@ def keyterms(realtime: bool = True, data: Path = DATA) -> list[str]:
         if realtime:
             names = [n for n in names if len(n) <= REALTIME_KEYTERM_CHARS][:1]
         dishes += names
-    terms = ["Verity", *KEYTERM_COMMANDS, *staff, *KEYTERM_NUMBERS, *dishes]
+    terms = ["Verity", *KEYTERM_COMMANDS, *KEYTERM_REQUESTS, *staff, *KEYTERM_NUMBERS, *dishes]
     out = list(dict.fromkeys(t for t in terms if t))
     return out[:REALTIME_KEYTERMS] if realtime else out

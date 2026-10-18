@@ -13,15 +13,19 @@ from fastapi import WebSocket
 
 from app import router, telemetry
 from app.contract import ContractError, check_backend, parse_glasses
+from app.data import DataError
 from app.orders import ToolError
 from app.state import Store
-from app.tasks import Outbound, TaskError
+from app.tasks import Outbound, Task, TaskError, TaskKind
 from app.voice_bridge import VoiceBridge
 
 log = logging.getLogger("fs.hub")
 ROLES = ("server", "manager", "organizer")
 DEFAULT_STAFF = {"organizer": "organizer"}  # never a server: organizers only watch
 AUDIO_LOG_EVERY = 10  # one log line per second of 100 ms frames
+
+# A table status that implies work also requests that task (glasses `table.status`).
+STATUS_TASK: dict[str, TaskKind] = {"check": "CHECK"}
 
 
 @dataclass(frozen=True)
@@ -245,11 +249,11 @@ class Hub:
         except (TaskError, ToolError) as e:
             log.warning("[fs] %s from %s rejected: %s", msg.type, conn.staff, e)
             self.store.events.append("ws.rejected", staff=conn.staff, frame=msg.type, error=str(e))
-            if msg.type.startswith("task."):
+            if msg.type.startswith("task.") or msg.type == "table.status":
                 rejected = {
                     "type": "task.rejected",
                     "taskId": getattr(msg, "taskId", None),
-                    "action": msg.type.removeprefix("task."),
+                    "action": msg.type.removeprefix("task.").removeprefix("table."),
                     "reason": str(e),
                 }
                 await self._send(conn, rejected)
@@ -293,6 +297,18 @@ class Hub:
             case "task.revert":
                 await self.deliver(book.revert(now, conn.staff, msg.taskId))
                 await self.replan()
+            case "task.request":
+                await self.request_task(conn.staff, msg.kind, msg.table, msg.note)
+                await self.push_floor()
+            case "table.status":
+                table = self._table_id(msg.table)
+                vip = bool(msg.vip)
+                await self.deliver(
+                    self.store.set_table_status(table, msg.status, vip=vip, by=conn.staff)
+                )
+                if kind := STATUS_TASK.get(msg.status):
+                    await self.request_task(conn.staff, kind, table, msg.note)
+                await self.push_floor()
             case "capture.start":
                 command = msg.mode == "command"
                 cap = self.store.start_capture(
@@ -313,6 +329,30 @@ class Hub:
                 await self.close_order(conn, msg.orderId, fire=True)
             case "order.cancel_confirm":
                 await self.close_order(conn, msg.orderId, fire=False)
+
+    def _table_id(self, table: str) -> str:
+        try:
+            return self.store.floor.table(table).id
+        except DataError as e:
+            raise TaskError(str(e)) from None
+
+    async def request_task(self, by: str, kind: TaskKind, table: str, note: str | None) -> Task:
+        """A server's spoken request, confirmed on their glasses: routed like POST /tasks
+        without an assignee. An open task of that kind at that table is kept, not doubled."""
+        table = self._table_id(table)
+        book = self.store.book
+        if open_ := [t for t in book.open_tasks() if t.kind == kind and t.table == table]:
+            self.store.events.append(
+                "task.request", taskId=open_[0].id, kind=kind, table=table, by=by, duplicate=True
+            )
+            return open_[0]
+        notes = [note] if note else []
+        with telemetry.span("task.dispatch", f"dispatch {kind} {table}", kind=kind):
+            assignee = await router.pick(self.store, self.http, kind, table, notes)
+            task, out = book.create(kind, table, self.store.now(), notes=notes, assignee=assignee)
+            self.store.events.append("task.request", taskId=task.id, kind=kind, table=table, by=by)
+            await self.deliver(out)
+        return task
 
     async def to_voice(self, conn: Conn, msg: Any, table: str | None = None) -> None:
         if self.voice:

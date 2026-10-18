@@ -332,12 +332,52 @@ class TaskDoneTraced(TaskDone):
 
 
 class TaskRejected(Strict):
-    """New: a task.* frame from this socket was refused; `reason` is short enough for a card."""
+    """New: a task.* or table.status frame from this socket was refused; `reason` is short
+    enough for a card."""
 
     type: Literal["task.rejected"]
     taskId: str | None
-    action: Literal["accept", "done", "bounce", "handoff", "revert"]
+    action: Literal["accept", "done", "bounce", "handoff", "revert", "request", "status"]
     reason: str
+
+
+TableStatusValue = Literal["empty", "seated", "ordered", "waiting", "eating", "check"]
+
+
+class VoiceRequest(Strict):
+    """New: a floor request or table status heard in a clip or after "verity" ("table 2 wants
+    the check", "verity table five is free"). Nothing is created until the server taps; then
+    the glasses send task.request (kind only) or table.status (status, with its task)."""
+
+    type: Literal["voice.request"]
+    table: str
+    kind: TaskKind | None = None
+    status: TableStatusValue | None = None
+    vip: bool | None = None
+    note: str | None = None
+    source: Literal["clip", "voice"]
+    reason: str | None = None  # "no table 12": shown, nothing to confirm
+
+
+class TaskRequest(Strict):
+    """New: a server confirmed a spoken request; the backend routes it like POST /tasks
+    without an assignee. An open task of the same kind at the table is not duplicated."""
+
+    type: Literal["task.request"]
+    table: str
+    kind: TaskKind
+    note: str | None = None
+
+
+class TableStatusSet(Strict):
+    """New: a server set a table's status from the glasses (same as POST /tables/{id}/status,
+    logged with who set it). "check" also requests a CHECK task."""
+
+    type: Literal["table.status"]
+    table: str
+    status: TableStatusValue
+    vip: bool | None = None
+    note: str | None = None
 
 
 BackendMessageExt = Annotated[
@@ -351,6 +391,7 @@ BackendMessageExt = Annotated[
     | VoiceCommand
     | VoiceMapping
     | VoiceUnknown
+    | VoiceRequest
     | TaskRejected,
     Field(discriminator="type"),
 ]
@@ -364,7 +405,9 @@ GlassesJsonMessageExt = Annotated[
     | CaptureStop
     | OrderConfirm
     | OrderCancelConfirm
-    | OrderReject,
+    | OrderReject
+    | TaskRequest
+    | TableStatusSet,
     Field(discriminator="type"),
 ]
 

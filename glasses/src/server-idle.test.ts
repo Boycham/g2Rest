@@ -151,6 +151,21 @@ describe('server HUD idle blank', () => {
     expect(f.hud.screen()).toBe('card')
   })
 
+  it('a spoken request wakes it and holds its confirm line until the tap sends it', () => {
+    const f = fakeHud()
+    f.hud.startPage()
+    vi.advanceTimersByTime(IDLE_MS)
+    f.hud.onMessage({ type: 'voice.request', table: 'T2', source: 'clip', kind: 'CHECK', status: 'check' } as never)
+    expect(f.hud.screen()).toBe('card')
+    vi.advanceTimersByTime(IDLE_MS * 2)
+    expect(f.hud.screen()).toBe('card')
+    expect(f.last().textObject.at(-1)!.content).toContain('Request: CHECK T2? tap')
+    f.hud.onTap()
+    expect(f.sent).toEqual([{ type: 'table.status', table: 'T2', status: 'check' }])
+    vi.advanceTimersByTime(IDLE_MS)
+    expect(f.hud.screen()).toBe('blank')
+  })
+
   it('never turns the IMU on while blank', () => {
     const f = fakeHud()
     f.hud.startPage()

@@ -57,6 +57,8 @@ const REJECTED_VERB: Record<TaskRejected['action'], string> = {
   bounce: 'decline',
   handoff: 'hand off',
   revert: 'revert',
+  request: 'request',
+  status: 'set status',
 }
 
 /** The card line for a task.rejected: the action in plain words, then the backend's reason. */

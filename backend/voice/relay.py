@@ -24,6 +24,7 @@ from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 from commands import Command, keyterms, parse_commands, tables_said
+from floor_requests import Request, requests_in
 from gemini_intent import IntentUnavailable, map_words
 from order import UNKNOWN_TABLE, Menu, OrderBook, ToolError, floor_tables
 from voice_session import (
@@ -42,6 +43,8 @@ START_TIMEOUT = 8.0  # Scribe + agent connect, each already has its own timeout
 MAX_BUFFERED_FRAMES = 50  # 5 s of audio kept while the providers connect
 MAX_CLIP_FRAMES = 1220  # a 120 s clip plus slack; anything past it is dropped
 Transcribe = Callable[[bytes], Awaitable[list[tuple[str, str]]]]
+# A clip with no order, no question and no request: a neutral line, not silence.
+NOTHING_TO_ADD = "Nothing to add"
 
 
 def env_float(name: str, default: float | None) -> float | None:
@@ -267,6 +270,11 @@ class RelaySession:
         task.add_done_callback(self.tasks.discard)
         return task
 
+    def _draft_empty(self) -> bool:
+        d = build_draft(self.book, self.order_id, self.capture_id, self.voice, None)
+        keys = ("lines", "allergies", "pending", "notes", "uncertain", "summary", "answers")
+        return not any(d.get(k) for k in keys)
+
     async def draft(self) -> None:
         msg = build_draft(self.book, self.order_id, self.capture_id, self.voice, self.notice)
         if self.speech_end and self.voice != "listening":
@@ -403,6 +411,10 @@ class RelaySession:
         if intent == "table":
             await self._table_command(cmd.table)
             return
+        if intent == "request" and cmd.request:
+            log("voice command request")
+            await self._propose_request(cmd.request, "voice")
+            return
         if intent == "unknown":
             words = cmd.words or ""
             await self._send({"type": "voice.mapping", "words": words})
@@ -416,6 +428,10 @@ class RelaySession:
                 log("voice command unmapped")
                 await self._send({"type": "voice.unknown", "words": words})
                 return
+            if isinstance(mapped, Request):
+                log("voice command request (gemini)")
+                await self._propose_request(mapped, "voice")
+                return
             intent, name = mapped
             log(f"voice command {intent} (gemini)")
         else:
@@ -426,6 +442,21 @@ class RelaySession:
         if toggle:
             msg["toggle"] = toggle
         await self._send(msg)
+
+    async def _propose_request(self, req: Request, source: str) -> None:
+        """A floor request or table status for the glasses to confirm with a tap; nothing is
+        created here. A table off the floor plan comes back with the reason instead."""
+        msg: dict[str, Any] = {"type": "voice.request", **req.wire(), "source": source}
+        if self.book.floor is not None and req.table not in self.book.floor:
+            msg["reason"] = f"no table {req.table}"
+        await self._send(msg)
+
+    def _is_dish(self, words: str) -> bool:
+        try:
+            self.book.menu.resolve(words)
+        except (ToolError, KeyError, ValueError):
+            return False
+        return True
 
     async def _table_command(self, n: int | None) -> None:
         """ "verity table N": bind the unsent draft to table N, over an ORDER task's table."""
@@ -526,6 +557,9 @@ class RelaySession:
         heard = " ".join(text for _, text in turns)
         self.book.hear(heard)
         self._bind_said(heard)
+        requests = requests_in(heard, self._is_dish)
+        for req in requests:
+            await self._propose_request(req, "clip")
         message = clip_message(turns, self.book)
         self._spawn(self._talk(capture_id, message))
         try:
@@ -533,8 +567,12 @@ class RelaySession:
         except (Exception, SystemExit) as e:  # noqa: BLE001 - shown on the glasses
             await self._offline(f"agent: {type(e).__name__}: {e}")
             return
-        if not self.got_order and capture_id == self.capture_id:
-            self.voice, self.notice = "idle", "no order heard in the last 2 min"
+        if capture_id != self.capture_id:
+            return
+        if not self.got_order or (not requests and self._draft_empty()):
+            # Talk lines arriving later clear this (on_tool).
+            self.voice = "idle"
+            self.notice = None if requests else NOTHING_TO_ADD
             await self.draft()
 
     async def audio(self, frame: bytes) -> None:

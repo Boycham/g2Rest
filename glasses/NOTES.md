@@ -544,6 +544,15 @@ with `--automation-port 9898`, role switched on the phone page.
   while walking with plates; pick the axis, sign and threshold; check what `ImuReportPace.P100` means; check the
   battery cost of the IMU while tasks wait; check that a nod is not triggered by looking down at the pass.
 
+## Spoken requests (`request.ts`)
+
+`voice.request` from the relay (clip or "verity ...") puts a confirm line on the card banner, or the
+draft hint while the draft is open: `Request: CHECK T2? tap`, `Request: RUN T4 bread? tap`, `T5 → free?
+tap`. A tap sends `task.request` (task only) or `table.status` (status; `check` also makes the CHECK)
+and flashes `Sent: CHECK T2`; "verity nevermind" drops it (`Request dropped`). A refused one
+(`reason`) flashes `Request: no table 12`. The pending request takes the tap before a handoff popup or
+the draft. Controls lists the request commands and every status (now 6 pages).
+
 ## Idle blank (server HUD)
 
 Owner's request: "make it so that when there are no current tasks, the entire hud goes away, and either comes
