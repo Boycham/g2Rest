@@ -8,7 +8,8 @@
 
 // ---------- shared shapes ----------
 
-export type TaskKind = 'RUN' | 'CLEAR' | 'CHECK' | 'SEAT'
+/** ORDER: take this table's order; accepting it binds the next clip to `table`. */
+export type TaskKind = 'RUN' | 'CLEAR' | 'CHECK' | 'SEAT' | 'ORDER'
 
 /** Lifecycle of a task as the backend sees it. */
 export type TaskState = 'assigned' | 'accepted' | 'done' | 'bounced'
@@ -91,12 +92,35 @@ export interface TaskBounce {
   taskId: string
 }
 
+/**
+ * Coder A (claude/gemini-router): hand a task (accepted too) to someone else, sent only after
+ * the Confirm popup. `to` is a staff id or name, any case; without it the router picks anyone
+ * but the sender. The sender then gets task.updated "bounced"; the new holder task.assigned.
+ */
+export interface TaskHandoff {
+  type: 'task.handoff'
+  taskId: string
+  to?: string
+}
+
+/** Coder A: undo the sender's last accept, done, bounce or handoff (one level). */
+export interface TaskRevert {
+  type: 'task.revert'
+  taskId?: string
+}
+
 export interface CaptureStart {
   type: 'capture.start'
   /** Generated on the glasses; ties audio frames and the stop to this capture. */
   captureId: string
   /** Table of the card on screen, when known; otherwise the backend uses the server's current card. */
   table?: string
+  /**
+   * `clip`: the frames that follow are the last minute from the glasses' rolling buffer, sent
+   * as fast as possible; `capture.stop` ends the clip and the backend transcribes and extracts
+   * it in one go. Absent or `stream`: live mic frames (the earlier capture path).
+   */
+  mode?: 'stream' | 'clip' | 'command'
 }
 
 /**
@@ -144,6 +168,8 @@ export type GlassesJsonMessage =
   | TaskAccept
   | TaskDone
   | TaskBounce
+  | TaskHandoff
+  | TaskRevert
   | CaptureStart
   | CaptureStop
   | OrderConfirm
@@ -171,8 +197,8 @@ export interface PendingProposal {
   text: string
 }
 
-/** `connecting` until Scribe and the agent answer. */
-export type VoiceState = 'idle' | 'connecting' | 'listening' | 'offline'
+/** `connecting` until Scribe and the agent answer; `processing` while a clip is transcribed and read. */
+export type VoiceState = 'idle' | 'connecting' | 'listening' | 'processing' | 'offline'
 
 /** Full replacement of the order being taken, sent after every change. */
 export interface OrderDraft {
@@ -190,6 +216,10 @@ export interface OrderDraft {
   voice?: VoiceState
   /** One-line reason the last tool call was refused, e.g. "s2 has no soup". */
   notice?: string | null
+  /** Short table notes from the conversation, e.g. "anniversary", "mains after 20 min". */
+  notes?: string[]
+  /** Anything unclear, one line each, ready to show, e.g. "? s2 'the fish': halibut or salmon". */
+  uncertain?: string[]
 }
 
 /** The agent proposes sending or cancelling; only a tap on the glasses does it. */
@@ -230,6 +260,49 @@ export interface OrderClosed {
   status: 'fired' | 'cancelled'
 }
 
+/** Voice commands the relay matched after the wake word "verity" (fixed list, no LLM). */
+export type VoiceIntent =
+  | 'up'
+  | 'down'
+  | 'back'
+  | 'confirm'
+  | 'clip'
+  | 'accept'
+  | 'decline'
+  | 'done'
+  | 'handoff'
+  | 'nevermind'
+  | 'revert'
+  | 'menu'
+  | 'queue'
+
+/**
+ * "verity <command>" heard on the always-on command stream. The glasses act on it exactly
+ * like the matching gesture (task.accept / task.bounce / task.done frames for task intents).
+ */
+export interface VoiceCommand {
+  type: 'voice.command'
+  intent: VoiceIntent
+  /** "verity handoff Maya": who to hand the task to. */
+  name?: string
+}
+
+/** Coder A: a refused task.* frame, to the sending socket only. The card shows `reason` as is. */
+export interface TaskRejected {
+  type: 'task.rejected'
+  taskId: string | null
+  action: 'accept' | 'done' | 'bounce' | 'handoff' | 'revert'
+  reason: string
+}
+
+/** Words after "verity" that neither the word list nor Gemini could map: `Didn't get: <words>`. */
+export interface VoiceUnknown {
+  type: 'voice.unknown'
+  words: string
+  /** Why Gemini couldn't help ("timeout", "no key", ...); absent when it said "not a command". */
+  reason?: string
+}
+
 /** A full snapshot of every table (not a diff); sent on connect and on every change. */
 export interface FloorState {
   type: 'floor.state'
@@ -244,3 +317,6 @@ export type BackendMessage =
   | Alert
   | FloorState
   | OrderClosed
+  | VoiceCommand
+  | VoiceUnknown
+  | TaskRejected

@@ -201,3 +201,35 @@ def test_voice_taps_and_relay_drafts_are_on_contract() -> None:
     )
     with pytest.raises(ContractError):
         check_backend({"type": "order.closed", "orderId": "3f9a", "status": "sent"})
+
+
+def test_order_task_clip_capture_and_draft_notes_are_on_contract() -> None:
+    raw = '{"type": "capture.start", "captureId": "c1", "table": "T3", "mode": "clip"}'
+    clip = parse_glasses(raw)
+    assert clip.mode == "clip" and clip.table == "T3"
+    task = {
+        "id": "task-1",
+        "kind": "ORDER",
+        "table": "T3",
+        "items": [],
+        "allergies": [],
+        "notes": [],
+        "state": "assigned",
+        "assignee": "s1",
+        "priority": 0.0,
+        "createdAt": "2026-10-18T02:00:00Z",
+    }
+    check_backend({"type": "task.assigned", "task": task})
+    check_backend(
+        {
+            "type": "order.draft",
+            "orderId": "r1",
+            "captureId": "c1",
+            "table": None,
+            "lines": [],
+            "allergies": [],
+            "voice": "processing",
+            "notes": ["anniversary"],
+            "uncertain": ["? s3 'the fish': halibut or salmon"],
+        }
+    )

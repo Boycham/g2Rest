@@ -45,6 +45,18 @@
   (add/remove/modify item, set allergy, propose confirm/cancel). Our code validates every call
   against the menu. The agent can only propose sending or cancelling an order; a tap on the
   glasses does it.
+- **Conversational capture (current path):** the glasses keep the last 60 s of mic audio in memory; a swipe
+  down sends that minute to the relay, **Scribe batch speech-to-text** (`scribe_v2`, English) transcribes it
+  in one call, and the **text-only agent** (LLM `claude-haiku-4-5`, chosen by a measured comparison) returns
+  the whole order with one `set_order` tool call, which code validates. Devin built and measured this path.
+- **Voice commands:** while the Server role is on, the live mic also streams to the relay, where **Scribe
+  realtime speech-to-text** (English) is used only to spot "verity" + a fixed command word (accept, done,
+  clip, ...). Plain code matches the word list (no LLM); the transcript is never logged or stored. Devin
+  built this and its noise test (ElevenLabs TTS commands mixed with conversation and noise).
+- **Gemini (Google) for unknown command words:** only when the words right after "verity" are not on the
+  fixed list (at most 5 words), the relay sends that short phrase, and nothing else, to Gemini
+  (`gemini-2.5-flash-lite`, server-side key, 3 s timeout) to map it onto one of the same fixed actions.
+  Code checks the answer; anything else shows `Didn't get: <words>` on the glasses. Devin built it.
 - **ElevenLabs text to speech** generates test audio for development only. No real audio is
   recorded or stored.
 - The glasses never call ElevenLabs and never hold the key: they stream G2 mic PCM to the voice

@@ -30,7 +30,7 @@ Every field name is camelCase on the wire. Times are seconds (`sinceSec`) or ISO
 // Task: one card on the server's glasses.
 {
   "id": "task-1a2b",
-  "kind": "RUN",                 // RUN | CLEAR | CHECK | SEAT
+  "kind": "RUN",                 // RUN | CLEAR | CHECK | SEAT | ORDER
   "table": "T12",                // table label as shown to staff
   "items": [{ "qty": 2, "dish": "halibut", "seats": [1, 3] }],
   "allergies": [{ "allergen": "SHELLFISH", "seats": [3] }],   // uppercase allergen
@@ -59,9 +59,9 @@ Every field name is camelCase on the wire. Times are seconds (`sinceSec`) or ISO
 | `task.accept` | `taskId` | task `sent -> accepted`; `task.updated` echoed to the assignee; organizer sees it |
 | `task.done` | `taskId` | task `accepted -> done` (also allowed straight from `sent`); next queued card is already on the glasses |
 | `task.bounce` | `taskId` | task leaves this server (`task.updated` with state `bounced`) and is re-sent to the next server as a new `task.assigned` with the **same id** |
+| `capture.start` | `captureId`, `table?`, `mode?` | opens a voice capture; the table is `table`, else the server's open ORDER task, else none (spoken later). `mode: "clip"`: the frames that follow are the last minute from the glasses' rolling buffer |
 | `task.handoff` | `taskId`, `to?` | gives an open task (accepted or not) to `to` (a staff id or name, any case: `"Ben"`); without `to` the router (Gemini, else rules) picks anyone but the sender. Same frames as a bounce: `bounced` to the sender, `task.assigned` (same `id`) to the new holder |
 | `task.revert` | `taskId?` | undoes the sender's **last** accept, done, bounce or handoff (one level): un-accept -> `task.updated` `assigned` with a fresh 30 s timer; un-done -> `task.assigned` (the card comes back, state as before); un-bounce/un-handoff -> the task comes back with `task.assigned`, the holder gets `bounced`, but only while the holder hasn't accepted it |
-| `capture.start` | `captureId` | opens a voice capture for this staff member's current table; mic audio frames follow |
 | `capture.audio` | binary frame | raw PCM 16 kHz, s16le, mono, 3200 bytes = 100 ms, belonging to the last `capture.start` on this socket |
 | `capture.stop` | `captureId` | closes the capture (trailing silence is the backend's job) |
 | `order.confirm` | `orderId`, `proposalId?` | without `proposalId`: fires the draft to the kitchen (the agent only proposed it); with it: applies that pending voice proposal |
@@ -289,6 +289,16 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
    like the wire; `backend/voice/order.py` keeps snake_case internally behind the relay.
 8. **Voice fields** from the voice capture lane: `order.confirm` / `order.cancel_confirm` + `proposalId?`,
    `order.reject {orderId, proposalId}`, and `order.draft` + `status?`, `pending?`, `voice?`, `notice?`.
-9. **Handoff and revert** (Coder A, for voice "handoff" / "revert" and the double-tap handoff):
-   glasses -> backend `task.handoff {taskId, to?}` and `task.revert {taskId?}`; backend -> glasses
-   `task.rejected {taskId, action, reason}`. Additive; `contract.ts` needs the three types.
+9. **Conversational capture (proposed by the glasses lane, branch `devin/conversational-capture`):**
+   - `TaskKind` + `ORDER`: "take T3's order". Accepting it on the glasses binds the next clip to that
+     table; the backend also uses the server's open ORDER task as the capture's table when
+     `capture.start` has none. The order firing (or being cancelled) marks the ORDER task done.
+   - `capture.start` + `mode?: "stream" | "clip"`. A clip is up to 60 s of 3200-byte frames sent as
+     fast as possible, then `capture.stop`; the relay transcribes it in one batch and extracts the order.
+   - `VoiceState` + `processing` (the clip is being transcribed and read), and `order.draft` +
+     `notes?: string[]` (occasion, pacing) and `uncertain?: string[]` (`? s2 'the fish': halibut or salmon`).
+   - Organizer sockets get `{"type": "order.draft", ...Order}` (the `GET /state` order shape) while a voice
+     draft builds, so the kitchen sees it forming before the fire.
+10. **Handoff and revert** (Coder A, for voice "handoff" / "revert" and the long-hold handoff):
+    glasses -> backend `task.handoff {taskId, to?}` and `task.revert {taskId?}`; backend -> glasses
+    `task.rejected {taskId, action, reason}`. Additive; `contract.ts` needs the three types.

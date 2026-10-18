@@ -16,8 +16,14 @@ describe('backendUrl', () => {
     expect(backendUrl('ws://h/ws', 'manager', '', 's2')).toContain('staff=m1')
   })
 
-  it('keeps params already on the base URL', () => {
-    expect(backendUrl('wss://h/ws?token=abc&staff=s2', 'server', 'dev')).toBe('wss://h/ws?token=abc&staff=s2&role=server')
+  it('keeps a token already on the base URL', () => {
+    expect(backendUrl('wss://h/ws?token=abc', 'server', 'dev')).toBe('wss://h/ws?token=abc&role=server&staff=s1')
+  })
+
+  it('lets the role picker win over role and staff baked into the base URL (real-G2 bug)', () => {
+    const base = 'ws://100.64.0.1:8787/ws?role=server&staff=s1'
+    expect(backendUrl(base, 'manager', 'dev')).toBe('ws://100.64.0.1:8787/ws?role=manager&staff=m1&token=dev')
+    expect(backendUrl(base, 'server', '', 's2')).toContain('role=server&staff=s2')
   })
 
   it('redacts the token for display', () => {

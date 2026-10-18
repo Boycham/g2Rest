@@ -57,7 +57,8 @@ function syncPhone(): void {
     status,
     screen: active().screen(),
     queue: server.queue,
-    capturing: server.capturing,
+    recording: role === 'server' && server.recording,
+    bufferedSeconds: server.bufferedSeconds,
     alerts: alertRows(manager.exceptions, now),
     tables: tableRows(manager.tables, now),
   })
@@ -65,6 +66,7 @@ function syncPhone(): void {
 
 const created = await bridge.createStartUpPageContainer(new CreateStartUpPageContainer(active().startPage()))
 log('createStartUpPageContainer', role, created)
+if (role === 'server') void server.startRecording()
 
 async function switchRole(next: Role): Promise<void> {
   if (next === role) return
@@ -73,8 +75,7 @@ async function switchRole(next: Role): Promise<void> {
   log('role ->', role)
   await saveRole(bridge, role)
   // The backend routes by the role/staff on the socket, so a new role is a new connection.
-  socket.setUrl(urlFor(role))
-  socket.reconnectNow()
+  socket.redial(urlFor(role))
   await active().enter()
   syncPhone()
 }
@@ -88,6 +89,16 @@ function eventTypeOf(event: EvenHubEvent): OsEventTypeList | null {
   const envelope = event.sysEvent ?? event.textEvent ?? event.listEvent
   if (!envelope) return null
   return envelope.eventType ?? OsEventTypeList.CLICK_EVENT
+}
+
+// OS input -> gesture, in one place (what each gesture does on the card: MAIN_GESTURES in
+// controls.ts). Double tap must stay exit on the root page or Even Hub review rejects the app.
+const GESTURE_EVENTS: Partial<Record<OsEventTypeList, 'tap' | 'up' | 'down' | 'hold' | 'exit'>> = {
+  [OsEventTypeList.CLICK_EVENT]: 'tap',
+  [OsEventTypeList.SCROLL_TOP_EVENT]: 'up',
+  [OsEventTypeList.SCROLL_BOTTOM_EVENT]: 'down',
+  [OsEventTypeList.LONG_PRESS_EVENT]: 'hold',
+  [OsEventTypeList.DOUBLE_CLICK_EVENT]: 'exit',
 }
 
 let cleanedUp = false
@@ -104,28 +115,28 @@ bridge.onEvenHubEvent(event => {
   if (type === null) return
   const hud = active()
   const where = `${hud.role}/${hud.screen()}`
-  switch (type) {
-    case OsEventTypeList.DOUBLE_CLICK_EVENT:
+  const gesture = GESTURE_EVENTS[type]
+  if (gesture) {
+    log(gesture, 'on', where)
+    if (gesture === 'exit') {
       // Even Hub review rule: double tap exits through the system dialog, nothing else.
-      log('double tap -> shutDownPageContainer(1)')
       void bridge.shutDownPageContainer(1)
       return
-    case OsEventTypeList.CLICK_EVENT:
-      log('tap on', where)
-      return hud.onTap()
-    case OsEventTypeList.SCROLL_TOP_EVENT:
-      log('swipe up on', where)
-      return hud.onSwipeUp()
-    case OsEventTypeList.SCROLL_BOTTOM_EVENT:
-      log('swipe down on', where)
-      return hud.onSwipeDown()
+    }
+    if (gesture === 'tap') return hud.onTap()
+    if (gesture === 'up') return hud.onSwipeUp()
+    if (gesture === 'down') return hud.onSwipeDown()
+    return hud.onLongPress()
+  }
+  switch (type) {
     case OsEventTypeList.FOREGROUND_ENTER_EVENT:
       log('foreground enter: reconnecting')
       socket.reconnectNow()
       return
     case OsEventTypeList.FOREGROUND_EXIT_EVENT:
-      log('foreground exit: mic off, saving state')
-      server.cleanup()
+      // The mic is left on: whether it keeps running in the background is HW-PENDING.
+      log('foreground exit: saving state')
+      server.save()
       manager.save()
       return
     case OsEventTypeList.SYSTEM_EXIT_EVENT:

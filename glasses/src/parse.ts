@@ -20,7 +20,7 @@ import type { FloorTable } from './minimap'
 
 type Obj = Record<string, unknown>
 
-const KINDS: readonly TaskKind[] = ['RUN', 'CLEAR', 'CHECK', 'SEAT']
+const KINDS: readonly TaskKind[] = ['RUN', 'CLEAR', 'CHECK', 'SEAT', 'ORDER']
 const STATES: readonly TaskState[] = ['assigned', 'accepted', 'done', 'bounced']
 const LEVELS: readonly AlertLevel[] = ['info', 'warn', 'urgent']
 const TABLE_STATUSES: readonly TableStatus[] = ['empty', 'seated', 'ordered', 'waiting', 'eating', 'check']
@@ -32,7 +32,12 @@ const BACKEND_TYPES: readonly BackendMessage['type'][] = [
   'alert',
   'floor.state',
   'order.closed',
+  'voice.command',
+  'voice.unknown',
+  'task.rejected',
 ]
+const INTENTS = ['up', 'down', 'back', 'confirm', 'clip', 'accept', 'decline', 'done', 'handoff', 'nevermind', 'revert', 'menu', 'queue']
+const REJECTED_ACTIONS = ['accept', 'done', 'bounce', 'handoff', 'revert']
 const CLOSED_STATUSES = ['fired', 'cancelled']
 
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -109,6 +114,16 @@ export function parseBackendMessage(raw: string): BackendMessage | null {
   if (v.type === 'alert' && !isAlert(v)) return null
   if (v.type === 'floor.state' && !isFloorState(v)) return null
   if (v.type === 'order.closed' && !(isStr(v.orderId) && CLOSED_STATUSES.includes(v.status as string))) return null
+  if (v.type === 'voice.command' && !(INTENTS.includes(v.intent as string) && (v.name === undefined || isStr(v.name)))) {
+    return null
+  }
+  if (
+    v.type === 'task.rejected' &&
+    !((v.taskId === null || isStr(v.taskId)) && REJECTED_ACTIONS.includes(v.action as string) && isStr(v.reason))
+  ) {
+    return null
+  }
+  if (v.type === 'voice.unknown' && !(isStr(v.words) && (v.reason === undefined || isStr(v.reason)))) return null
   return v as unknown as BackendMessage
 }
 

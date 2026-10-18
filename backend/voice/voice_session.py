@@ -30,6 +30,10 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 API = "https://api.elevenlabs.io"
 WSS = "wss://api.elevenlabs.io"
 STT_MODEL = "scribe_v2_realtime"
+BATCH_STT_MODEL = "scribe_v2"
+# Pinned: a real-G2 test transcribed bystanders and once switched the stream to Turkish.
+STT_LANGUAGE = "en"
+CLIP_STT_TIMEOUT = 20.0
 SAMPLE_RATE = 16000
 FRAME_BYTES = 3200  # 100 ms of 16 kHz s16le mono, same as a G2 mic frame
 FRAME_SECS = 0.1
@@ -133,6 +137,83 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 ]
 
 
+_ITEM = {
+    "type": "object",
+    "description": "One dish for one guest",
+    "required": ["guest", "dish"],
+    "properties": {
+        "guest": {
+            "type": "integer",
+            "description": "1 for the first guest to order, 2 for the next, and so on",
+        },
+        "seat": {
+            "type": "integer",
+            "description": "Only if a seat number is said aloud for this dish; else omit",
+        },
+        "dish": {"type": "string", "description": "Exact dish name from the menu"},
+        "qty": {"type": "integer", "description": "How many, usually 1"},
+        "alterations": {
+            "type": "array",
+            "description": "Requested changes, e.g. 'no butter'. Empty if none.",
+            "items": {"type": "string", "description": "One alteration"},
+        },
+    },
+}
+CLIP_TOOL_SCHEMAS: list[dict[str, Any]] = [
+    {
+        "name": "set_order",
+        "description": "Set the complete order heard in the clip for this table. Call it once "
+        "per clip. It never sends or cancels anything; the server taps on the glasses.",
+        "parameters": {
+            "type": "object",
+            "required": ["items"],
+            "properties": {
+                "table": {
+                    "type": "integer",
+                    "description": "Only if a table number is said for this order; else omit",
+                },
+                "items": {"type": "array", "description": "Every dish ordered", "items": _ITEM},
+                "allergies": {
+                    "type": "array",
+                    "description": "Allergies a guest states",
+                    "items": {
+                        "type": "object",
+                        "description": "One allergy",
+                        "required": ["guest", "allergen"],
+                        "properties": {
+                            "guest": {"type": "integer", "description": "Guest number"},
+                            "seat": {"type": "integer", "description": "Only if said aloud"},
+                            "allergen": {"type": "string", "description": "e.g. 'shellfish'"},
+                        },
+                    },
+                },
+                "unclear": {
+                    "type": "array",
+                    "description": "Anything ambiguous, as a short statement, never a question",
+                    "items": {
+                        "type": "object",
+                        "description": "One unclear point",
+                        "required": ["text"],
+                        "properties": {
+                            "guest": {"type": "integer", "description": "Guest number, if any"},
+                            "text": {
+                                "type": "string",
+                                "description": "e.g. \"'the fish': halibut or salmon\"",
+                            },
+                        },
+                    },
+                },
+                "notes": {
+                    "type": "array",
+                    "description": "Occasion, pacing or timing worth knowing, a few words each",
+                    "items": {"type": "string", "description": "e.g. 'anniversary'"},
+                },
+            },
+        },
+    }
+]
+
+
 def log(msg: str) -> None:
     print(f"[fs] {msg}", flush=True)
 
@@ -191,6 +272,7 @@ class ScribeStream:
             {
                 "model_id": STT_MODEL,
                 "audio_format": "pcm_16000",
+                "language_code": STT_LANGUAGE,
                 "commit_strategy": "vad",
                 "vad_silence_threshold_secs": self.vad_silence_secs,
             }
@@ -288,6 +370,64 @@ async def stream_to_scribe(
         await stream.send(frame)
     await stream.finish(trailing_silence_secs, final_wait_secs)
     return start + speech_end
+
+
+TURN_GAP_SECS = 0.6  # a pause this long starts a new line even for the same speaker label
+
+
+def speaker_turns(words: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Scribe batch words -> [(speaker, text)]: a new line at every change of speaker label
+    and at every pause of TURN_GAP_SECS. Guests who sound alike share a label, so the pauses
+    are what keeps one guest's order apart from the next one's."""
+    turns: list[tuple[str, str]] = []
+    last_end: float | None = None
+    for w in words:
+        if w.get("type") == "audio_event":
+            continue
+        speaker = str(w.get("speaker_id") or "speaker")
+        text = str(w.get("text", ""))
+        start = w.get("start")
+        paused = (
+            w.get("type") == "word"
+            and isinstance(start, int | float)
+            and last_end is not None
+            and start - last_end >= TURN_GAP_SECS
+        )
+        if w.get("type") == "word" and isinstance(w.get("end"), int | float):
+            last_end = float(w["end"])
+        if turns and turns[-1][0] == speaker and not paused:
+            turns[-1] = (speaker, turns[-1][1] + text)
+        elif text.strip():
+            turns.append((speaker, text.strip()))
+    return [(s, " ".join(t.split())) for s, t in turns if t.strip()]
+
+
+async def transcribe_clip(
+    pcm: bytes, *, diarize: bool = True, timeout: float = CLIP_STT_TIMEOUT
+) -> list[tuple[str, str]]:
+    """One batch Scribe call for a clip of raw 16 kHz s16le mono PCM (English pinned).
+    The clip is sent from memory and never written to disk here."""
+    data = {
+        "model_id": BATCH_STT_MODEL,
+        "language_code": STT_LANGUAGE,
+        "file_format": "pcm_s16le_16",
+        "tag_audio_events": "false",
+        "diarize": "true" if diarize else "false",
+    }
+    async with httpx.AsyncClient(timeout=timeout) as http:
+        r = await http.post(
+            f"{API}/v1/speech-to-text",
+            headers={"xi-api-key": api_key()},
+            data=data,
+            files={"file": ("clip.pcm", pcm, "application/octet-stream")},
+        )
+    if r.is_error:
+        raise ConnectionError(f"scribe batch {r.status_code}: {r.text[:200]}")
+    body = r.json()
+    turns = speaker_turns(body.get("words") or [])
+    if not turns and body.get("text", "").strip():
+        turns = [("speaker", body["text"].strip())]
+    return turns
 
 
 class AgentSession:

@@ -23,9 +23,14 @@ export function markDone(done: DoneIds, taskId: string): DoneIds {
   return [...done.filter(id => id !== taskId), taskId].slice(-DONE_MAX)
 }
 
-/** Apply a `task.assigned` / `task.updated` from the backend on top of local state. */
-export function applyBackendTask(queue: Queue, done: DoneIds, task: Task): Reconciled {
+/**
+ * Apply a `task.assigned` / `task.updated` from the backend on top of local state.
+ * `reverted`: the server just sent task.revert, so an older state from the backend is the
+ * answer, not a lost replay (no re-sent accept or done).
+ */
+export function applyBackendTask(queue: Queue, done: DoneIds, task: Task, reverted = false): Reconciled {
   const forget = done.filter(id => id !== task.id)
+  if (reverted) return { queue: upsertTask(queue, task), done: forget, resend: [] }
   if (task.state === 'done' || task.state === 'bounced') {
     return { queue: upsertTask(queue, task), done: forget, resend: [] }
   }

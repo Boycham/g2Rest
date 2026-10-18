@@ -163,3 +163,95 @@ of the file, not the end of speech. Don't compare it with the clean number.
 
 - A real G2 mic stream through the same path. Frame size and format match on paper.
 - Accuracy in restaurant / judging-hall noise. White noise is only a stand-in.
+
+## Clip path (conversational capture)
+
+Docs read 2026-10-18: [speech-to-text convert](https://elevenlabs.io/docs/api-reference/speech-to-text/convert)
+(`POST /v1/speech-to-text`, multipart, `model_id=scribe_v2`, `file_format=pcm_s16le_16` for raw 16 kHz s16le
+mono, `language_code`, `diarize`, `tag_audio_events`), and the realtime reference (query `language_code`).
+
+- **English is pinned** in both Scribe paths (`language_code=en`): a real-G2 test transcribed bystanders and
+  once switched to Turkish.
+- `relay.py`: `capture.start{mode:"clip", table?}` buffers frames in memory (max 62 s), `capture.stop` runs
+  `transcribe_clip` (one batch call, diarized; lines split at speaker changes and 0.6 s pauses), then one
+  agent turn. The clip bytes are dropped once sent to Scribe; nothing is written to disk.
+- Clip agent (`create_agent.py`, default): one client tool, `set_order(table?, items[{guest, seat?, dish, qty,
+  alterations}], allergies[], unclear[], notes[])`. Nested object arrays were accepted by `POST /v1/convai/tools`.
+- **Guards in `order.py` (tests in `tests/test_order.py`):** guests become seats in the order they ordered (a
+  spoken seat wins); dishes menu-checked (unknown → code-written `?` line); disallowed alterations flagged;
+  every dish, alteration and allergen must be words that were said in the clip; a guest with an unclear line
+  gets no guessed dish; unclear lines or notes phrased as questions are dropped (the agent's text is never
+  shown); allergies are never removed; a dish a later clip drops only becomes a removal proposal; the table
+  is from the ORDER task (a spoken one can't override it) or spoken; send is refused without a table.
+
+LLM choice (5 × `conv_task` + 1 table-less, real hub + relay, clip stop → draft, same day):
+
+| llm | conv_task right | latency |
+|---|---|---|
+| gemini-2.5-flash | 3/5 | ~6.5 s |
+| gemini-2.5-flash-lite | 0/5 (allergy seat, missing ? line, invented alterations) | ~2.0 s |
+| gpt-4.1-mini | 3/5, one 20 s stall | ~2.5 s |
+| **claude-haiku-4-5** | 4/5 | 3.9-4.2 s |
+
+After the fixture was re-spoken with more small talk, haiku put both mains on seat 1 in 5/5; a worked example
+in the prompt fixed seats (5/5) but the allergy still goes to s1 instead of s2 in 4/5. Next to try: distinct
+guest voices (diarization), or an allergy `?` line when the speaker is ambiguous. CREAO is not used here (runs
+take minutes); a CREAO end-of-shift digest could come later.
+
+## Voice commands (`commands.py`, relay command stream)
+
+"verity" + one of up / down / back / confirm / clip / accept / decline / done / handoff [Name] /
+nevermind / revert / menu (or controls) / queue. A fixed word list, no LLM: an intent only counts when it directly follows the wake word, so "we're done here" or "I accept"
+in conversation never fires. While the Server role is on, the glasses stream the live mic to the relay
+as `capture.start {mode: "command"}`; the relay runs realtime Scribe (English, VAD commit 0.8 s) and
+sends back only `voice.command {intent}`. The transcript is never logged, stored or forwarded. While a
+clip uploads, frames go to the clip; after it, back to the command stream (the hub keeps a separate
+per-socket command capture with no table).
+
+Unknown words right after "verity" (at most 5; longer is ordinary speech and ignored) go to Gemini
+(`gemini_intent.py`, `GEMINI_API_KEY`, default `gemini-2.5-flash-lite`, 3 s timeout, structured JSON)
+with only that short phrase. Code checks the answer is one of the fixed intents and a handoff name is
+one plain word; anything else, a timeout or no key becomes `voice.unknown {words, reason?}` and the
+glasses show `Didn't get: <words>`. Realtime Scribe wrote the TTS "verity queue" as "Verity Q" (2/2 in
+the simulator run), so `q`/`cue` count as queue after the wake word.
+
+### Noise test (`noise_test.py`, Scribe batch, TTS "Verity, <command>." in the server voice)
+
+Babble = the 59 s table conversation fixture mixed under the command; white noise added with
+`make_fixtures.add_noise`.
+
+| Condition | Recognised |
+|---|---|
+| clean | 7/8 |
+| babble -12 dB | 6/8 |
+| babble -12 dB + white noise 10 dB SNR | 6/8 |
+| babble -6 dB | 7/8 |
+| **overall** | **26/32 (81%)** |
+
+- Misses were the babble's words landing first (transcript starts "Hmm", "doing", "take"), not
+  misspellings of the wake word. Scribe wrote "verity" correctly every time it heard it (22/22 first
+  words); no "verita" / "very tea" variants were needed.
+- Inflections Scribe produced in a first run ("Verity accepts", "Verity clipped", "Verity confirmed")
+  are matched; "upped"/"downs" are not.
+- An earlier run with babble at 0 dB (as loud as the command) got 1/8: a guest talking over the server
+  at the same level wins. Real speech at the glasses mic should be much closer than the table.
+- **False triggers: 0** on the 59 s conversation with no commands, 0 on the same with 5 dB white noise,
+  0 on near misses ("very tasty", "verify the bill", "Verity is my sister's name", "we're done, I accept,
+  let's go back up").
+
+### Realtime Scribe (the path the relay uses), same fixtures, clean
+
+15/16 before, 16/16 after: realtime wrote "Verity, done." as "Verity Dunn." both times (a surname after
+a first name), so `dunn`/`dun` map to done. Everything else came back verbatim.
+
+### Simulator against the real backend (`?say=` debug path)
+
+End of the spoken command → `voice.command` on the glasses: 0.92, 0.62, 0.61, 0.61, 0.61 s, **median
+0.61 s** (Scribe's 0.8 s VAD silence is most of it). accept → `Heard: accept` → task accepted 3 s later;
+decline on the accepted task → `Can't decline: already accepted`; done → task done.
+
+### HW-PENDING
+- Recognition with a real voice at the glasses mic in a loud room, and false triggers over a real shift.
+- Phone-link bandwidth/battery of streaming the mic continuously (on top of the rolling buffer).
+- Scribe realtime session limits for an always-open stream (reconnects are handled; long-session
+  behaviour not measured).

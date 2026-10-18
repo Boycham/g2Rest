@@ -211,3 +211,91 @@ little next to Scribe's 0.8 s VAD and the agent turn, and the spread run to run 
   reload (SDK storage).
 - Sync 1 on hardware: the packed build against the real backend over the LAN/Tailscale host (whitelist it in
   `app.json`), dispatch -> card latency on the lens, and a real-mic order through the hub and relay.
+
+## Conversational capture (rolling minute), checked in the simulator 0.9.5 against the real backend
+
+Owner's design (2026-10-18): the server talks normally with the table; a **swipe down sends the last minute**.
+
+- **Mic rule (exactly):** while the Server role is on, the mic records constantly into a rolling 60 s buffer
+  that lives only in WebView memory (`src/clip.ts`, a fixed ring of 600 × 100 ms frame slots). Anything older
+  than 60 s is overwritten continuously. Only a clipped minute ever leaves the device, and only on a swipe
+  down. Nothing is written to SDK storage, browser storage or disk. The relay holds the clip in memory, hands
+  it to Scribe and drops it; it keeps the extracted order only. Switching to Manager or exiting turns the mic
+  off and clears the buffer. The phone page says `mic: last N s in memory`.
+- **Gestures:** swipe down on the card or the draft = send the last minute (`capture.start{mode:'clip'}`,
+  the frames back to back, `capture.stop`). Tap on the draft = accept a pending line, else send (refused while
+  `TABLE?`). Swipe up = reject a pending line, else back to the card. Double tap = exit, as before.
+- **Table:** an accepted ORDER task (`ORDER · T3`, then `swipe down once they have ordered`) sends its table;
+  the hub also falls back to the server's open ORDER task. Without one the draft shows `TABLE?` and the bar
+  says `TABLE? say the table, then swipe down`; saying "that was table two" and swiping again binds T2.
+  Firing the order marks the ORDER task done.
+- **Draft:** allergies on top, `T3 … tap = send` (or `Reading last min…` while processing), order by seat,
+  then `?` lines and `note: anniversary · no rush on mains`. Order lines fold into `… N more` first, so `?`
+  lines never drop off the lens.
+- **Debug path:** `?debugPcm=conv_task` fills the buffer with the fixture (instead of the mic) and refills it
+  after each clip; `?debugPcm=conv_notable,conv_tableless` gives the TABLE? → "table two" flow.
+- **Role on connect (real-G2 bug):** the packed `VITE_BACKEND_URL` carried `role=server&staff=s1`, which
+  `backendUrl` kept, so the glasses were always server Ava. The picker now always sets role and staff, and a
+  switch redials (`BackendSocket.redial`); `src/socket.test.ts` checks both.
+
+Runs (simulator, real hub + relay, fixtures from `make_fixtures.py`, `web/kitchen.html` open):
+- ORDER task T3 + `conv_task` (58.6 s, two voices, small talk, one bystander line, "the fish"): draft
+  `! SHELLFISH s? / T3 tap = send / s1 halibut –no butter / s2 salmon –no dill / ? s3 'the fish': halibut or
+  salmon / note: anniversary · no rush on mains`; tap fired it, the kitchen showed the T3 ticket, the ORDER
+  task went `done`. Small talk and the bystander line added nothing in every run.
+- Table-less: `conv_notable` → `TABLE?` draft, tap refused, kitchen showed the `TABLE?` draft forming;
+  `conv_tableless` ("that was table two") → T2, tap fired it to the kitchen.
+
+**Swipe down → draft on the glasses** (swipe input → `textContainerUpgrade` of the clip's draft, simulator
+console clock), 58.6 s clip, 5 runs: 4271, 3903, 3866, 4082, 4017 ms. **Median 4.02 s.** Split (relay log):
+upload is local and immediate, Scribe batch 1.15-1.37 s for 58.7 s of audio, the agent turn (claude-haiku-4-5)
+about 2.5-3 s. Table-less clips (29-31 s): 2.40, 2.50, 2.63 s.
+
+Known misses (5 runs, same fixture): seats right 5/5, but SHELLFISH landed on s1 instead of s2 in 4/5 (all
+guests share one TTS voice, so diarization can't help); once the server's "some bread" became burrata `–no
+bread` (the clip-words guard only checks the words were said).
+
+HW-PENDING (conversational capture):
+- Whether the mic keeps running with the phone locked or the Even app backgrounded (the app leaves it on at
+  foreground exit), and the battery cost of always-on capture on the G2 and the phone.
+- Clip upload time over phone Bluetooth/LTE (600 frames, 1.9 MB) and the real-mic transcript quality in a
+  noisy room with real, different guest voices.
+
+## Voice commands, checked in the simulator 0.9.5 against the real backend
+
+`?debugPcm=conv_notable&say=verity_accept,verity_decline,verity_done` plays TTS command fixtures into
+the command stream (4 s apart) as if the server said them. `src/voice.ts` maps intents to the gesture
+frames (`task.accept` / `task.bounce` / `task.done`; the hub checks the socket's staff). Commands act at
+once; the card shows `Heard: <command>` for 3 s. The backend decides: a refused frame comes back as
+`task.rejected` and its `reason` goes on the card as is (no local "Can't ..." guesses).
+
+### Gesture map (one place)
+
+`MAIN_GESTURES` in `src/controls.ts` says what each gesture does on the main card (moving clip is one
+line there); `GESTURE_EVENTS` in `src/main.ts` maps OS events to gestures.
+
+| Gesture (main card) | Action | Voice |
+|---|---|---|
+| Tap | accept, then done; confirms a popup or sends the draft | `verity accept` / `verity done` / `verity confirm` |
+| Swipe up | open Controls | `verity menu` / `verity controls` / `verity up` |
+| Swipe down | clip the last minute | `verity clip` / `verity down` |
+| Long hold | handoff: `Confirm handoff?` popup, then tap | `verity handoff [name]`, then `verity confirm` |
+| Double tap | exit dialog (`shutDownPageContainer(1)`, Even Hub review rule) | none |
+| Controls → Queue | queue view | `verity queue` |
+| Controls → Decline / Revert | `task.bounce` / `task.revert` | `verity decline` / `verity revert` |
+| Controls → Close | back to the card | `verity back` |
+| (popup open) | cancel it | `verity nevermind` |
+
+In Controls swipe up/down move the `>` row and stop at the ends; a tap picks the row. Swipe down does not
+close it (it's clip on the card), only Close or "verity back" do. The always-on `↑ controls` hint is the
+card's last line, right-aligned (sharing it with `+N queued`), measured with pretext (`controls.test.ts`).
+
+- Handoff sends `task.handoff {taskId, to?}` only after the popup is confirmed; "verity revert" sends
+  `task.revert` and the un-accepted `task.updated` that answers it isn't replayed as a lost accept.
+- Unknown words after "verity" go to Gemini on the relay; unmapped or failed: `Didn't get: <words>`
+  (with `(timeout)` / `(no key)` when Gemini wasn't reachable).
+- End of command → `Heard:` on the glasses: median 0.61 s of 5 (see backend/voice/NOTES.md).
+- No `task.command` frame: the gesture frames already cover the task intents, and navigation is local.
+- HW-PENDING: the command stream with the phone locked/backgrounded, and battery of streaming the mic.
+- HW-PENDING: long hold (SDK `LONG_PRESS_EVENT` 9) on the real ring/temple; AGENTS.md still says there
+  is no long press, and the simulator may not send it.

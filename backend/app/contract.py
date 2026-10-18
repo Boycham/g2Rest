@@ -21,7 +21,7 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-TaskKind = Literal["RUN", "CLEAR", "CHECK", "SEAT"]
+TaskKind = Literal["RUN", "CLEAR", "CHECK", "SEAT", "ORDER"]
 TaskState = Literal["assigned", "accepted", "done", "bounced"]
 TableStatus = Literal["empty", "seated", "ordered", "waiting", "eating", "check"]
 AlertLevel = Literal["info", "warn", "urgent"]
@@ -151,8 +151,10 @@ class OrderDraft(Strict):
     allergies: list[Allergy]
     status: Literal["draft", "sent", "cancelled"] | None = None
     pending: list[PendingProposal] | None = None
-    voice: Literal["idle", "connecting", "listening", "offline"] | None = None
+    voice: Literal["idle", "connecting", "listening", "processing", "offline"] | None = None
     notice: str | None = None
+    notes: list[str] | None = None
+    uncertain: list[str] | None = None
 
 
 class OrderReadback(Strict):
@@ -227,10 +229,41 @@ class OrderClosed(Strict):
     status: Literal["fired", "cancelled"]
 
 
+class VoiceCommand(Strict):
+    """New: "verity <command>" matched by the relay; the glasses act like the gesture."""
+
+    type: Literal["voice.command"]
+    intent: Literal[
+        "up",
+        "down",
+        "back",
+        "confirm",
+        "clip",
+        "accept",
+        "decline",
+        "done",
+        "handoff",
+        "nevermind",
+        "revert",
+        "menu",
+        "queue",
+    ]
+    name: str | None = None
+
+
+class VoiceUnknown(Strict):
+    """New: words after "verity" that neither the word list nor Gemini could map."""
+
+    type: Literal["voice.unknown"]
+    words: str
+    reason: str | None = None
+
+
 class CaptureStartExt(CaptureStart):
     """+ optional table, when the glasses know which card the server was looking at."""
 
     table: str | None = None
+    mode: Literal["stream", "clip", "command"] | None = None
 
 
 class TaskHandoff(Strict):
@@ -266,6 +299,8 @@ BackendMessageExt = Annotated[
     | AlertExt
     | FloorStateExt
     | OrderClosed
+    | VoiceCommand
+    | VoiceUnknown
     | TaskRejected,
     Field(discriminator="type"),
 ]
