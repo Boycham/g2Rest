@@ -5,7 +5,7 @@ import { CONTROLS, CONTROLS_HINT, MAIN_GESTURES, controlRow, formatControls, mov
 import { makeTask } from './fixtures.test-helpers'
 
 describe('gesture map', () => {
-  it('keeps clip on swipe down and the queue in the menu', () => {
+  it('keeps clip on swipe back (SDK down) and the queue in the menu', () => {
     expect(MAIN_GESTURES).toEqual({ tap: 'task', up: 'controls', down: 'clip', hold: 'handoff' })
     expect(CONTROLS.map(c => c.action)).toContain('queue')
     expect(CONTROLS.at(-1)?.action).toBe('close')
@@ -18,7 +18,7 @@ describe('Controls menu', () => {
     const last = formatControls(CONTROLS.length - 1).split('\n')
     expect(last).toHaveLength(CARD_MAX_LINES)
     expect(last.at(-1)).toMatch(/^> Close/)
-    expect(formatControls(0).split('\n')[0]).toMatch(/^> Clip last minute \(swipe down\)/)
+    expect(formatControls(0).split('\n')[0]).toMatch(/^> Clip last minute \(swipe back\)/)
   })
 
   it('stops at the ends: only verity back or Close closes it', () => {
@@ -33,7 +33,7 @@ describe('corner hint', () => {
     const queue = [makeTask({ id: 'a' }), makeTask({ id: 'b' })]
     const lines = formatCard(queue, { offline: false, hint: CONTROLS_HINT }).text.split('\n')
     expect(lines).toHaveLength(CARD_MAX_LINES)
-    expect(lines.at(-1)).toMatch(/\+1 queued · ↑ controls$/)
+    expect(lines.at(-1)).toMatch(/\+1 queued · fwd: controls$/)
     for (const l of lines) expect(getTextWidth(l)).toBeLessThanOrEqual(CARD_TEXT_WIDTH)
     const empty = formatCard([], { offline: false, hint: CONTROLS_HINT }).text.split('\n')
     expect(empty.at(-1)?.trim()).toBe(CONTROLS_HINT)

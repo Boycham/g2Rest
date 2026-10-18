@@ -9,7 +9,7 @@ export const CARD_TEXT_WIDTH = DISPLAY_WIDTH - 2 * CARD_PADDING
 export const CARD_MAX_LINES = 5
 
 /** Shown under an accepted ORDER task: the table is bound, the clip does the rest. */
-export const ORDER_HINT = 'swipe down once they have ordered'
+export const ORDER_HINT = 'swipe back once they have ordered'
 
 export interface CardView {
   text: string
@@ -23,7 +23,7 @@ export interface CardOptions {
   maxLines?: number
   /** A transient line under the allergies, e.g. `Heard: accept`. */
   banner?: string
-  /** Always-on corner hint (bottom right), e.g. `↑ controls`. */
+  /** Always-on corner hint (bottom right), e.g. `fwd: controls`. */
   hint?: string
 }
 

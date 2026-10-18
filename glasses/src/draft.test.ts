@@ -40,7 +40,7 @@ describe('formatDraft', () => {
 
   it('shows the pending proposal highlighted in the bar', () => {
     const v = formatDraft(state({ draft: draft({ pending: [{ id: 'p1', action: 'remove', text: 'REMOVE s2 salmon?' }] }) }))
-    expect(v.bar).toBe('REMOVE s2 salmon? tap=yes swipe up=no')
+    expect(v.bar).toBe('REMOVE s2 salmon? tap=yes swipe fwd=no')
     expect(v.highlight).toBe(true)
   })
 
@@ -122,7 +122,7 @@ describe('formatDraft for a clip', () => {
   it('shows TABLE? and how to give it when the draft has no table', () => {
     const v = formatDraft(state({ draft: draft({ table: null }) }))
     expect(v.main.split('\n')[1].startsWith('TABLE?')).toBe(true)
-    expect(v.bar).toBe('TABLE? say the table, then swipe down')
+    expect(v.bar).toBe('TABLE? say the table, then swipe back')
     expect(v.highlight).toBe(false)
   })
 

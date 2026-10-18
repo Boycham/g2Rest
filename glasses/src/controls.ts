@@ -1,7 +1,8 @@
 import { CARD_MAX_LINES, CARD_TEXT_WIDTH, spread } from './card'
 
 // The gesture map in one place. MAIN_GESTURES is what each gesture does on the main card;
-// giving swipe down to the queue instead of clip is `down: 'queue'`. Double tap is always exit (Even Hub
+// giving swipe back (SDK `down`) to the queue instead of clip is `down: 'queue'`.
+// On the G2 touchpad SDK `up` is a swipe forward (toward the eyes) and `down` a swipe back (toward the ear). Double tap is always exit (Even Hub
 // review rule) and lives in main.ts.
 
 export type MainAction = 'task' | 'controls' | 'queue' | 'clip' | 'handoff'
@@ -14,7 +15,7 @@ export const MAIN_GESTURES: Record<'tap' | 'up' | 'down' | 'hold', MainAction> =
 }
 
 /** Always on the main card, bottom right. */
-export const CONTROLS_HINT = '↑ controls'
+export const CONTROLS_HINT = 'fwd: controls'
 
 export type ControlAction = MainAction | 'decline' | 'revert' | 'exit' | 'close'
 
@@ -27,8 +28,8 @@ export interface ControlItem {
 
 const GESTURE_NAMES: Record<'tap' | 'up' | 'down' | 'hold', string> = {
   tap: 'tap',
-  up: 'swipe up',
-  down: 'swipe down',
+  up: 'swipe fwd',
+  down: 'swipe back',
   hold: 'hold',
 }
 
