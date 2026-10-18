@@ -730,8 +730,15 @@ async def test_the_speaker_labels_are_what_keeps_the_other_table_out():
 def test_other_tables_rule():
     from voice_session import other_tables
 
-    assert other_tables({"a": (40, -18.0), "b": (12, -30.0)}) == {"b"}  # much quieter
-    assert other_tables({"a": (40, -18.0), "b": (4, -23.0)}) == {"b"}  # quieter, few words
-    assert other_tables({"a": (40, -18.0), "b": (3, -19.0)}) == set()  # short but near
-    assert other_tables({"a": (40, -18.0), "b": (30, -23.0)}) == set()  # a quieter guest
-    assert other_tables({"a": (40, -40.0)}) == set()  # one speaker is always the table
+    def drop(levels):
+        return other_tables(levels, quiet_db=8.0)
+
+    assert drop({"a": (40, -18.0), "b": (12, -30.0)}) == {"b"}  # much quieter
+    assert drop({"a": (40, -18.0), "b": (4, -23.0)}) == {"b"}  # quieter, few words
+    assert drop({"a": (40, -18.0), "b": (3, -19.0)}) == set()  # short but near
+    assert drop({"a": (40, -18.0), "b": (30, -23.0)}) == set()  # a quieter guest
+    assert drop({"a": (40, -40.0)}) == set()  # one speaker is always the table
+    # the wearer right at the mic: guests are measured against the loudest guest instead
+    wearer = {"server": (50, -8.0), "g1": (12, -26.0), "g2": (9, -29.0), "far": (14, -37.0)}
+    assert drop(wearer) == {"far"}
+    assert other_tables({"a": (40, -18.0), "b": (12, -30.0)}, quiet_db=None) == {"b"}

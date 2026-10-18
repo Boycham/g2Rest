@@ -480,25 +480,32 @@ def speaker_turns(words: list[dict[str, Any]]) -> list[tuple[str, str]]:
 
 
 # Neighbouring tables: Scribe's diarization labels them as their own speakers, and they are
-# quieter at the glasses mic than the server and the table. A speaker is dropped from the clip
-# when its words are CLIP_QUIET_DB below the loudest speaker's, or CLIP_QUIET_DB / 2 below and
-# it said under a fifth as many words as the most talkative one. Few words alone never drop
-# a speaker: a guest saying "the salmon" is short but near. Picked from clip_test.py.
-CLIP_QUIET_DB = 8.0
+# quieter at the glasses mic than the server and the table. The reference is the loudest
+# speaker, or the second loudest when the loudest stands out by CLIP_WEARER_GAP_DB (the wearer
+# right at the mic, so guests a metre away aren't measured against them). A speaker is dropped
+# when CLIP_QUIET_DB below the reference, or CLIP_QUIET_DB / 2 below it with under a fifth of
+# the most talkative speaker's words. Few words alone never drop anyone: "the salmon" is short
+# but near. Picked from clip_test.py; VOICE_CLIP_QUIET_DB=off keeps every speaker.
+_quiet = os.environ.get("VOICE_CLIP_QUIET_DB", "6").strip().lower()
+CLIP_QUIET_DB: float | None = None if _quiet in ("off", "none", "") else float(_quiet)
 CLIP_FEW_WORDS = 0.2
+CLIP_WEARER_GAP_DB = 6.0
+LEVEL_FRAME = 800  # 50 ms
 
 
 def span_dbfs(pcm: bytes, spans: list[tuple[float, float]]) -> float:
-    """RMS level in dBFS of 16 kHz s16le PCM over (start, end) second spans."""
+    """Median level in dBFS of the 50 ms frames inside (start, end) second spans of 16 kHz
+    s16le PCM. The median, so words overlapping a louder talker don't lift a quiet one."""
     samples = array.array("h", pcm[: len(pcm) // 2 * 2])
-    total, n = 0.0, 0
+    levels: list[float] = []
     for a, b in spans:
         part = samples[max(0, int(a * 16000)) : max(0, int(b * 16000))]
-        total += sum(x * x for x in part)
-        n += len(part)
-    if not n or not total:
-        return -120.0
-    return 20 * math.log10(math.sqrt(total / n) / 32768)
+        for i in range(0, len(part) - LEVEL_FRAME // 2, LEVEL_FRAME):
+            frame = part[i : i + LEVEL_FRAME]
+            ms = sum(x * x for x in frame) / len(frame)
+            if ms > 1.0:
+                levels.append(10 * math.log10(ms / 32768**2))
+    return sorted(levels)[len(levels) // 2] if levels else -120.0
 
 
 def speaker_levels(words: list[dict[str, Any]], pcm: bytes) -> dict[str, tuple[int, float]]:
@@ -518,18 +525,21 @@ def speaker_levels(words: list[dict[str, Any]], pcm: bytes) -> dict[str, tuple[i
 
 def other_tables(
     levels: dict[str, tuple[int, float]],
-    quiet_db: float = CLIP_QUIET_DB,
+    quiet_db: float | None = None,
     few_words: float = CLIP_FEW_WORDS,
+    wearer_gap: float = CLIP_WEARER_GAP_DB,
 ) -> set[str]:
     """Speakers to drop as another table's: much quieter, or quieter and far fewer words."""
-    if len(levels) < 2:
+    quiet_db = CLIP_QUIET_DB if quiet_db is None else quiet_db
+    if quiet_db is None or len(levels) < 2:
         return set()
-    loudest = max(db for _, db in levels.values())
+    loud = sorted((db for _, db in levels.values()), reverse=True)
+    ref = loud[1] if len(loud) >= 3 and loud[0] - loud[1] >= wearer_gap else loud[0]
     most = max(n for n, _ in levels.values())
     return {
         s
         for s, (n, db) in levels.items()
-        if db < loudest - quiet_db or (db < loudest - quiet_db / 2 and n < few_words * most)
+        if db < ref - quiet_db or (db < ref - quiet_db / 2 and n < few_words * most)
     }
 
 
@@ -546,14 +556,13 @@ def clip_turns(
     return turns, dropped
 
 
-async def transcribe_clip(
+async def scribe_batch(
     pcm: bytes,
     *,
     diarize: bool = True,
     keyterms: Sequence[str] = (),
-    drop_other_tables: bool = True,
     timeout: float = CLIP_STT_TIMEOUT,
-) -> list[tuple[str, str]]:
+) -> dict[str, Any]:
     """One batch Scribe call for a clip of raw 16 kHz s16le mono PCM (English pinned).
     The clip is sent from memory and never written to disk here."""
     data: dict[str, str | list[str]] = {
@@ -574,7 +583,20 @@ async def transcribe_clip(
         )
     if r.is_error:
         raise ConnectionError(f"scribe batch {r.status_code}: {r.text[:200]}")
-    turns, dropped = clip_turns(r.json(), pcm, drop_other_tables=drop_other_tables and diarize)
+    return r.json()
+
+
+async def transcribe_clip(
+    pcm: bytes,
+    *,
+    diarize: bool = True,
+    keyterms: Sequence[str] = (),
+    drop_other_tables: bool = True,
+    timeout: float = CLIP_STT_TIMEOUT,
+) -> list[tuple[str, str]]:
+    """The clip as speaker turns for the clip agent, without other tables' speakers."""
+    body = await scribe_batch(pcm, diarize=diarize, keyterms=keyterms, timeout=timeout)
+    turns, dropped = clip_turns(body, pcm, drop_other_tables=drop_other_tables and diarize)
     if dropped:
         log(f"clip: dropped {len(dropped)} quieter speaker(s) as another table")
     return turns
