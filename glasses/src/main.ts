@@ -10,10 +10,14 @@ import { BackendSocket, type SocketStatus } from './socket'
 import { loadManager, loadQueue, loadRole, saveRole } from './storage'
 import { log } from './log'
 import { mountUi, renderPhone } from './ui'
+import { MAIN_ID } from './render'
+import * as telemetry from './telemetry'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'ws://localhost:8787/ws'
 // Dev token only: it ships in the WebView bundle (glasses/NOTES.md).
 const urlFor = (r: Role) => backendUrl(BACKEND_URL, r, import.meta.env.VITE_FS_TOKEN, import.meta.env.VITE_FS_STAFF)
+const staffOf = (r: Role) => new URL(urlFor(r)).searchParams.get('staff') ?? ''
+const FS_TOKEN = import.meta.env.VITE_FS_TOKEN || new URL(BACKEND_URL).searchParams.get('token') || ''
 
 let status: SocketStatus = 'connecting'
 
@@ -23,16 +27,28 @@ let role: Role = await loadRole(bridge)
 const restoredQueue = await loadQueue(bridge)
 const restoredManager = await loadManager(bridge)
 const restoredDone = await loadDone(bridge)
+// Sentry starts on its own once GET /config answers; the app never waits for it.
+void telemetry.startTelemetry({ wsUrl: BACKEND_URL, token: FS_TOKEN, tags: { role, staff: staffOf(role) } })
+telemetry.watchLens(bridge, MAIN_ID)
 log('role', role, 'restored queue', restoredQueue.length, 'alerts', restoredManager.exceptions.open.length)
 
 const socket = new BackendSocket(urlFor(role), {
   onMessage: msg => {
+    if (msg.type !== 'floor.state') telemetry.crumb('frame.in', msg.type, telemetry.frameData(msg))
+    if (msg.type === 'voice.command') telemetry.noteInput(`verity ${msg.intent}`)
+    if (msg.type === 'task.assigned') telemetry.taskAssigned(msg)
     server.onMessage(msg)
     manager.onMessage(msg)
+    if (msg.type === 'task.assigned' && !(role === 'server' && server.screen() === 'card'))
+      telemetry.cardNotShown(server.queue[0]?.id === msg.task.id)
   },
+  onSent: msg => telemetry.crumb('frame.out', msg.type, telemetry.frameData(msg)),
+  onClose: code => telemetry.crumb('socket', 'closed', { code }),
   onStatus: s => {
     status = s
     log('status', s)
+    telemetry.crumb('socket', s)
+    telemetry.logInfo(`socket ${s}`, { role })
     server.onStatus()
     manager.onStatus()
     syncPhone()
@@ -73,6 +89,8 @@ async function switchRole(next: Role): Promise<void> {
   active().leave()
   role = next
   log('role ->', role)
+  telemetry.crumb('role', role)
+  telemetry.setTags({ role, staff: staffOf(role) })
   await saveRole(bridge, role)
   // The backend routes by the role/staff on the socket, so a new role is a new connection.
   socket.redial(urlFor(role))
@@ -101,6 +119,9 @@ const GESTURE_EVENTS: Partial<Record<OsEventTypeList, 'tap' | 'up' | 'down' | 'h
   [OsEventTypeList.DOUBLE_CLICK_EVENT]: 'exit',
 }
 
+/** What people read (breadcrumbs, span attributes): swipe fwd/back, never up/down. */
+const GESTURE_NAMES = { tap: 'tap', up: 'swipe fwd', down: 'swipe back', hold: 'long press', exit: 'double tap' } as const
+
 let cleanedUp = false
 function cleanup(): void {
   if (cleanedUp) return
@@ -118,6 +139,8 @@ bridge.onEvenHubEvent(event => {
   const gesture = GESTURE_EVENTS[type]
   if (gesture) {
     log(gesture, 'on', where)
+    telemetry.noteInput(GESTURE_NAMES[gesture])
+    telemetry.crumb('gesture', GESTURE_NAMES[gesture], { where })
     if (gesture === 'exit') {
       // Even Hub review rule: double tap exits through the system dialog, nothing else.
       void bridge.shutDownPageContainer(1)
@@ -131,6 +154,7 @@ bridge.onEvenHubEvent(event => {
   switch (type) {
     case OsEventTypeList.FOREGROUND_ENTER_EVENT:
       log('foreground enter: reconnecting')
+      telemetry.crumb('socket', 'reconnect (foreground)')
       socket.reconnectNow()
       return
     case OsEventTypeList.FOREGROUND_EXIT_EVENT:
@@ -138,10 +162,14 @@ bridge.onEvenHubEvent(event => {
       log('foreground exit: saving state')
       server.save()
       manager.save()
+      telemetry.crumb('lifecycle', 'foreground exit')
+      telemetry.flush()
       return
     case OsEventTypeList.SYSTEM_EXIT_EVENT:
     case OsEventTypeList.ABNORMAL_EXIT_EVENT:
       log('exit event', type)
+      telemetry.crumb('lifecycle', 'exit', { type })
+      telemetry.flush()
       cleanup()
       return
     default:

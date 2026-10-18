@@ -399,3 +399,26 @@ with `--automation-port 9898`, role switched on the phone page.
 - Under 2 minutes `{elapsed}` rounds down to 10 s steps, so a 15 s wait reads `10s`; at the 12-minute default it
   reads `12m`.
 - HW-PENDING: the 86 line and the three-line exceptions list on a real G2 (brightness of the `warn` vs `info` lines).
+
+## Sentry (errors, breadcrumbs, two transactions), checked in the simulator 0.9.5 against the real backend
+
+- `@sentry/browser` 10.76.2 (exact, same as `web/`). `src/telemetry.ts` fetches `GET /config` from the socket's host
+  (`ws://h/ws` -> `http://h/config`, token as a bearer header, 3 s timeout). No DSN or `sentry: null` -> Sentry off,
+  the app runs as before; the SDK chunk (`src/sentry-sdk.ts`) is only imported once /config has a DSN.
+- Simulator run: backend with the web DSN and `FS_TRACE_WIRE=1`, Vite with `?sentryDebug=1` (logs every scrubbed
+  payload as `[fs] sentry <kind> ...`). `POST /tasks` CHECK T5 -> transaction `task.assigned -> card`, op `ui.card`,
+  the backend's trace id and parent span id (`continued: true`), 6 ms to the card drawn, tags
+  `role=server staff=s1 app_version=0.1.6 even_hub_sdk=0.0.16`.
+- The clip transaction (`clip -> order card`, child spans to the order card and the summary, `trigger` = swipe back /
+  verity clip / controls) is pinned in `telemetry.test.ts`; not run end to end here (no ElevenLabs agent id or fixtures
+  on this VM).
+- Never sent: audio, transcripts, card or order text (console breadcrumbs are off since our `[fs]` lines carry card
+  text; frame breadcrumbs keep only type, ids, states). Every string in events, breadcrumbs, spans and logs has
+  `token=` values and the token itself replaced with `[Filtered]`.
+- Size: main JS 247.96 -> 254.97 kB (gzip 77.72 -> 80.50), plus the lazy Sentry chunk 104.08 kB (gzip 35.24);
+  `.ehpk` 85,913 -> 126,138 bytes.
+- Session Replay off: the lens is drawn by the SDK through the bridge, so Replay sees only the phone page (`#app`:
+  role picker and debug lists, which hold task text and would need masking). It would add roughly the size of the
+  current Sentry chunk again for nothing about the glasses.
+- `app.json` whitelists the Sentry ingest host (`https://o4512224561594368.ingest.us.sentry.io`). HW-PENDING:
+  events reaching Sentry from the real G2 WebView (CORS / whitelist), and the bridge wrapper in `watchLens` on hardware.

@@ -20,6 +20,7 @@ import {
 import { MAIN_ID, MAIN_NAME } from './render'
 import type { BackendSocket } from './socket'
 import { log } from './log'
+import { clipShown, clipStarted } from './telemetry'
 
 // The draft screen of the server role: sends a clipped minute (capture.start mode=clip, its
 // frames, capture.stop), then shows the order.draft the backend makes of it in two text
@@ -131,6 +132,7 @@ export class CaptureScreen {
     for (const f of frames) this.socket.sendAudio(f)
     this.socket.send({ type: 'capture.stop', captureId: id })
     log('clip sent', id, `${(frames.length / 10).toFixed(1)} s`, table ?? 'no table')
+    clipStarted(id, frames.length / 10, Boolean(table))
     if (this.timer) clearTimeout(this.timer)
     this.timer = setTimeout(() => {
       if (this.clipId === id && this.voice === 'processing') this.offline('no draft for the clip')
@@ -237,12 +239,14 @@ export class CaptureScreen {
           const ms = Math.round(t1 - this.clipAt)
           ;(window.__fsLatency ??= []).push(ms)
           log('latency swipe back -> draft on glasses', `${ms} ms`)
+          clipShown(this.clipId, 'order')
           this.clipAt = null
         }
         if (this.talkAt !== null && this.draft?.captureId === this.clipId && (this.draft.summary || this.draft.answers?.length)) {
           const ms = Math.round(t1 - this.talkAt)
           ;(window.__fsTalkLatency ??= []).push(ms)
           log('latency swipe back -> summary and answers on glasses', `${ms} ms`)
+          clipShown(this.clipId, 'summary')
           this.talkAt = null
         }
       } while (this.dirty && this.active)

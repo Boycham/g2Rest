@@ -178,9 +178,18 @@ export type GlassesJsonMessage =
 
 // ---------- backend -> glasses ----------
 
+/** CONTRACT.md 8.12 (proposed): the Sentry trace of the backend span that sent a frame. */
+export interface TraceContext {
+  /** `<32 hex trace id>-<16 hex span id>[-0|1]` */
+  sentryTrace: string
+  baggage?: string
+}
+
 export interface TaskAssigned {
   type: 'task.assigned'
   task: Task
+  /** Only when the backend runs with FS_TRACE_WIRE=1. */
+  trace?: TraceContext
 }
 
 /** Full replacement of a task the glasses already have. */
