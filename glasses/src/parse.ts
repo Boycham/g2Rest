@@ -32,7 +32,9 @@ const BACKEND_TYPES: readonly BackendMessage['type'][] = [
   'alert',
   'floor.state',
   'order.closed',
+  'voice.command',
 ]
+const INTENTS = ['up', 'down', 'back', 'confirm', 'clip', 'accept', 'decline', 'done']
 const CLOSED_STATUSES = ['fired', 'cancelled']
 
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -109,6 +111,7 @@ export function parseBackendMessage(raw: string): BackendMessage | null {
   if (v.type === 'alert' && !isAlert(v)) return null
   if (v.type === 'floor.state' && !isFloorState(v)) return null
   if (v.type === 'order.closed' && !(isStr(v.orderId) && CLOSED_STATUSES.includes(v.status as string))) return null
+  if (v.type === 'voice.command' && !INTENTS.includes(v.intent as string)) return null
   return v as unknown as BackendMessage
 }
 

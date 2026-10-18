@@ -103,7 +103,7 @@ export interface CaptureStart {
    * as fast as possible; `capture.stop` ends the clip and the backend transcribes and extracts
    * it in one go. Absent or `stream`: live mic frames (the earlier capture path).
    */
-  mode?: 'stream' | 'clip'
+  mode?: 'stream' | 'clip' | 'command'
 }
 
 /**
@@ -241,6 +241,18 @@ export interface OrderClosed {
   status: 'fired' | 'cancelled'
 }
 
+/** Voice commands the relay matched after the wake word "verity" (fixed list, no LLM). */
+export type VoiceIntent = 'up' | 'down' | 'back' | 'confirm' | 'clip' | 'accept' | 'decline' | 'done'
+
+/**
+ * "verity <command>" heard on the always-on command stream. The glasses act on it exactly
+ * like the matching gesture (task.accept / task.bounce / task.done frames for task intents).
+ */
+export interface VoiceCommand {
+  type: 'voice.command'
+  intent: VoiceIntent
+}
+
 /** A full snapshot of every table (not a diff); sent on connect and on every change. */
 export interface FloorState {
   type: 'floor.state'
@@ -255,3 +267,4 @@ export type BackendMessage =
   | Alert
   | FloorState
   | OrderClosed
+  | VoiceCommand

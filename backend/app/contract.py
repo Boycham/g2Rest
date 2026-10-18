@@ -229,11 +229,18 @@ class OrderClosed(Strict):
     status: Literal["fired", "cancelled"]
 
 
+class VoiceCommand(Strict):
+    """New: "verity <command>" matched by the relay; the glasses act like the gesture."""
+
+    type: Literal["voice.command"]
+    intent: Literal["up", "down", "back", "confirm", "clip", "accept", "decline", "done"]
+
+
 class CaptureStartExt(CaptureStart):
     """+ optional table, when the glasses know which card the server was looking at."""
 
     table: str | None = None
-    mode: Literal["stream", "clip"] | None = None
+    mode: Literal["stream", "clip", "command"] | None = None
 
 
 BackendMessageExt = Annotated[
@@ -243,7 +250,8 @@ BackendMessageExt = Annotated[
     | OrderReadback
     | AlertExt
     | FloorStateExt
-    | OrderClosed,
+    | OrderClosed
+    | VoiceCommand,
     Field(discriminator="type"),
 ]
 GlassesJsonMessageExt = Annotated[
