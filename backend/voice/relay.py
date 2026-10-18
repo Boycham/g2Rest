@@ -130,9 +130,9 @@ def clip_message(turns: list[tuple[str, str]], book: OrderBook) -> str:
     )
     lines = "\n".join(f"{speaker}: {text}" for speaker, text in turns)
     quiet = (
-        " A speaker marked (quiet) was much quieter at the glasses than this table: usually"
-        " another table, so leave out what that line orders unless the server or a guest here"
-        " repeats or answers it."
+        " A line marked (quiet) was much quieter at the glasses than this table: it is"
+        " almost always a guest at another table, even when it says 'for the table'. Add"
+        " nothing from a (quiet) line unless an unmarked line orders the same dish."
         if any(speaker.endswith(QUIET_TAG) for speaker, _ in turns)
         else ""
     )
