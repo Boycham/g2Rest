@@ -99,7 +99,8 @@ For every clip, call set_talk exactly once.
 - questions: every question or comment a guest made to the server ("is the risotto
   vegetarian?", "can it come without nuts?", "we're in a rush"), q in 2-5 words, with kind,
   dish and allergen or change in the guest's own words. A comment about pacing or the
-  occasion counts. Skip small talk with no ask and anything by or about other tables.
+  occasion counts. Ordering itself ("the halibut, no butter") is not a question: the other
+  agent takes it. Skip small talk with no ask and anything by or about other tables.
 - guest: number the guests 1, 2, 3 in the order they first order or state an allergy; a new
   guest starts with "and I'd like", "for me", or the server turning to another person.
 - Do not answer food questions: code answers them from the menu. Only a comment (kind
