@@ -9,7 +9,6 @@
 - **Devin (Cognition)** wrote the voice spike in `backend/voice/`: it read the ElevenLabs docs,
   wrote the menu, the order model and guards, the tests, the ElevenLabs session code and the CLI
   scripts, and ran them live against ElevenLabs. A human briefed and reviewed the work.
-
 - **Devin (Cognition)** wrote the restaurant brain in `backend/` (not `backend/voice/`) and the shared
   data in `data/`: the Python mirror of the message contract and the mock WebSocket server, the fictional
   menu and floor plan, the FastAPI/WebSocket hub with the task state machine (bounce, 30 s escalation,
@@ -17,7 +16,12 @@
   "food up" endpoints, the tests and the walkthrough script. A human briefed it, set the rules
   (course above temperature, 5-minute ceiling, max 3 plates per runner, cold never delays hot) and
   reviewed the PR; the web lane's requests (pass endpoints) came through the same session.
-- **Claude Code (Anthropic)** is building the organizer and kitchen web pages in `web/` against that API.
+- **Claude Code (Anthropic, Claude Opus 5.5)** wrote the organizer and kitchen web pages in `web/`:
+  it read the backend-core branch and the glasses contract, wrote the pages, the state reducer and
+  its tests, and checked the pages in headless Chrome (two tabs, timed). Along the way it added an
+  allergy warning to kitchen tickets and found a hub bug, which it reported to the backend-core
+  Devin session; it relayed the web lane's requests to that session over the Devin API. A human
+  directed and reviewed the work.
 
 ## How ElevenLabs is used in the product
 

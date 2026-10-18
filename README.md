@@ -31,3 +31,9 @@ Restaurant floor on Even Realities G2 glasses. See `AGENTS.md` for the brief.
 - [websockets](https://pypi.org/project/websockets/): the step-0 mock server and the walkthrough client
 - [httpx](https://pypi.org/project/httpx/): the walkthrough script and FastAPI's test client
 - Shared fictional data in `data/menu.json` and `data/floor.json`; message contract in `backend/CONTRACT.md`
+
+### Web pages (`web/`)
+- Plain HTML, CSS and JavaScript ES modules, no framework or build step
+- Node's built-in test runner (`node --test`): tests for the page state
+- [playwright-core](https://www.npmjs.com/package/playwright-core) with the local Chrome: used
+  during development to check the pages in two tabs; not a dependency of the repo
