@@ -21,7 +21,10 @@ FIXTURES = Path(__file__).with_name("fixtures")
 DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb"  # premade voice used in the TTS API reference example
 TTS_MODEL = "eleven_multilingual_v2"
 UTTERANCES = {
-    "01_order": "Table twelve. Seat one, the halibut, no butter. Seat two, the salmon, no dill.",
+    # Soup and torte are ordered so fixtures 2 and 4 remove something that is there; after
+    # both removals are tapped the order matches the voice test's.
+    "01_order": "Table twelve. Seat one, the halibut, no butter, and the chocolate torte. "
+    "Seat two, the salmon, no dill, and the tomato soup.",
     "02_no_soup": "Actually, no soup for seat two.",
     "03_allergy": "Seat three has a shellfish allergy.",
     "04_cancel_dessert": "Cancel table twelve's dessert.",

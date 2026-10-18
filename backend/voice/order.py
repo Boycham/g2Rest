@@ -312,6 +312,8 @@ class OrderBook:
             key = _norm(raw)
             course = key.rstrip("s") if key.rstrip("s") in COURSES else None
             if course:
+                if not any(self.menu.dishes[d].course == course for d in ordered):
+                    raise ToolError(f"table {t} has no {course} ordered; nothing to cancel")
                 targets.append(f"course:{course}")
                 continue
             dish = self.menu.resolve(raw)

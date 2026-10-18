@@ -176,6 +176,13 @@ def test_whole_order_cancel_needs_accept_then_locks_table(book):
     assert err
 
 
+def test_cancel_course_not_ordered_is_an_error(book):
+    call(book, "add_item", table=12, seat=1, dish="halibut", qty=1)
+    result, err = call(book, "cancel_order", table=12, items=["dessert"])
+    assert err and "no dessert ordered" in result["error"]
+    assert book.tables[12].proposals == []
+
+
 def test_confirm_needs_dishes(book):
     result, err = call(book, "confirm_order", table=12)
     assert err and "nothing to send" in result["error"]
