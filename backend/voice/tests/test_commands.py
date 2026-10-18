@@ -75,3 +75,78 @@ def test_tables_said_in_a_clip_skips_homophones():
     assert tables_said("The halibut, no butter. Thanks, that was table four.") == [4]
     assert tables_said("Table 2, sorry, table three.") == [2, 3]
     assert tables_said("Can we get a table for two by the window?") == []
+
+
+# ---- sound-alikes: only right after a wake-word match ----
+
+NEVER_FIRE = [
+    "That was very tasty, thank you.",
+    "Could you verify the bill for us?",
+    "Can you verify done orders before you go?",
+    "Verity is my sister's name, actually.",
+    "We're done, I accept, let's go back up to the room.",
+    "Could we get a table for two by the window?",
+    "There's a variety of desserts tonight, all made in house.",
+    "We have a variety menu on Sundays.",
+    "There's variety up here and down there.",
+    "Verily, this is the best halibut in town.",
+    "The rarity of white truffles makes them pricey.",
+    "We need some clarity on the menu, honestly.",
+    "I'm very done with this traffic.",
+    "Is this a charity dinner? Very good, I'll accept that.",
+    "Every table here is booked, so there's a long queue.",
+    "Except for the salmon, everything was great.",
+    "Click the link and confirm your table.",
+    "Very, very good. Done.",
+    "Purity, parity and clarity.",
+]
+
+
+def test_conversation_never_fires_with_soundalikes_on():
+    for phrase in NEVER_FIRE:
+        assert parse_commands(phrase) == [], phrase
+
+
+def test_misheard_wake_word_at_the_start_of_a_clause_before_a_command():
+    assert find_commands("Verily, done.") == ["done"]
+    assert find_commands("Variety, accept.") == ["accept"]
+    assert find_commands("Okay, verety back.") == ["back"]
+    assert find_commands("Varity menu.") == ["menu"]
+    assert find_commands("Verty, confirm.") == ["confirm"]  # one edit from verity
+    assert parse_commands("Verily, done.", soundalikes=False) == []
+
+
+def test_misheard_wake_word_never_sends_unknown_words_to_gemini():
+    assert parse_commands("Verily, give it to Ben.") == []
+    assert parse_commands("Verity, give it to Ben.") == [Command("unknown", words="give it to ben")]
+
+
+def test_misheard_command_words_after_the_wake_word():
+    assert find_commands("Verity, except.") == ["accept"]
+    assert find_commands("Verity conform.") == ["confirm"]
+    assert find_commands("Verity click.") == ["clip"]
+    assert find_commands("Verity, decleine.") == ["decline"]  # one edit, long word
+    assert find_commands("Verity, revrt.") == ["revert"]
+    assert find_commands("Verity, dome.") == []  # short words need an exact or listed form
+    assert parse_commands("Verity, except.", soundalikes=False) == [
+        Command("unknown", words="except")
+    ]
+
+
+def test_every_listed_soundalike_has_a_reason_and_maps_to_a_command():
+    from commands import INTENTS, NOT_WAKE, SOUNDALIKES, WAKE_SOUNDALIKES, is_wake_soundalike
+
+    assert all(reason for reason in WAKE_SOUNDALIKES.values())
+    assert all(intent in INTENTS and reason for intent, reason in SOUNDALIKES.values())
+    assert not any(is_wake_soundalike(w) for w in NOT_WAKE)
+
+
+def test_keyterms_fit_the_realtime_limits():
+    from commands import keyterms
+
+    rt = keyterms()
+    assert rt[0] == "Verity" and len(rt) <= 50 and all(len(k) <= 20 for k in rt)
+    for must in ("done", "handoff", "exit", "Ava", "Ben", "Dana", "eight", "Burrata"):
+        assert must in rt
+    batch = keyterms(realtime=False)
+    assert "Pan-Roasted Halibut" in batch and "halibut" in batch and len(batch) < 100
