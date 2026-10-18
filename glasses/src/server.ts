@@ -13,7 +13,7 @@ import { tap, type Queue } from './tasks'
 import { log } from './log'
 import { CONTROLS, CONTROLS_HINT, MAIN_GESTURES, formatControls, moveSelection, type ControlAction } from './controls'
 import { handoffFrame, handoffPrompt } from './handoff'
-import { didntGet, voiceAction, type VoiceGesture } from './voice'
+import { didntGet, tableLine, voiceAction, type VoiceGesture } from './voice'
 
 /** How long `Heard: <command>` and refusal lines stay on the card. */
 const FLASH_MS = 3000
@@ -265,7 +265,8 @@ export class ServerHud implements Hud {
 
   /** "verity <command>": the same action as the gesture; task frames go out at once. */
   onVoiceCommand(cmd: VoiceCommand): void {
-    log('<- voice.command', cmd.intent, cmd.name ?? '')
+    log('<- voice.command', cmd.intent, cmd.name ?? cmd.table ?? '', cmd.reason ?? '')
+    if (cmd.intent === 'table') return this.flash(tableLine(cmd))
     const action = voiceAction(cmd.intent, this.queue[0], cmd.name)
     switch (action.kind) {
       case 'refuse':
@@ -348,6 +349,7 @@ export class ServerHud implements Hud {
     else if (action === 'decline' && this.queue[0]) this.sendTask({ type: 'task.bounce', taskId: this.queue[0].id })
     else if (action === 'revert') this.sendTask({ type: 'task.revert' })
     else if (action === 'controls') void this.openControls()
+    else if (action === 'table') this.flash('say verity table and a number')
   }
 
   /** What a gesture does on the main card (MAIN_GESTURES in controls.ts). */

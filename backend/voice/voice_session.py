@@ -210,6 +210,63 @@ CLIP_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
             },
         },
+    },
+]
+TALK_TOOL_SCHEMAS: list[dict[str, Any]] = [
+    {
+        "name": "set_talk",
+        "description": "A short summary of the clip and every question or "
+        "comment a guest made. Display only on the glasses; code answers food questions.",
+        "parameters": {
+            "type": "object",
+            "required": ["summary"],
+            "properties": {
+                "summary": {
+                    "type": "string",
+                    "description": "1-2 short sentences: what the table said, mood, pacing or "
+                    "occasion. No questions, no dishes nobody ordered.",
+                },
+                "questions": {
+                    "type": "array",
+                    "description": "Each question or comment a guest made to the server",
+                    "items": {
+                        "type": "object",
+                        "required": ["q", "kind"],
+                        "properties": {
+                            "guest": {"type": "integer", "description": "Same numbering as items"},
+                            "seat": {"type": "integer", "description": "Only if said aloud"},
+                            "q": {
+                                "type": "string",
+                                "description": "A few words, e.g. 'risotto vegetarian?'",
+                            },
+                            "kind": {
+                                "type": "string",
+                                "enum": [
+                                    "allergen",
+                                    "alteration",
+                                    "dietary",
+                                    "ingredients",
+                                    "prep",
+                                    "comment",
+                                    "other",
+                                ],
+                                "description": "allergen: does X contain Y; alteration: can X "
+                                "come without Y; dietary: vegetarian, gluten-free...; comment: "
+                                "not about food, e.g. 'we're in a rush'",
+                            },
+                            "dish": {"type": "string", "description": "Dish it is about, if any"},
+                            "allergen": {"type": "string", "description": "e.g. 'nuts'"},
+                            "change": {"type": "string", "description": "e.g. 'no nuts'"},
+                            "reply": {
+                                "type": "string",
+                                "description": "comment only: a short line the server could "
+                                "say, never about food (code answers food questions)",
+                            },
+                        },
+                    },
+                },
+            },
+        },
     }
 ]
 

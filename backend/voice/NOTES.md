@@ -198,10 +198,62 @@ in the prompt fixed seats (5/5) but the allergy still goes to s1 instead of s2 i
 guest voices (diarization), or an allergy `?` line when the speaker is ambiguous. CREAO is not used here (runs
 take minutes); a CREAO end-of-shift digest could come later.
 
+### Summary and answers (branch `devin/clip-summary`)
+
+- A second agent (`create_agent.py --mode talk`, `.talk_agent_id`, claude-haiku-4-5) reads the same
+  transcript in parallel with the order agent and calls `set_talk(summary, questions[{guest?, seat?, q,
+  kind, dish?, allergen?, change?, reply?}])`. The relay sends the order draft as soon as `set_order`
+  lands and the summary and answers in a second `order.draft` when `set_talk` lands; a talk failure leaves
+  the order card as it was (no conversation lines).
+- **The menu answers, not the agent (`answers.py`, `tests/test_answers.py`):** for an allergen, dietary or
+  alteration question the agent only names the dish/allergen/change; code writes the reply from
+  `data/menu.json` (`allergens`, `allowed_alterations`). A reply the agent wrote is only kept for a comment
+  ("we're in a rush") and is dropped if it names a dish or allergen. Anything the menu can't answer
+  (vegetarian, spicy, gluten-free bread) becomes `known: false`, `a: "not in menu data"`. Max 4 answers.
+- One combined agent was slower (old main 3.83 s → 5.33-6.29 s to the order), hence two agents.
+
+Latency, relay bench (`capture.start{mode:"clip"}` + frames + `capture.stop` over the local socket; median
+of 5; same relay, same agents):
+
+| Fixture | Scribe batch | → order draft | → summary + answers |
+|---|---|---|---|
+| 60 s (`conv_questions`, old main, order only) | | 3.83 s | – |
+| 60 s (`conv_questions`) | 1.69 s | 3.83 s | 4.62 s |
+| **120 s (`conv_2min`)** | **2.51 s** | **4.13 s** | **5.05 s** |
+
+### 2-minute clip (owner, 2026-10-18): measured, held back on `devin/clip-2min`
+
+Not in this branch: the clip stays 60 s until the owner accepts the latency below.
+
+
+- `conv_2min` (120.0 s, 3.84 MB): 17.8 s of small talk from `conv_task`, then `conv_answers_only`,
+  `conv_questions`, `conv_table_last`; 33 turns, 327 words.
+- **Batch Scribe accepted the 120 s raw PCM** (`scribe_v2`, `pcm_s16le_16`, diarized) 5/5: 2.23, 2.98, 2.51,
+  2.54, 2.43 s (60 s: 1.22-1.85 s). The transcript is ~330 words, far inside the agent's context.
+- Cost of 2 minutes: Scribe +0.8 s, order +0.3 s, summary/answers +0.4 s (table above); WebView memory 3.84 MB
+  of preallocated frame slots (was 1.92 MB). In the simulator against the real hub the gap is bigger, median
+  of 5 swipe → order 3.75 s (60 s) vs **5.46 s** (120 s), → summary and answers 4.82 s vs **6.70 s**
+  (`glasses/NOTES.md`): noticeably slower than the ~4 s bar.
+- A 2-minute clip holds more of the meal, so a later swipe re-reads lines already in the draft (the existing
+  "a dish a later clip drops only becomes a removal proposal" rule covers it).
+
+### Table by voice
+
+- `tables_said()` (`commands.py`) finds every "table N" in the clip transcript (digits or words; "number"
+  allowed in between); the relay binds the last floor table said, so "thanks, that was table four" as the
+  server's last words binds T4 (`conv_table_last`: 15.1 s, no ORDER task → T4, checked against the live
+  relay). In a clip, homophones ("table for two") don't count. It never overrides the ORDER task.
+- `verity table N` (command stream; `four`/`for`/`4` all parse to 4 after the wake word) rebinds the unsent
+  draft over the task's table, checked against `data/floor.json` (T1-T8): `no table 12`, `already sent`
+  after the tap, `no order to set the table for` with no draft (`tests/test_relay.py`).
+- Noise test, one run with "Verity, table four.": recognised as table 4 in **4/4** conditions (clean,
+  babble -12 dB, babble -12 dB + white 10 dB, babble -6 dB). Whole word list: 43/68; false triggers 0
+  (conv_task, conv_task + noise, near misses incl. "Could we get a table for two by the window?").
+
 ## Voice commands (`commands.py`, relay command stream)
 
 "verity" + one of up / down / back / confirm / clip / accept / decline / done / handoff [Name] /
-nevermind / revert / menu (or controls) / queue. A fixed word list, no LLM: an intent only counts when it directly follows the wake word, so "we're done here" or "I accept"
+nevermind / revert / menu (or controls) / queue / table N. A fixed word list, no LLM: an intent only counts when it directly follows the wake word, so "we're done here" or "I accept"
 in conversation never fires. While the Server role is on, the glasses stream the live mic to the relay
 as `capture.start {mode: "command"}`; the relay runs realtime Scribe (English, VAD commit 0.8 s) and
 sends back only `voice.command {intent}`. The transcript is never logged, stored or forwarded. While a

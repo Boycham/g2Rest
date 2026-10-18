@@ -56,6 +56,45 @@ CONVERSATIONS = {
         (S, "Okay, that was table two."),
     ],
 }
+# Orders plus guest questions and comments for the clip summary and answers. conv_questions
+# is about a minute with an order; conv_answers_only has questions but no order.
+CONVERSATIONS |= {
+    "conv_questions": [
+        (S, "Good evening, welcome in. How is everyone doing tonight?"),
+        (G, "Great, thanks. It's my sister's birthday, so we're celebrating."),
+        (S, "Oh, happy birthday! How old, if you don't mind me asking?"),
+        (G, "Thirty, but don't tell anyone. We drove in from Pasadena for this."),
+        (S, "Well, we're honored. The traffic must have been terrible tonight."),
+        (G, "It was awful, the freeway was a parking lot the whole way."),
+        (G, "Your patio looks lovely, by the way. Is it open in the winter?"),
+        (S, "It is, we have heaters out there. Have you had a chance to look at the menu?"),
+        (G, "We have, but we're in a bit of a rush, we have a show at eight."),
+        (S, "No problem at all, I'll keep things moving."),
+        (G, "Is the mushroom risotto vegetarian?"),
+        (G, "And does the risotto have any nuts in it?"),
+        (S, "Let me check on that for you."),
+        (G, "Okay. I'll have the halibut, no butter, please."),
+        (G, "And I'd like the mushroom risotto."),
+        (G, "Can the chocolate torte come without nuts? We'd love one for dessert."),
+        (S, "Perfect, I'll get that started for you right away."),
+    ],
+    "conv_answers_only": [
+        (S, "Hi there, welcome. Are you ready to order, or do you need a few minutes?"),
+        (G, "We need a few more minutes, sorry, it's all so good."),
+        (G, "Quick question, does the pork belly have sesame in it?"),
+        (G, "And is the duck spicy at all?"),
+        (G, "Also, do you have gluten-free bread?"),
+        (G, "We're in a bit of a rush tonight, so we'll order soon."),
+        (S, "Of course, take your time, I'll be right back."),
+    ],
+}
+# The table only as the server's last words, after the order (no ORDER task): binds T4.
+CONVERSATIONS["conv_table_last"] = [
+    (S, "Hi folks, are we ready to order?"),
+    (G, "Yes. I'll have the pan-roasted halibut, no butter please."),
+    (G, "And I'd like the duck breast, and the lemon sorbet after."),
+    (S, "Perfect, I'll put that right in. Thanks, that was table four."),
+]
 # The same order before the server names the table: the draft shows TABLE? until a second
 # swipe down sends conv_tableless, whose last line is "that was table two".
 CONVERSATIONS["conv_notable"] = CONVERSATIONS["conv_tableless"][:-1]
@@ -102,12 +141,14 @@ def conversation(http: httpx.Client, lines: list[tuple[str, str]]) -> bytes:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--snr-db", type=float, help="also write white-noise copies at this SNR")
+    ap.add_argument("--only", nargs="*", help="only these fixture names, e.g. conv_questions")
     args = ap.parse_args()
     voice = os.environ.get("ELEVENLABS_VOICE_ID") or DEFAULT_VOICE
     FIXTURES.mkdir(exist_ok=True)
     with httpx.Client(base_url=API, headers={"xi-api-key": api_key()}, timeout=30) as http:
-        clips = {name: tts(http, voice, text) for name, text in UTTERANCES.items()}
-        clips |= {name: conversation(http, lines) for name, lines in CONVERSATIONS.items()}
+        want = set(args.only or [*UTTERANCES, *CONVERSATIONS])
+        clips = {n: tts(http, voice, t) for n, t in UTTERANCES.items() if n in want}
+        clips |= {n: conversation(http, lines) for n, lines in CONVERSATIONS.items() if n in want}
         for name, pcm in clips.items():
             path = FIXTURES / f"{name}.pcm"
             path.write_bytes(pcm)

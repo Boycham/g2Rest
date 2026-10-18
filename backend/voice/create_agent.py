@@ -1,7 +1,9 @@
 """Create the text-only order agent and its client tools via the ElevenLabs API.
 
-Usage: python create_agent.py [--mode clip|stream] [--llm gemini-2.5-flash] [--dry-run]
+Usage: python create_agent.py [--mode clip|talk|stream] [--llm gemini-2.5-flash] [--dry-run]
 `clip` (default): the conversational-capture agent, one set_order call per minute-long clip.
+`talk`: the clip's second agent, run in parallel: one set_talk call (summary and the guests'
+questions) per clip. Writes .talk_agent_id.
 `stream`: the earlier per-segment agent used by run_spike.py.
 Writes the new agent id to .agent_id (gitignored) and prints it.
 """
@@ -15,10 +17,19 @@ from pathlib import Path
 import httpx
 
 from order import Menu
-from voice_session import API, CLIP_TOOL_SCHEMAS, HTTP_TIMEOUT, TOOL_SCHEMAS, api_key, log
+from voice_session import (
+    API,
+    CLIP_TOOL_SCHEMAS,
+    HTTP_TIMEOUT,
+    TALK_TOOL_SCHEMAS,
+    TOOL_SCHEMAS,
+    api_key,
+    log,
+)
 
 AGENT_NAME = "floor-sense-order-spike"
 CLIP_AGENT_NAME = "floor-sense-clip-order"
+TALK_AGENT_NAME = "floor-sense-clip-talk"
 TOOL_TIMEOUT_SECS = 10
 
 PROMPT = """You turn a restaurant server's spoken order into tool calls. Each user message is
@@ -74,6 +85,36 @@ For every clip, call set_order exactly once with the complete order for this tab
   tool call, reply with "ok" only."""
 
 
+TALK_PROMPT = """You read the transcript of the last minute at one restaurant table, picked up
+by the server's smart glasses: the server, the guests, and sometimes people at nearby tables.
+Speaker labels come from voice diarization and may be wrong. Speech-to-text may mishear words.
+Another agent takes the order; you only report what the table said, for the server to glance at.
+
+Menu (use these exact names):
+{menu}
+
+For every clip, call set_talk exactly once.
+- summary: 1-2 short sentences on what the table said: mood, pacing, occasion ("birthday,
+  in a rush for an 8pm show"). Never name a dish nobody ordered or an allergy nobody stated.
+- questions: every question or comment a guest made to the server ("is the risotto
+  vegetarian?", "can it come without nuts?", "we're in a rush"), q in 2-5 words, with kind,
+  dish and allergen or change in the guest's own words. A comment about pacing or the
+  occasion counts. Ordering itself ("the halibut, no butter") is not a question: the other
+  agent takes it. Skip small talk with no ask and anything by or about other tables.
+- guest: number the guests 1, 2, 3 in the order they first order or state an allergy; a new
+  guest starts with "and I'd like", "for me", or the server turning to another person.
+- Do not answer food questions: code answers them from the menu. Only a comment (kind
+  comment) gets a short reply the server could say ("I'll ask the kitchen to fire it now").
+- Nobody can answer you: the glasses have no speaker and your text is never shown. Never ask
+  questions. After the tool call, reply with "ok" only."""
+
+MODES = {
+    "clip": (CLIP_PROMPT, CLIP_AGENT_NAME, CLIP_TOOL_SCHEMAS, ".agent_id"),
+    "talk": (TALK_PROMPT, TALK_AGENT_NAME, TALK_TOOL_SCHEMAS, ".talk_agent_id"),
+    "stream": (PROMPT, AGENT_NAME, TOOL_SCHEMAS, ".agent_id"),
+}
+
+
 def build_payloads(llm: str, mode: str = "clip") -> tuple[list[dict], dict]:
     tools = [
         {
@@ -84,11 +125,11 @@ def build_payloads(llm: str, mode: str = "clip") -> tuple[list[dict], dict]:
                 "response_timeout_secs": TOOL_TIMEOUT_SECS,
             }
         }
-        for schema in (CLIP_TOOL_SCHEMAS if mode == "clip" else TOOL_SCHEMAS)
+        for schema in MODES[mode][2]
     ]
-    prompt = CLIP_PROMPT if mode == "clip" else PROMPT
+    prompt, name = MODES[mode][:2]
     agent = {
-        "name": CLIP_AGENT_NAME if mode == "clip" else AGENT_NAME,
+        "name": name,
         "tags": ["floor-sense", "spike"],
         "conversation_config": {
             "conversation": {"text_only": True},
@@ -109,7 +150,7 @@ def build_payloads(llm: str, mode: str = "clip") -> tuple[list[dict], dict]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=("clip", "stream"), default="clip")
+    ap.add_argument("--mode", choices=tuple(MODES), default="clip")
     # Measured on conv_task (NOTES.md): claude-haiku-4-5 was right 4/5 at ~4.0 s; gemini-2.5-flash
     # 3/5 at ~6.5 s; gpt-4.1-mini 3/5 at ~2.5 s with a 20 s stall; gemini-2.5-flash-lite 0/5.
     ap.add_argument("--llm", default="claude-haiku-4-5")
@@ -132,8 +173,9 @@ def main() -> None:
         if r.is_error:
             raise SystemExit(f"[fs] agent create failed {r.status_code}: {r.text}")
     agent_id = r.json()["agent_id"]
-    Path(__file__).with_name(".agent_id").write_text(agent_id + "\n")
-    log(f"agent {agent_id} (saved to .agent_id; or set ELEVENLABS_AGENT_ID)")
+    saved = MODES[args.mode][3]
+    Path(__file__).with_name(saved).write_text(agent_id + "\n")
+    log(f"agent {agent_id} (saved to {saved})")
 
 
 if __name__ == "__main__":

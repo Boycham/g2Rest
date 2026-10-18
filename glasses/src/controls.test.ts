@@ -10,6 +10,11 @@ describe('gesture map', () => {
     expect(CONTROLS.map(c => c.action)).toContain('queue')
     expect(CONTROLS.at(-1)?.action).toBe('close')
   })
+
+  it('lists Set table with its voice command', () => {
+    const row = CONTROLS.find(c => c.action === 'table')
+    expect(row).toMatchObject({ label: 'Set table', voice: 'verity table N' })
+  })
 })
 
 describe('Controls menu', () => {

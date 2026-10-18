@@ -9,3 +9,4 @@ fixtures/
 *.m4a
 .env
 .agent_id
+.talk_agent_id

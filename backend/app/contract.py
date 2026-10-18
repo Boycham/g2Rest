@@ -142,6 +142,15 @@ class PendingProposal(Strict):
     text: str
 
 
+class Answer(Strict):
+    """A suggested reply to a guest's question, display only (never sent to the kitchen)."""
+
+    seat: int | None = None
+    q: str
+    a: str
+    known: bool = True
+
+
 class OrderDraft(Strict):
     type: Literal["order.draft"]
     orderId: str
@@ -155,6 +164,8 @@ class OrderDraft(Strict):
     notice: str | None = None
     notes: list[str] | None = None
     uncertain: list[str] | None = None
+    summary: str | None = None
+    answers: list[Answer] | None = None
 
 
 class OrderReadback(Strict):
@@ -247,8 +258,14 @@ class VoiceCommand(Strict):
         "revert",
         "menu",
         "queue",
+        "table",
     ]
     name: str | None = None
+    # "verity table N": the table heard ("T4"), the one it replaced, or why it was refused
+    # ("no table 12", "already sent"). The draft itself comes as order.draft.
+    table: str | None = None
+    was: str | None = None
+    reason: str | None = None
 
 
 class VoiceUnknown(Strict):
