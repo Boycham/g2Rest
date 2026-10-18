@@ -319,3 +319,8 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
       inside a clip ("that was table four", even as the last words) binds only when no task or
       "verity table" has set one. Only an unsent draft changes. Additive; `contract.py` `VoiceCommand`
       has the three optional fields.
+12. **Verity is thinking (glasses lane):** relay -> glasses `voice.mapping {words}` just before Gemini maps
+    words after "verity" that are not in the fixed list; a `voice.command` or `voice.unknown` always follows
+    (Gemini's own timeout is `FS_INTENT_TIMEOUT_SEC`, 2 s). The glasses animate `Verity: processing...`
+    until then, and after 5 s show `Didn't get: <words> (timeout)`. Additive; `contract.py` has
+    `VoiceMapping` in `BackendMessageExt`.

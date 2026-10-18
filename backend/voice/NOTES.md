@@ -263,7 +263,8 @@ Unknown words right after "verity" (at most 5; longer is ordinary speech and ign
 `FS_INTENT_TIMEOUT_SEC` timeout, default 2 s, structured JSON)
 with only that short phrase. Code checks the answer is one of the fixed intents and a handoff name is
 one plain word; anything else, a timeout or no key becomes `voice.unknown {words, reason?}` and the
-glasses show `Didn't get: <words>`. Realtime Scribe wrote the TTS "verity queue" as "Verity Q" (2/2 in
+glasses show `Didn't get: <words>`. Before the Gemini call the relay sends `voice.mapping {words}`, so the
+glasses show `Verity: processing...` while it waits. Realtime Scribe wrote the TTS "verity queue" as "Verity Q" (2/2 in
 the simulator run), so `q`/`cue` count as queue after the wake word.
 
 ### Gemini intent call: why it was slow, and what changed
