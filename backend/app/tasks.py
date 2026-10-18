@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 from app.data import Floor
 from app.events import EventLog
+from app.telemetry import Trace, current_trace
 
 TaskState = Literal["queued", "sent", "accepted", "done", "bounced", "escalated"]
 TaskKind = Literal["RUN", "CLEAR", "CHECK", "SEAT", "ORDER"]
@@ -52,6 +53,7 @@ class Task:
     done_at: float | None = None
     tried: list[str] = field(default_factory=list)
     history: list[dict[str, Any]] = field(default_factory=list)
+    trace: Trace | None = None  # the Sentry trace it was created in: accept and done continue it
 
     @property
     def open(self) -> bool:
@@ -190,6 +192,7 @@ class TaskBook:
             created_at=datetime.now(UTC).isoformat(timespec="seconds"),
             assigned_at=now,
             tried=[who],
+            trace=current_trace(),
         )
         self.tasks[task.id] = task
         self._move(task, "queued", now, "created")

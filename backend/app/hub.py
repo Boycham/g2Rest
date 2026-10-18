@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 from fastapi import WebSocket
 
-from app import router
+from app import router, telemetry
 from app.contract import ContractError, check_backend, parse_glasses
 from app.orders import ToolError
 from app.state import Store
@@ -32,9 +32,15 @@ class Conn:
 
 class Hub:
     def __init__(
-        self, store: Store, voice_relay_url: str = "", http: httpx.AsyncClient | None = None
+        self,
+        store: Store,
+        voice_relay_url: str = "",
+        http: httpx.AsyncClient | None = None,
+        *,
+        trace_wire: bool = False,
     ) -> None:
         self.store = store
+        self.trace_wire = trace_wire  # send `trace` on task.assigned (CONTRACT.md §8.11)
         self.http = http or httpx.AsyncClient()  # the router's Gemini calls
         self.conns: dict[WebSocket, Conn] = {}
         self.last_capture: dict[WebSocket, str] = {}
@@ -94,6 +100,8 @@ class Hub:
                 "[fs] not sending off-contract %s to %s: %s", message.get("type"), conn.staff, e
             )
             return False
+        if self.trace_wire and message.get("type") == "task.assigned":
+            message = self._with_trace(message)
         try:
             await conn.ws.send_text(json.dumps(message))
             return True
@@ -101,6 +109,11 @@ class Hub:
             log.warning("[fs] send to %s failed: %r", conn.staff, e)
             self.leave(conn.ws)
             return False
+
+    def _with_trace(self, message: dict[str, Any]) -> dict[str, Any]:
+        task = self.store.book.tasks.get(message["task"]["id"])
+        trace = telemetry.current_trace() or (task.trace if task else None)
+        return {**message, "trace": trace} if trace else message
 
     async def send_staff(self, staff: str, message: dict[str, Any]) -> int:
         delivered = 0
@@ -117,7 +130,9 @@ class Hub:
 
     async def deliver(self, outbound: list[Outbound]) -> None:
         for out in outbound:
-            delivered = await self.send_staff(out.staff, out.message)
+            kind = out.message["type"]
+            with telemetry.span("hub.deliver", f"{kind} -> {out.staff}", staff=out.staff):
+                delivered = await self.send_staff(out.staff, out.message)
             if out.message["type"] == "task.assigned" and delivered:
                 self.store.book.mark_sent(out.message["task"]["id"], self.store.now())
 
@@ -175,7 +190,8 @@ class Hub:
         """Hand out any run a free server can take now; push pass.state if something moved."""
         out = self.store.dispatch()
         if out:
-            await self.deliver(out)
+            with telemetry.root("pass.run", "run dispatch", tasks=len(out)):
+                await self.deliver(out)
         if out or push:
             await self.push_pass()
         return bool(out)
@@ -208,7 +224,8 @@ class Hub:
             return
         self.store.events.append("ws.in", staff=conn.staff, message=msg.model_dump())
         try:
-            await self.handle(conn, msg)
+            with telemetry.root(msg.type, self._frame_name(conn, msg), self._trace_for(msg)):
+                await self.handle(conn, msg)
         except (TaskError, ToolError) as e:
             log.warning("[fs] %s from %s rejected: %s", msg.type, conn.staff, e)
             self.store.events.append("ws.rejected", staff=conn.staff, frame=msg.type, error=str(e))
@@ -220,6 +237,18 @@ class Hub:
                     "reason": str(e),
                 }
                 await self._send(conn, rejected)
+
+    def _trace_for(self, msg: Any) -> telemetry.Trace | None:
+        """The frame's own trace (glasses Sentry, proposed), else the task's: the accept or
+        done then joins the trace of the organizer click or food up that made the task."""
+        if getattr(msg, "trace", None) is not None:
+            return msg.trace.model_dump(exclude_none=True)
+        task = self.store.book.tasks.get(getattr(msg, "taskId", None) or "")
+        return task.trace if task else None
+
+    def _frame_name(self, conn: Conn, msg: Any) -> str:
+        task = self.store.book.tasks.get(getattr(msg, "taskId", None) or "")
+        return f"{msg.type} {task.kind} {task.table}" if task else f"{msg.type} {conn.staff}"
 
     async def handle(self, conn: Conn, msg: Any) -> None:
         now = self.store.now()
