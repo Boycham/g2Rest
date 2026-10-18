@@ -276,15 +276,15 @@ connected as s2 so the real G2 on s1 was left alone):
 
 ## Conversational capture (rolling minute), checked in the simulator 0.9.5 against the real backend
 
-Owner's design (2026-10-18): the server talks normally with the table; a **swipe back sends the last minute**.
+Owner's design (2026-10-18): the server talks normally with the table; a **swipe back sends the last 2 minutes**.
 
-- **Mic rule (exactly):** while the Server role is on, the mic records constantly into a rolling 60 s buffer
-  that lives only in WebView memory (`src/clip.ts`, a fixed ring of 600 × 100 ms frame slots). Anything older
-  than 60 s is overwritten continuously. Only a clipped minute ever leaves the device, and only on a swipe
+- **Mic rule (exactly):** while the Server role is on, the mic records constantly into a rolling 120 s buffer
+  that lives only in WebView memory (`src/clip.ts`, a fixed ring of 1200 × 100 ms frame slots, 3.84 MB). Anything older
+  than 120 s is overwritten continuously. Only a clip ever leaves the device, and only on a swipe
   down. Nothing is written to SDK storage, browser storage or disk. The relay holds the clip in memory, hands
   it to Scribe and drops it; it keeps the extracted order only. Switching to Manager or exiting turns the mic
   off and clears the buffer. The phone page says `mic: last N s in memory`.
-- **Gestures:** swipe back on the card or the draft = send the last minute (`capture.start{mode:'clip'}`,
+- **Gestures:** swipe back on the card or the draft = send the last 2 minutes (`capture.start{mode:'clip'}`,
   the frames back to back, `capture.stop`). Tap on the draft = accept a pending line, else send (refused while
   `TABLE?`). Swipe fwd = reject a pending line, else back to the card. Double tap = exit, as before.
 - **Table:** an accepted ORDER task (`ORDER · T3`, then `swipe back once they have ordered`) sends its table;
@@ -320,7 +320,7 @@ bread` (the clip-words guard only checks the words were said).
 HW-PENDING (conversational capture):
 - Whether the mic keeps running with the phone locked or the Even app backgrounded (the app leaves it on at
   foreground exit), and the battery cost of always-on capture on the G2 and the phone.
-- Clip upload time over phone Bluetooth/LTE (600 frames, 1.9 MB) and the real-mic transcript quality in a
+- Clip upload time over phone Bluetooth/LTE (1200 frames, 3.84 MB) and the real-mic transcript quality in a
   noisy room with real, different guest voices.
 
 ## Clip summary, answers and table by voice, checked in the simulator 0.9.5 against the real backend
@@ -339,7 +339,7 @@ Real hub (`backend/app`, restarted after the `contract.py` change: the old proce
 | Clip | → order draft | → summary + answers |
 |---|---|---|
 | 60 s (`conv_questions`): 4048, 3363, 3582, 3746, 4149 / 4532, 4819, 4807, 4985, 4881 ms | **3.75 s** | **4.82 s** |
-| 120 s (`conv_2min`, held back on `devin/clip-2min`): 5734, 5177, 5463, 5821, 5289 / 6941, 6570, 6587, 6937, 6699 ms | 5.46 s | 6.70 s |
+| 120 s (`conv_2min`, this branch): 5734, 5177, 5463, 5821, 5289 / 6941, 6570, 6587, 6937, 6699 ms | 5.46 s | 6.70 s |
 
   Relay split, 120 s vs 60 s: batch Scribe 2.32-2.80 s vs 1.45-1.59 s; clip stop → `set_order` 4.96-5.59 s vs
   3.24-4.04 s (the agent reads 33 turns instead of 17). Old main (order only, 58.6 s): 4.02 s.
@@ -441,3 +441,54 @@ with `--automation-port 9898`, role switched on the phone page.
 - Under 2 minutes `{elapsed}` rounds down to 10 s steps, so a 15 s wait reads `10s`; at the 12-minute default it
   reads `12m`.
 - HW-PENDING: the 86 line and the three-line exceptions list on a real G2 (brightness of the `warn` vs `info` lines).
+
+
+## "Verity is thinking": processing animation, checked in the simulator 0.9.5 against the real backend
+
+- **What shows:** from swipe back / "verity clip" until the order draft lands, the draft's bottom bar reads
+  `Verity: processing.` → `..` → `...`; once the order shows, the bar keeps a smaller `summary.` → `...` until
+  the summary and answers arrive (or 15 s pass, then it just stops). The same `Verity: processing...` line runs
+  while Gemini maps unknown words after "verity" (relay sends `voice.mapping {words}` first), in the card
+  banner or the draft bar; `voice.command` / `voice.unknown` stops it, and after 5 s with neither the glasses
+  show the existing `Didn't get: <words> (timeout)`. A clip timeout (30 s) still shows `VOICE OFFLINE`.
+- **Rate: one update every 400 ms (2.5 a second).** The SDK docs give no number for a BLE update limit; they
+  say to update a card in place with `textContainerUpgrade` and keep `rebuildPageContainer` for screen
+  changes. So each tick rewrites only the bar container (`BAR_ID`) with `textContainerUpgrade`, the main text
+  is left alone, and nothing runs per frame. Console per 120 s clip: 16-18 `busy upgrade` lines, median gap
+  402 ms, one `rebuild draft` (entering the screen), 4 `draft upgrade` (content changes).
+- **Swipe back → card on the 120 s clip (`conv_2min`), median of 5**, runs interleaved with main at `addead7`
+  (no animation) on the same relay and hub:
+
+| Build | → order draft | → summary + answers |
+|---|---|---|
+| main `addead7`: 7474, 5872, 5658, 5591, 4864 / 7023, 7103, 6851, 6895, 6263 ms | 5.66 s | 6.90 s |
+| this branch: 7535, 6601, 5210, 5686, 5797 / 7240, 7508, 6807, 7019, 7189 ms | 5.80 s | 7.19 s |
+
+  The 0.1-0.3 s gap is within run-to-run spread (4.9-7.5 s); the animation adds no backend work. In run 1 of
+  both builds `set_talk` finished before `set_order`; main then lost the summary, this branch keeps it.
+- Seen, not changed here: `Reading last 2 min…` on the draft's top line wraps to a second line in the
+  simulator (pretext says it fits); same on main.
+- HW-PENDING: whether 2.5 updates a second is smooth and costs no input lag over real BLE.
+
+## Sentry (errors, breadcrumbs, two transactions), checked in the simulator 0.9.5 against the real backend
+
+- `@sentry/browser` 10.76.2 (exact, same as `web/`). `src/telemetry.ts` fetches `GET /config` from the socket's host
+  (`ws://h/ws` -> `http://h/config`, token as a bearer header, 3 s timeout). No DSN or `sentry: null` -> Sentry off,
+  the app runs as before; the SDK chunk (`src/sentry-sdk.ts`) is only imported once /config has a DSN.
+- Simulator run: backend with the web DSN and `FS_TRACE_WIRE=1`, Vite with `?sentryDebug=1` (logs every scrubbed
+  payload as `[fs] sentry <kind> ...`). `POST /tasks` CHECK T5 -> transaction `task.assigned -> card`, op `ui.card`,
+  the backend's trace id and parent span id (`continued: true`), 6 ms to the card drawn, tags
+  `role=server staff=s1 app_version=0.1.6 even_hub_sdk=0.0.16`.
+- The clip transaction (`clip -> order card`, child spans to the order card and the summary, `trigger` = swipe back /
+  verity clip / controls) is pinned in `telemetry.test.ts`; not run end to end here (no ElevenLabs agent id or fixtures
+  on this VM).
+- Never sent: audio, transcripts, card or order text (console breadcrumbs are off since our `[fs]` lines carry card
+  text; frame breadcrumbs keep only type, ids, states). Every string in events, breadcrumbs, spans and logs has
+  `token=` values and the token itself replaced with `[Filtered]`.
+- Size: main JS 247.96 -> 254.97 kB (gzip 77.72 -> 80.50), plus the lazy Sentry chunk 104.08 kB (gzip 35.24);
+  `.ehpk` 85,913 -> 126,138 bytes.
+- Session Replay off: the lens is drawn by the SDK through the bridge, so Replay sees only the phone page (`#app`:
+  role picker and debug lists, which hold task text and would need masking). It would add roughly the size of the
+  current Sentry chunk again for nothing about the glasses.
+- `app.json` whitelists the Sentry ingest host (`https://o4512224561594368.ingest.us.sentry.io`). HW-PENDING:
+  events reaching Sentry from the real G2 WebView (CORS / whitelist), and the bridge wrapper in `watchLens` on hardware.

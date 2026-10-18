@@ -2,7 +2,7 @@ import { CAPTURE_AUDIO_FORMAT } from './contract'
 import { log } from './log'
 
 // DEV ONLY: a PCM fixture (backend/voice/fixtures, gitignored, served by the Vite dev server at
-// /dev-fixtures/) stands in for the mic's last minute, because the simulator mic may not hear
+// /dev-fixtures/) stands in for the mic's last 2 minutes, because the simulator mic may not hear
 // anything. Enabled by `?debugPcm=conv_task,conv_tableless`: the rolling buffer is filled with
 // the first fixture, each swipe back clips it through the same path as mic audio, and the
 // buffer is then refilled with the next fixture.

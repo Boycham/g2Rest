@@ -10,18 +10,18 @@ const frame = (n: number) => {
 const ids = (fs: ArrayBuffer[]) => fs.map(f => new Uint8Array(f)[0]! + 256 * new Uint8Array(f)[1]!)
 
 describe('RollingBuffer', () => {
-  it('holds exactly the last 60 s and drops anything older as audio arrives', () => {
+  it('holds exactly the last 120 s and drops anything older as audio arrives', () => {
     const b = new RollingBuffer()
-    expect(CLIP_FRAMES).toBe(600)
-    for (let i = 0; i < 1000; i++) b.push(frame(i))
+    expect(CLIP_FRAMES).toBe(1200)
+    for (let i = 0; i < 1600; i++) b.push(frame(i))
     const clip = b.clip()
-    expect(clip).toHaveLength(600)
-    expect(b.seconds).toBe(60)
+    expect(clip).toHaveLength(1200)
+    expect(b.seconds).toBe(120)
     expect(ids(clip)[0]).toBe(400)
-    expect(ids(clip).at(-1)).toBe(999)
+    expect(ids(clip).at(-1)).toBe(1599)
   })
 
-  it('returns a short clip oldest first before the minute has filled', () => {
+  it('returns a short clip oldest first before the 2 minutes have filled', () => {
     const b = new RollingBuffer(5)
     for (let i = 0; i < 3; i++) b.push(frame(i))
     expect(ids(b.clip())).toEqual([0, 1, 2])

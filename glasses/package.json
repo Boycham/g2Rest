@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "0.0.16",
-    "@evenrealities/pretext": "0.1.4"
+    "@evenrealities/pretext": "0.1.4",
+    "@sentry/browser": "10.76.2"
   },
   "devDependencies": {
     "@evenrealities/evenhub-cli": "0.1.14",

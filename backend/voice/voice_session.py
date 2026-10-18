@@ -13,7 +13,7 @@ import json
 import math
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -284,6 +284,15 @@ def api_key() -> str:
     return key
 
 
+def frame_dbfs(frame: bytes) -> float:
+    """RMS level of one PCM frame in dBFS (-120 for digital silence)."""
+    samples = array.array("h", frame[: len(frame) // 2 * 2])
+    if not samples:
+        return -120.0
+    rms = math.sqrt(sum(x * x for x in samples) / len(samples))
+    return 20 * math.log10(rms / 32768) if rms else -120.0
+
+
 def speech_end_offset(pcm: bytes, threshold_dbfs: float = -40.0) -> float:
     """Seconds from the start of the clip to the end of the last voiced 100 ms frame."""
     pcm = pcm[: len(pcm) // 2 * 2]
@@ -305,12 +314,18 @@ class ScribeStream:
         on_committed: Callable[[str, float], None],
         *,
         vad_silence_secs: float = 0.8,
+        vad_threshold: float | None = None,
+        keyterms: Sequence[str] = (),
+        filter_background: bool = False,
         open_timeout: float = 5.0,
         send_timeout: float = 2.0,
     ):
         self.on_partial = on_partial
         self.on_committed = on_committed
         self.vad_silence_secs = vad_silence_secs
+        self.vad_threshold = vad_threshold
+        self.keyterms = tuple(keyterms)
+        self.filter_background = filter_background
         self.open_timeout = open_timeout
         self.send_timeout = send_timeout
         self.ws: ClientConnection | None = None
@@ -325,15 +340,20 @@ class ScribeStream:
         return self.ws is not None and self._reader is not None and not self._reader.done()
 
     async def open(self) -> None:
-        query = urlencode(
-            {
-                "model_id": STT_MODEL,
-                "audio_format": "pcm_16000",
-                "language_code": STT_LANGUAGE,
-                "commit_strategy": "vad",
-                "vad_silence_threshold_secs": self.vad_silence_secs,
-            }
-        )
+        params: list[tuple[str, str | float]] = [
+            ("model_id", STT_MODEL),
+            ("audio_format", "pcm_16000"),
+            ("language_code", STT_LANGUAGE),
+            ("commit_strategy", "vad"),
+            ("vad_silence_threshold_secs", self.vad_silence_secs),
+        ]
+        if self.vad_threshold is not None:
+            params.append(("vad_threshold", self.vad_threshold))
+        if self.filter_background:
+            params.append(("filter_background_audio", "true"))
+        # Repeated `keyterms=` params: the session_started config echoes them back as a list.
+        params += [("keyterms", k) for k in self.keyterms]
+        query = urlencode(params)
         url = f"{WSS}/v1/speech-to-text/realtime?{query}"
         headers = {"xi-api-key": api_key()}
         self.ws = await connect(url, additional_headers=headers, open_timeout=self.open_timeout)
@@ -459,18 +479,101 @@ def speaker_turns(words: list[dict[str, Any]]) -> list[tuple[str, str]]:
     return [(s, " ".join(t.split())) for s, t in turns if t.strip()]
 
 
-async def transcribe_clip(
-    pcm: bytes, *, diarize: bool = True, timeout: float = CLIP_STT_TIMEOUT
-) -> list[tuple[str, str]]:
+# Neighbouring tables: Scribe's diarization labels them as their own speakers, and they are
+# quieter at the glasses mic than the server and the table. The reference is the loudest
+# speaker, or the second loudest when the loudest stands out by CLIP_WEARER_GAP_DB (the wearer
+# right at the mic, so guests a metre away aren't measured against them). A speaker is dropped
+# when CLIP_QUIET_DB below the reference, or CLIP_QUIET_DB / 2 below it with under a fifth of
+# the most talkative speaker's words. Few words alone never drop anyone: "the salmon" is short
+# but near. Picked from clip_test.py; VOICE_CLIP_QUIET_DB=off keeps every speaker.
+_quiet = os.environ.get("VOICE_CLIP_QUIET_DB", "6").strip().lower()
+CLIP_QUIET_DB: float | None = None if _quiet in ("off", "none", "") else float(_quiet)
+CLIP_FEW_WORDS = 0.2
+CLIP_WEARER_GAP_DB = 6.0
+LEVEL_FRAME = 800  # 50 ms
+
+
+def span_dbfs(pcm: bytes, spans: list[tuple[float, float]]) -> float:
+    """Median level in dBFS of the 50 ms frames inside (start, end) second spans of 16 kHz
+    s16le PCM. The median, so words overlapping a louder talker don't lift a quiet one."""
+    samples = array.array("h", pcm[: len(pcm) // 2 * 2])
+    levels: list[float] = []
+    for a, b in spans:
+        part = samples[max(0, int(a * 16000)) : max(0, int(b * 16000))]
+        for i in range(0, len(part) - LEVEL_FRAME // 2, LEVEL_FRAME):
+            frame = part[i : i + LEVEL_FRAME]
+            ms = sum(x * x for x in frame) / len(frame)
+            if ms > 1.0:
+                levels.append(10 * math.log10(ms / 32768**2))
+    return sorted(levels)[len(levels) // 2] if levels else -120.0
+
+
+def speaker_levels(words: list[dict[str, Any]], pcm: bytes) -> dict[str, tuple[int, float]]:
+    """speaker label -> (word count, level in dBFS over that speaker's words)."""
+    spans: dict[str, list[tuple[float, float]]] = {}
+    for w in words:
+        a, b = w.get("start"), w.get("end")
+        if (
+            w.get("type") != "word"
+            or not isinstance(a, int | float)
+            or not isinstance(b, int | float)
+        ):
+            continue
+        spans.setdefault(str(w.get("speaker_id") or "speaker"), []).append((float(a), float(b)))
+    return {s: (len(sp), span_dbfs(pcm, sp)) for s, sp in spans.items()}
+
+
+def other_tables(
+    levels: dict[str, tuple[int, float]],
+    quiet_db: float | None = None,
+    few_words: float = CLIP_FEW_WORDS,
+    wearer_gap: float = CLIP_WEARER_GAP_DB,
+) -> set[str]:
+    """Speakers to drop as another table's: much quieter, or quieter and far fewer words."""
+    quiet_db = CLIP_QUIET_DB if quiet_db is None else quiet_db
+    if quiet_db is None or len(levels) < 2:
+        return set()
+    loud = sorted((db for _, db in levels.values()), reverse=True)
+    ref = loud[1] if len(loud) >= 3 and loud[0] - loud[1] >= wearer_gap else loud[0]
+    most = max(n for n, _ in levels.values())
+    return {
+        s
+        for s, (n, db) in levels.items()
+        if db < ref - quiet_db or (db < ref - quiet_db / 2 and n < few_words * most)
+    }
+
+
+def clip_turns(
+    body: dict[str, Any], pcm: bytes, *, drop_other_tables: bool = True
+) -> tuple[list[tuple[str, str]], set[str]]:
+    """A batch Scribe response -> (speaker turns for the clip agent, dropped speakers)."""
+    words = body.get("words") or []
+    dropped = other_tables(speaker_levels(words, pcm)) if drop_other_tables else set()
+    kept = [w for w in words if str(w.get("speaker_id") or "speaker") not in dropped]
+    turns = speaker_turns(kept)
+    if not turns and not words and body.get("text", "").strip():
+        turns = [("speaker", body["text"].strip())]
+    return turns, dropped
+
+
+async def scribe_batch(
+    pcm: bytes,
+    *,
+    diarize: bool = True,
+    keyterms: Sequence[str] = (),
+    timeout: float = CLIP_STT_TIMEOUT,
+) -> dict[str, Any]:
     """One batch Scribe call for a clip of raw 16 kHz s16le mono PCM (English pinned).
     The clip is sent from memory and never written to disk here."""
-    data = {
+    data: dict[str, str | list[str]] = {
         "model_id": BATCH_STT_MODEL,
         "language_code": STT_LANGUAGE,
         "file_format": "pcm_s16le_16",
         "tag_audio_events": "false",
         "diarize": "true" if diarize else "false",
     }
+    if keyterms:
+        data["keyterms"] = list(keyterms)  # one multipart field per term
     async with httpx.AsyncClient(timeout=timeout) as http:
         r = await http.post(
             f"{API}/v1/speech-to-text",
@@ -480,10 +583,22 @@ async def transcribe_clip(
         )
     if r.is_error:
         raise ConnectionError(f"scribe batch {r.status_code}: {r.text[:200]}")
-    body = r.json()
-    turns = speaker_turns(body.get("words") or [])
-    if not turns and body.get("text", "").strip():
-        turns = [("speaker", body["text"].strip())]
+    return r.json()
+
+
+async def transcribe_clip(
+    pcm: bytes,
+    *,
+    diarize: bool = True,
+    keyterms: Sequence[str] = (),
+    drop_other_tables: bool = True,
+    timeout: float = CLIP_STT_TIMEOUT,
+) -> list[tuple[str, str]]:
+    """The clip as speaker turns for the clip agent, without other tables' speakers."""
+    body = await scribe_batch(pcm, diarize=diarize, keyterms=keyterms, timeout=timeout)
+    turns, dropped = clip_turns(body, pcm, drop_other_tables=drop_other_tables and diarize)
+    if dropped:
+        log(f"clip: dropped {len(dropped)} quieter speaker(s) as another table")
     return turns
 
 

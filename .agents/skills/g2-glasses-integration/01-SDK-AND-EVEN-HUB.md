@@ -40,7 +40,7 @@
 - IMU gives raw x/y/z only. A head-nod confirm would need our own detection, active only while a task waits.
 - Floor Sense mapping (`glasses/src/controls.ts`): three stacked tabs, top to bottom Controls, Queue, Card (home).
   Swipe fwd = one tab up, swipe back = one tab down; on the Card tap = accept, tap again = done, swipe back = clip
-  the last minute as an order, long press = handoff popup; long press elsewhere = back to the Card; double tap = exit.
+  the last 2 minutes as an order, long press = handoff popup; long press elsewhere = back to the Card; double tap = exit.
 - Even's docs don't describe the system dashboard's tab look. The rail follows their documented patterns: text
   containers stacked at 96 px, the open one bordered (`borderWidth`) and brighter, only the content captures input.
 

@@ -2,7 +2,7 @@ import type { GlassesJsonMessage, OrderDraft, OrderLine, VoiceState } from './co
 import { allergyLine, CARD_PADDING, DISPLAY_HEIGHT, DISPLAY_WIDTH, fit, spread } from './card'
 import { talkLines } from './talk'
 
-// The order-draft screen: what the backend made of the last minute, by seat, with allergies
+// The order-draft screen: what the backend made of the last 2 minutes, by seat, with allergies
 // pinned on top, ? lines for anything unclear, and one highlighted pending line for a change
 // that needs a tap. Pure, so layout and gestures are tested.
 
@@ -23,6 +23,8 @@ export interface DraftState {
   hint?: string | null
   /** Page of the draft on screen (swipe fwd turns it when the table's talk overflows). */
   page?: number
+  /** The animated `Verity: processing...` / `summary...` line, alone in the bar container. */
+  busy?: string | null
 }
 
 export interface DraftView {
@@ -47,7 +49,7 @@ export function statusLabel(s: DraftState): string {
   const status = s.draft?.status
   if (status === 'sent') return 'SENT'
   if (status === 'cancelled') return 'CANCELLED'
-  if (s.voice === 'processing' || s.voice === 'connecting') return 'Reading last min…'
+  if (s.voice === 'processing' || s.voice === 'connecting') return 'Reading last 2 min…'
   return s.draft?.lines.length && s.draft.table ? 'tap = send' : ''
 }
 
@@ -61,7 +63,7 @@ export function formatDraft(s: DraftState, width = DRAFT_TEXT_WIDTH, maxLines = 
   const head: string[] = []
   const allergies = d ? allergyLine(d.allergies) : ''
   if (allergies) head.push(fit(allergies, width))
-  head.push(spread(d ? (d.table ?? NO_TABLE) : 'Last minute', statusLabel(s), width))
+  head.push(spread(d ? (d.table ?? NO_TABLE) : 'Last 2 min', statusLabel(s), width))
   const notice = d?.notice ?? s.hint
   if (notice) head.push(fit(`? ${notice}`, width))
   const tail = (d?.uncertain ?? []).map(u => fit(u, width))
@@ -86,6 +88,7 @@ export function formatDraft(s: DraftState, width = DRAFT_TEXT_WIDTH, maxLines = 
   } else if (pages.length > 1) {
     bar = fit(page < pages.length - 1 ? `swipe fwd = more ${page + 1}/${pages.length}` : `${page + 1}/${pages.length} swipe fwd = done`, width)
   }
+  if (s.busy) bar = bar ? spread(bar, s.busy, width) : fit(s.busy, width)
   return { main: body.join('\n'), bar, highlight: pending.length > 0, pages: pages.length }
 }
 
@@ -115,7 +118,7 @@ export interface DraftAction {
 }
 
 /**
- * Swipe back (SDK down): send the last minute again (more ordering, or the spoken table). Tap: accept the
+ * Swipe back (SDK down): send the last 2 minutes again (more ordering, or the spoken table). Tap: accept the
  * pending proposal, else send the whole order, which needs a table. Swipe fwd (SDK up): reject the
  * pending proposal, else back to the card.
  */

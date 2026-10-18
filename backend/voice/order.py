@@ -223,7 +223,10 @@ class OrderBook:
         self.out: set[str] = set()  # 86'd dish names, from the backend's menu.86 frame
 
     def hear(self, transcript: str) -> None:
+        """A new clip's transcript; its summary and answers replace the last clip's."""
         self.heard = set(_words(transcript))
+        if table := self.tables.get(self.draft_table):
+            table.summary, table.answers = "", []
 
     def was_said(self, phrase: str) -> bool:
         """True if every content word of `phrase` is in the clip (or no clip is set)."""
@@ -540,7 +543,6 @@ class OrderBook:
         table.uncertain = [_short(u) for u in uncertain[:MAX_UNCERTAIN]]
         notes = [n for n in _str_list_arg(p, "notes") if not is_question(n)]
         table.notes = [_short(n) for n in notes[:MAX_NOTES]]
-        table.summary, table.answers = "", []
         result: dict[str, Any] = {
             "status": "ok",
             "table": t or None,

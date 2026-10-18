@@ -39,7 +39,7 @@ Read the file for the area you're about to touch before designing or changing it
    else gets the app auto-rejected. Never use double tap for anything else.
 2. **Long press exists** (SDK 0.0.16 `LONG_PRESS_EVENT = 9`). Swipes run fwd (toward the eyes, SDK `up`) and
    back (toward the ear, SDK `down`) on a real G2. Our gestures: tap = accept, tap again = done; swipe back = clip the
-   last minute as an order (on the Card); swipe fwd = one tab up (Card → Queue → Controls); long press = handoff
+   last 2 minutes as an order (on the Card); swipe fwd = one tab up (Card → Queue → Controls); long press = handoff
    on the Card, back to the Card elsewhere; double tap = exit.
 3. **Update cards in place with `textContainerUpgrade`.** Use `rebuildPageContainer` only to switch screens.
 4. **API keys never go in the glasses bundle.** The WebView ships to every phone. Audio goes to our backend,

@@ -8,6 +8,9 @@ export type SocketStatus = 'connecting' | 'online' | 'offline'
 export interface SocketHandlers {
   onMessage(msg: BackendMessage): void
   onStatus(status: SocketStatus): void
+  /** A JSON frame went out (breadcrumbs). */
+  onSent?(msg: GlassesJsonMessage): void
+  onClose?(code: number): void
 }
 
 const CONNECT_TIMEOUT_MS = 5000
@@ -91,6 +94,7 @@ export class BackendSocket {
     ws.onclose = ev => {
       if (this.ws !== ws) return
       log('ws closed', ev.code)
+      this.handlers.onClose?.(ev.code)
       this.ws = null
       this.clearTimers()
       this.scheduleRetry()
@@ -112,6 +116,7 @@ export class BackendSocket {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg))
       log('sent', msg.type)
+      this.handlers.onSent?.(msg)
       return
     }
     this.outbox.push(msg)
