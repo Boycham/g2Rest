@@ -264,15 +264,15 @@ connected as s2 so the real G2 on s1 was left alone):
 
 ## Conversational capture (rolling minute), checked in the simulator 0.9.5 against the real backend
 
-Owner's design (2026-10-18): the server talks normally with the table; a **swipe back sends the last minute**.
+Owner's design (2026-10-18): the server talks normally with the table; a **swipe back sends the last 2 minutes**.
 
-- **Mic rule (exactly):** while the Server role is on, the mic records constantly into a rolling 60 s buffer
-  that lives only in WebView memory (`src/clip.ts`, a fixed ring of 600 × 100 ms frame slots). Anything older
-  than 60 s is overwritten continuously. Only a clipped minute ever leaves the device, and only on a swipe
+- **Mic rule (exactly):** while the Server role is on, the mic records constantly into a rolling 120 s buffer
+  that lives only in WebView memory (`src/clip.ts`, a fixed ring of 1200 × 100 ms frame slots, 3.84 MB). Anything older
+  than 120 s is overwritten continuously. Only a clip ever leaves the device, and only on a swipe
   down. Nothing is written to SDK storage, browser storage or disk. The relay holds the clip in memory, hands
   it to Scribe and drops it; it keeps the extracted order only. Switching to Manager or exiting turns the mic
   off and clears the buffer. The phone page says `mic: last N s in memory`.
-- **Gestures:** swipe back on the card or the draft = send the last minute (`capture.start{mode:'clip'}`,
+- **Gestures:** swipe back on the card or the draft = send the last 2 minutes (`capture.start{mode:'clip'}`,
   the frames back to back, `capture.stop`). Tap on the draft = accept a pending line, else send (refused while
   `TABLE?`). Swipe fwd = reject a pending line, else back to the card. Double tap = exit, as before.
 - **Table:** an accepted ORDER task (`ORDER · T3`, then `swipe back once they have ordered`) sends its table;
@@ -308,7 +308,7 @@ bread` (the clip-words guard only checks the words were said).
 HW-PENDING (conversational capture):
 - Whether the mic keeps running with the phone locked or the Even app backgrounded (the app leaves it on at
   foreground exit), and the battery cost of always-on capture on the G2 and the phone.
-- Clip upload time over phone Bluetooth/LTE (600 frames, 1.9 MB) and the real-mic transcript quality in a
+- Clip upload time over phone Bluetooth/LTE (1200 frames, 3.84 MB) and the real-mic transcript quality in a
   noisy room with real, different guest voices.
 
 ## Clip summary, answers and table by voice, checked in the simulator 0.9.5 against the real backend
@@ -327,7 +327,7 @@ Real hub (`backend/app`, restarted after the `contract.py` change: the old proce
 | Clip | → order draft | → summary + answers |
 |---|---|---|
 | 60 s (`conv_questions`): 4048, 3363, 3582, 3746, 4149 / 4532, 4819, 4807, 4985, 4881 ms | **3.75 s** | **4.82 s** |
-| 120 s (`conv_2min`, held back on `devin/clip-2min`): 5734, 5177, 5463, 5821, 5289 / 6941, 6570, 6587, 6937, 6699 ms | 5.46 s | 6.70 s |
+| 120 s (`conv_2min`, this branch): 5734, 5177, 5463, 5821, 5289 / 6941, 6570, 6587, 6937, 6699 ms | 5.46 s | 6.70 s |
 
   Relay split, 120 s vs 60 s: batch Scribe 2.32-2.80 s vs 1.45-1.59 s; clip stop → `set_order` 4.96-5.59 s vs
   3.24-4.04 s (the agent reads 33 turns instead of 17). Old main (order only, 58.6 s): 4.02 s.
@@ -358,7 +358,7 @@ line there); `GESTURE_EVENTS` in `src/main.ts` maps OS events to gestures.
 |---|---|---|
 | Tap | accept, then done; confirms a popup or sends the draft | `verity accept` / `verity done` / `verity confirm` |
 | Swipe fwd | open Controls | `verity menu` / `verity controls` / `verity up` |
-| Swipe back | clip the last minute | `verity clip` / `verity down` |
+| Swipe back | clip the last 2 minutes | `verity clip` / `verity down` |
 | Long hold | handoff: `Confirm handoff?` popup, then tap | `verity handoff [name]`, then `verity confirm` |
 | Double tap | exit dialog (`shutDownPageContainer(1)`, Even Hub review rule) | none |
 | Controls → Queue | queue page (`tap: back`; any tap or swipe goes back) | `verity queue` |

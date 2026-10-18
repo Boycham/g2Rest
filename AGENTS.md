@@ -9,14 +9,14 @@ Floor Sense puts the floor of a high-end restaurant on Even Realities G2 smart g
 - **Server view (the core demo).** One task card at a time ("RUN · T12 · 2× halibut, seats 1+3", "+2 queued"
   in the corner). The screen is blank when nothing needs the server. Allergies always go on the top line.
 - **Voice order capture.** The server takes a table's order out loud as usual, talking normally with the
-  guests. Then a swipe back sends the last minute of audio; ElevenLabs speech-to-text plus an ElevenLabs agent
+  guests. Then a swipe back sends the last 2 minutes of audio; ElevenLabs speech-to-text plus an ElevenLabs agent
   turn it into the order on the glasses, by seat (numbered in the order guests ordered): dishes, alterations
   ("no onions"), allergies, notes (occasion, pacing) and `?` lines for anything unclear. The table comes from
   the server's ORDER task or is said aloud. The agent never asks a question and can't send or cancel; the
   server taps on the glasses to send.
-- **Mic rule.** While the Server role is on, the glasses mic records constantly into a rolling 60-second
-  buffer that lives only in the WebView's memory. Anything older than 60 s is discarded continuously. Only a
-  clipped minute ever leaves the device, and only on a swipe back. Nothing is written to disk, and the backend
+- **Mic rule.** While the Server role is on, the glasses mic records constantly into a rolling 120-second
+  buffer that lives only in the WebView's memory. Anything older than 120 s is discarded continuously. Only a
+  clip ever leaves the device, and only on a swipe back. Nothing is written to disk, and the backend
   keeps nothing of the audio or transcript after processing it (the order it extracts is kept). For voice
   commands the same live frames also stream to the backend's voice relay: realtime Scribe (English)
   transcribes them only to spot "verity <command>"; the relay acts on the matched command word and never
@@ -141,7 +141,7 @@ before any work in `glasses/` or `backend/voice/`. The short version:
   arrive as those two events on the event-capture container, with no source, so ring and temple can't be told
   apart. Only one container per page captures input.
 - **Our gestures** (one table in `glasses/src/controls.ts`): tap = accept, then tap again = done; tap also
-  confirms a popup or sends a draft. Swipe back = clip the last minute as an order. Swipe fwd = Controls
+  confirms a popup or sends a draft. Swipe back = clip the last 2 minutes as an order. Swipe fwd = Controls
   menu (every gesture with its voice command, plus the queue). Long press = hand the task off (`Confirm
   handoff?`, then a tap). Double tap = exit. Every gesture also has a voice command: "verity" + a fixed word
   (`backend/voice/commands.py`); other words after "verity" go to Gemini, which may only pick one of those.

@@ -53,7 +53,7 @@ send transcripts to any tool-calling LLM instead. Record which path worked in `b
 
 ## Privacy
 
-The mic records into a rolling 60 s buffer in WebView memory while the Server role is on; older audio is dropped
-continuously and only a clipped minute leaves the device, on a swipe back. The backend transcribes it and keeps
+The mic records into a rolling 120 s buffer in WebView memory while the Server role is on; older audio is dropped
+continuously and only the clip leaves the device, on a swipe back. The backend transcribes it and keeps
 nothing of the audio or transcript afterwards. Never stored or committed.
 Observability tools never receive audio, transcripts or prompts.
