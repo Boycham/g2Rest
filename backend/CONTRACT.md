@@ -1,13 +1,10 @@
 # Floor Sense message contract (Python-side mirror)
 
-Status: **the source is Coder B's `glasses/src/contract.ts` on `main`** ("PROPOSED, needs Coder A
-sign-off"). This file is its Python-side mirror: same message types, same camelCase field names, same
-shapes. The backend signs off on it as written. `backend/app/contract.py` holds pydantic models that match
-`contract.ts` exactly (`extra="forbid"`), plus a second set with the additions the backend asks for; every
-inbound frame is parsed with the first set (+ the additions), every outbound frame is checked against the
-second before it goes down a socket, and `tests/test_contract.py` proves the base models still parse what we
-send once the extras are dropped. What the backend needs changed is listed only under
-**§8 Contract changes requested**; nothing in `glasses/` is edited by this lane.
+Status: **signed off by both lanes at Sync 1.** The source is `glasses/src/contract.ts`; this file is its
+prose, and `backend/app/contract.py` holds pydantic models that match it (`extra="forbid"`), plus a second
+set with the backend's additions (§8). Every inbound frame is parsed with the extended set, every outbound
+frame is checked against it before it goes down a socket, and `tests/test_contract.py` proves the base
+models still parse what we send once the extras are dropped.
 
 Every field name is camelCase on the wire. Times are seconds (`sinceSec`) or ISO-8601 UTC strings (`*At`).
 
@@ -39,9 +36,9 @@ Every field name is camelCase on the wire. Times are seconds (`sinceSec`) or ISO
   "allergies": [{ "allergen": "SHELLFISH", "seats": [3] }],   // uppercase allergen
   "notes": ["VIP: anniversary"],
   "state": "assigned",           // assigned | accepted | done | bounced  (wire states, see §6)
-  "assignee": "s1",              // PROPOSED: staff id this copy of the task belongs to
-  "priority": 36.5,              // PROPOSED: run-priority score at send time (higher = sooner)
-  "createdAt": "2026-10-18T02:00:00Z"   // PROPOSED
+  "assignee": "s1",              // staff id this copy of the task belongs to
+  "priority": 36.5,              // run-priority score at send time (higher = sooner)
+  "createdAt": "2026-10-18T02:00:00Z"
 }
 
 // OrderLine: one line of a voice-captured order, by seat.
@@ -65,8 +62,9 @@ Every field name is camelCase on the wire. Times are seconds (`sinceSec`) or ISO
 | `capture.start` | `captureId` | opens a voice capture for this staff member's current table; mic audio frames follow |
 | `capture.audio` | binary frame | raw PCM 16 kHz, s16le, mono, 3200 bytes = 100 ms, belonging to the last `capture.start` on this socket |
 | `capture.stop` | `captureId` | closes the capture (trailing silence is the backend's job) |
-| `order.confirm` | `orderId` | fires the draft to the kitchen (the agent only proposed it) |
-| `order.cancel_confirm` | `orderId` | cancels the draft (the agent only proposed it) |
+| `order.confirm` | `orderId`, `proposalId?` | without `proposalId`: fires the draft to the kitchen (the agent only proposed it); with it: applies that pending voice proposal |
+| `order.cancel_confirm` | `orderId`, `proposalId?` | without `proposalId`: cancels the draft (the agent only proposed it); with it: applies that pending cancel proposal |
+| `order.reject` | `orderId`, `proposalId` | swipe up on a pending voice proposal: drops it, nothing changes |
 
 ```json
 { "type": "task.accept", "taskId": "task-1a2b" }
@@ -76,9 +74,15 @@ Every field name is camelCase on the wire. Times are seconds (`sinceSec`) or ISO
 { "type": "capture.stop", "captureId": "cap-7f3e" }
 { "type": "order.confirm", "orderId": "order-9c1d" }
 { "type": "order.cancel_confirm", "orderId": "order-9c1d" }
+{ "type": "order.confirm", "orderId": "3f9a1c2e", "proposalId": "p2" }
+{ "type": "order.reject", "orderId": "3f9a1c2e", "proposalId": "p3" }
 ```
 
-`capture.start.table` is PROPOSED and optional: without it the backend uses the table of the server's
+Voice orders (Sync 1): `capture.*` and the `order.*` taps for a relay order (one whose `orderId` came from a
+relay `order.draft`) are forwarded by `app/voice_bridge.py` to `backend/voice/relay.py`; the final tap fires
+the relay's lines into this backend's order store (§5 tools), then `order.closed` comes back as usual.
+
+`capture.start.table` is optional: without it the backend uses the table of the server's
 current card, or the organizer can set it with `POST /captures/{captureId}/table`.
 
 ## 4. Backend -> glasses
@@ -97,8 +101,16 @@ current card, or the organizer can set it with `POST /captures/{captureId}/table
   "captureId": "cap-7f3e",
   "table": "T12",
   "lines": [ { ...OrderLine } ],
-  "allergies": [ { ...Allergy } ]
+  "allergies": [ { ...Allergy } ],
+  // optional, sent by the voice relay:
+  "status": "draft",                // draft | sent | cancelled; sent/cancelled only after the tap
+  "pending": [ { "id": "p2", "action": "remove", "text": "REMOVE s2 soup?" } ], // remove | cancel | confirm
+  "voice": "listening",             // idle | connecting | listening | offline (VOICE OFFLINE)
+  "notice": null                    // one line: why the last tool call was refused
 }
+
+// The answer to the send / cancel tap: the glasses leave the draft screen.
+{ "type": "order.closed", "orderId": "order-9c1d", "status": "fired" }   // fired | cancelled
 
 // The agent proposes sending or cancelling; only a tap on the glasses does it.
 { "type": "order.readback", "orderId": "order-9c1d", "action": "confirm", "text": "Send T12: 2x halibut, 1x risotto?" }
@@ -176,6 +188,7 @@ queued -> sent -> accepted -> done
   |        +--(task.bounce)-----------------> bounced  -> re-queued for the next server (same id)
   |        +--(30 s after sent, no accept)--> escalated -> re-queued for the next server, then the manager
   +--(assignee's socket is up)--> sent
+  +--(2 min queued, socket never up)------> escalated -> re-queued for the next server, then the manager
 ```
 
 Backend state -> what the glasses see (`Task.state` in `contract.ts`):
@@ -190,8 +203,9 @@ Backend state -> what the glasses see (`Task.state` in `contract.ts`):
 
 - `queued`: assigned to a staff member whose socket isn't connected yet. Becomes `sent` the moment the
   `task.assigned` frame goes down that person's socket (organizer sockets don't count).
-- **The 30 s escalation timer starts at `sent` and stops at `accepted`.** A `queued` task is not timed
-  (nobody has seen it); see §8.6 for the open question that follows from that.
+- **The 30 s escalation timer starts at `sent` and stops at `accepted`.** A `queued` task (its server's
+  socket is offline, nobody has seen it) escalates after `FS_OFFLINE_ESCALATION_SEC` (default 120) from
+  when it was assigned (§8.6).
 - Escalation order: the other servers of the task's section, then any other server, then the manager
   (`m1`). The manager is the end of the chain: after that an `alert` (`task unacknowledged`) is raised instead.
 - `bounced` and `escalated` are what the previous assignee sees (`task.updated`, state `bounced`); the glasses
@@ -235,29 +249,30 @@ The one menu: the backend and `backend/voice` (order guards, agent prompt) both 
 
 `tables[].x/y` feed `TableState.x/y`; `section` picks the default assignee for a table's tasks.
 
-## 8. Contract changes requested (for Coder B; nothing here is applied to `glasses/`)
+## 8. Contract changes (signed off at Sync 1)
 
-Each item is modelled in `backend/app/contract.py` §2 as an `*Ext` class. All are additive: `parse.ts`
-ignores unknown keys today, so the current glasses build keeps working whether or not they are accepted.
+All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) and modelled in
+`backend/app/contract.py`. They are additive: `parse.ts` ignores unknown keys.
 
 1. **Connection query params** `?token=&role=&staff=` on the WebSocket URL. `role` is `server`
    (default) | `manager` | `organizer`; `staff` is a `floor.json` id (defaults: first server, `m1`,
-   `organizer`). The token ships in the bundle either way (see
-   `.agents/skills/g2-glasses-integration/04-ARCHITECTURE.md`); `VITE_BACKEND_URL` can carry it:
-   `ws://host:8787/ws?token=...&role=server&staff=s1`.
-2. **`Task` + `assignee: string`, `priority: number`, `createdAt: string`** (ISO-8601 UTC). The glasses
-   may ignore all three; the organizer and kitchen pages use them.
-3. **`TableState` + `x`, `y`, `urgency`** and **`Alert` + `table?`, `sinceSec?`, `cleared?`** exactly as
-   proposed on `origin/devin/manager-hud`. The backend already sends them.
-4. **New backend -> glasses message `order.closed`** `{type, orderId, status: "fired" | "cancelled"}`:
-   the answer to `order.confirm` / `order.cancel_confirm`, so the glasses can drop the draft screen.
-5. **`capture.start` + `table?: string`**: if the glasses know the table of the current card when the
-   server swipes down, send it; otherwise the backend uses the table of the server's current card.
-6. **Open question, not a field:** should a task that is `queued` for an offline server (never `sent`)
-   also escalate after 30 s? Today it waits for the socket; the backend lane thinks it should escalate
-   too, which would need no contract change, only agreement.
-7. **Confirmation of semantics already in `contract.ts`:** (a) a bounce shows the previous assignee
-   `task.updated` with `bounced` and the next one `task.assigned` with the same `id`; (b) `task.done`
-   straight from `assigned` (no accept) is allowed so a fast double tap never leaves a stuck task;
-   (c) order-tool HTTP results are camelCase (`didYouMean`, `allergyConflicts`, `flagged`) like the wire,
-   while `backend/voice/order.py` is snake_case internally; pick one before the agent prompt is final.
+   `organizer`). The glasses build the query from `VITE_BACKEND_URL`, `VITE_FS_TOKEN` and the role picker
+   (`glasses/NOTES.md`). The token ships in the bundle (dev token only; see
+   `.agents/skills/g2-glasses-integration/04-ARCHITECTURE.md`).
+2. **`Task` + `assignee: string`, `priority: number`, `createdAt: string`** (ISO-8601 UTC). Always sent;
+   optional in `contract.ts` because the glasses ignore all three; the organizer and kitchen pages use them.
+3. **`TableState` + `x`, `y`, `urgency`** and **`Alert` + `table?`, `sinceSec?`, `cleared?`**, as on
+   `origin/devin/manager-hud`.
+4. **Backend -> glasses `order.closed`** `{type, orderId, status: "fired" | "cancelled"}`: the answer to
+   `order.confirm` / `order.cancel_confirm`; the glasses leave the draft screen and go back to the card.
+5. **`capture.start` + `table?: string`**: if the glasses know the table of the current card, they may send
+   it; otherwise the backend uses the table of the server's current card.
+6. **Decided (owner):** a task `queued` for an offline server (never `sent`) escalates after **2 minutes**
+   (`FS_OFFLINE_ESCALATION_SEC`, default 120), down the same chain as the 30 s timer.
+7. **Decided (owner):** (a) a bounced task goes to the **next server in the chain**: the previous
+   assignee sees `task.updated` with `bounced`, the next one `task.assigned` with the same `id`;
+   (b) **`task.done` straight from `assigned`** (no accept) is allowed, so a fast double tap never leaves
+   a stuck task; (c) order-tool HTTP results stay camelCase (`didYouMean`, `allergyConflicts`, `flagged`)
+   like the wire; `backend/voice/order.py` keeps snake_case internally behind the relay.
+8. **Voice fields** from the voice capture lane: `order.confirm` / `order.cancel_confirm` + `proposalId?`,
+   `order.reject {orderId, proposalId}`, and `order.draft` + `status?`, `pending?`, `voice?`, `notice?`.

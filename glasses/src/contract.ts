@@ -1,7 +1,7 @@
 // Floor Sense glasses <-> backend message contract.
 //
-// PROPOSED, needs Coder A sign-off. Written by the glasses lane before the backend
-// existed; do not treat it as frozen until Coder A agrees in the PR.
+// Signed off by both lanes at Sync 1; backend/app/contract.py is the pydantic mirror and
+// backend/CONTRACT.md the prose. Change it only by agreement in a PR.
 //
 // Transport: one WebSocket per glasses session. Every message is a JSON text frame
 // `{ "type": ..., ... }`, except `capture.audio`, which is a binary frame.
@@ -36,6 +36,12 @@ export interface Task {
   /** Short free-text notes, one per line, e.g. "VIP: anniversary". */
   notes: string[]
   state: TaskState
+  /** Staff id holding the task, e.g. "s1". Always sent by the backend; the glasses ignore it. */
+  assignee?: string
+  /** Run priority score (higher first). Always sent by the backend; the glasses ignore it. */
+  priority?: number
+  /** ISO-8601 UTC creation time. Always sent by the backend; the glasses ignore it. */
+  createdAt?: string
 }
 
 export interface OrderLine {
@@ -56,14 +62,14 @@ export interface TableState {
   /** Seconds in the current status. */
   sinceSec: number
   /**
-   * PROPOSED (manager HUD): the table's position on the floor plan, in any unit with
-   * x to the right and y down. The glasses fit the floor's bounding box to the display.
+   * The table's position on the floor plan, in any unit with x to the right and y down.
+   * The glasses fit the floor's bounding box to the display.
    */
   x: number
   y: number
   /**
-   * PROPOSED (manager HUD): how much the table needs the manager, 0 (fine) to 4 (now).
-   * Decided by the backend's exception rules; the glasses map it to brightness.
+   * How much the table needs the manager, 0 (fine) to 4 (now). Decided by the backend's
+   * exception rules; the glasses map it to brightness.
    */
   urgency: number
 }
@@ -89,6 +95,8 @@ export interface CaptureStart {
   type: 'capture.start'
   /** Generated on the glasses; ties audio frames and the stop to this capture. */
   captureId: string
+  /** Table of the card on screen, when known; otherwise the backend uses the server's current card. */
+  table?: string
 }
 
 /**
@@ -114,18 +122,18 @@ export interface CaptureStop {
 export interface OrderConfirm {
   type: 'order.confirm'
   orderId: string
-  /** PROPOSED (voice capture): the pending proposal the tap applies. */
+  /** The pending proposal the tap applies. */
   proposalId?: string
 }
 
 export interface OrderCancelConfirm {
   type: 'order.cancel_confirm'
   orderId: string
-  /** PROPOSED (voice capture): the pending cancel proposal the tap applies. */
+  /** The pending cancel proposal the tap applies. */
   proposalId?: string
 }
 
-/** PROPOSED (voice capture): swipe up on a pending proposal drops it; nothing changes. */
+/** Swipe up on a pending proposal drops it; nothing changes. */
 export interface OrderReject {
   type: 'order.reject'
   orderId: string
@@ -155,7 +163,7 @@ export interface TaskUpdated {
   task: Task
 }
 
-/** PROPOSED (voice capture): a destructive change the agent asked for, waiting for a tap. */
+/** A destructive change the agent asked for, waiting for a tap. */
 export interface PendingProposal {
   id: string
   action: 'remove' | 'cancel' | 'confirm'
@@ -163,7 +171,7 @@ export interface PendingProposal {
   text: string
 }
 
-/** PROPOSED (voice capture): `connecting` until Scribe and the agent answer. */
+/** `connecting` until Scribe and the agent answer. */
 export type VoiceState = 'idle' | 'connecting' | 'listening' | 'offline'
 
 /** Full replacement of the order being taken, sent after every change. */
@@ -174,13 +182,13 @@ export interface OrderDraft {
   table: string | null
   lines: OrderLine[]
   allergies: Allergy[]
-  /** PROPOSED: `sent` / `cancelled` only after the server's tap. */
+  /** `sent` / `cancelled` only after the server's tap. */
   status?: 'draft' | 'sent' | 'cancelled'
-  /** PROPOSED: oldest first; only the first is shown and answered by tap / swipe up. */
+  /** Oldest first; only the first is shown and answered by tap / swipe up. */
   pending?: PendingProposal[]
-  /** PROPOSED: speech pipeline state, `offline` shows VOICE OFFLINE. */
+  /** Speech pipeline state, `offline` shows VOICE OFFLINE. */
   voice?: VoiceState
-  /** PROPOSED: one-line reason the last tool call was refused, e.g. "s2 has no soup". */
+  /** One-line reason the last tool call was refused, e.g. "s2 has no soup". */
   notice?: string | null
 }
 
@@ -194,10 +202,7 @@ export interface OrderReadback {
 
 export type AlertLevel = 'info' | 'warn' | 'urgent'
 
-/**
- * A manager exception. Re-sending the same `id` replaces it. PROPOSED additions
- * (manager HUD): `table`, `sinceSec`, `cleared`, and the `{elapsed}` placeholder.
- */
+/** A manager exception. Re-sending the same `id` replaces it. */
 export interface Alert {
   type: 'alert'
   id: string
@@ -215,6 +220,16 @@ export interface Alert {
   cleared?: boolean
 }
 
+/**
+ * The answer to the tap that sends or cancels an order (`order.confirm` /
+ * `order.cancel_confirm` without a `proposalId`): the glasses leave the draft screen.
+ */
+export interface OrderClosed {
+  type: 'order.closed'
+  orderId: string
+  status: 'fired' | 'cancelled'
+}
+
 /** A full snapshot of every table (not a diff); sent on connect and on every change. */
 export interface FloorState {
   type: 'floor.state'
@@ -228,3 +243,4 @@ export type BackendMessage =
   | OrderReadback
   | Alert
   | FloorState
+  | OrderClosed

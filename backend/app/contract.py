@@ -1,6 +1,7 @@
-"""Python mirror of `glasses/src/contract.ts` (Coder B's proposal), checked with pydantic.
+"""Python mirror of `glasses/src/contract.ts` (signed off at Sync 1), checked with pydantic.
 
-Section 1 is the contract exactly as written in contract.ts on `main`: same message types,
+Section 1 is the contract as first written in contract.ts plus the voice fields (proposalId,
+order.reject, the order.draft extras): same message types,
 same camelCase field names, same shapes, `extra="forbid"` so a drift on either side fails a
 test instead of silently passing. Section 2 holds the backend's requested additions
 (CONTRACT.md "Contract changes requested"); every outbound message is validated against
@@ -95,11 +96,19 @@ class CaptureStop(Strict):
 class OrderConfirm(Strict):
     type: Literal["order.confirm"]
     orderId: str
+    proposalId: str | None = None
 
 
 class OrderCancelConfirm(Strict):
     type: Literal["order.cancel_confirm"]
     orderId: str
+    proposalId: str | None = None
+
+
+class OrderReject(Strict):
+    type: Literal["order.reject"]
+    orderId: str
+    proposalId: str
 
 
 GlassesJsonMessage = Annotated[
@@ -109,7 +118,8 @@ GlassesJsonMessage = Annotated[
     | CaptureStart
     | CaptureStop
     | OrderConfirm
-    | OrderCancelConfirm,
+    | OrderCancelConfirm
+    | OrderReject,
     Field(discriminator="type"),
 ]
 
@@ -126,6 +136,12 @@ class TaskUpdated(Strict):
     task: Task
 
 
+class PendingProposal(Strict):
+    id: str
+    action: Literal["remove", "cancel", "confirm"]
+    text: str
+
+
 class OrderDraft(Strict):
     type: Literal["order.draft"]
     orderId: str
@@ -133,6 +149,10 @@ class OrderDraft(Strict):
     table: str | None
     lines: list[OrderLine]
     allergies: list[Allergy]
+    status: Literal["draft", "sent", "cancelled"] | None = None
+    pending: list[PendingProposal] | None = None
+    voice: Literal["idle", "connecting", "listening", "offline"] | None = None
+    notice: str | None = None
 
 
 class OrderReadback(Strict):
@@ -160,7 +180,7 @@ BackendMessage = Annotated[
 ]
 
 
-# ---------- 2. requested additions (not in contract.ts yet) ----------
+# ---------- 2. the backend's additions (in contract.ts since Sync 1) ----------
 
 
 class TaskExt(Task):
@@ -230,7 +250,8 @@ GlassesJsonMessageExt = Annotated[
     | CaptureStartExt
     | CaptureStop
     | OrderConfirm
-    | OrderCancelConfirm,
+    | OrderCancelConfirm
+    | OrderReject,
     Field(discriminator="type"),
 ]
 

@@ -31,7 +31,9 @@ const BACKEND_TYPES: readonly BackendMessage['type'][] = [
   'order.readback',
   'alert',
   'floor.state',
+  'order.closed',
 ]
+const CLOSED_STATUSES = ['fired', 'cancelled']
 
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 const isStr = (v: unknown): v is string => typeof v === 'string'
@@ -106,6 +108,7 @@ export function parseBackendMessage(raw: string): BackendMessage | null {
   if ((v.type === 'task.assigned' || v.type === 'task.updated') && !isTask(v.task)) return null
   if (v.type === 'alert' && !isAlert(v)) return null
   if (v.type === 'floor.state' && !isFloorState(v)) return null
+  if (v.type === 'order.closed' && !(isStr(v.orderId) && CLOSED_STATUSES.includes(v.status as string))) return null
   return v as unknown as BackendMessage
 }
 
