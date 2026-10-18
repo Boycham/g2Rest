@@ -3,6 +3,10 @@
 Organizer (`index.html`) and kitchen (`kitchen.html`) pages for step 5 of the build plan. Plain
 HTML, CSS and ES modules: no framework, no build step, no npm dependencies.
 
+The Verity scroll story and the manager dashboard that replaces the organizer for managers live in
+`verity/` (React + Vite, its own `package.json`); see `verity/README.md`. They reuse `client.js`
+and `state.js` from here.
+
 ## Run it
 
 ```sh
