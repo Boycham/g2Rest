@@ -42,6 +42,8 @@ the fake backend's `/state`.
   sent (same `captureId`), card back.
 - Killing the backend: card footer shows `OFFLINE` within a second, retries back off 0.5 s -> 10 s; restarting
   the backend reconnects on its own.
+  Rechecked for PR #18 (manager dashboard showed m1 offline after a restart): see "Reconnect after a backend
+  restart" below.
 - Reloading the WebView (Vite reload): `restored queue 3` from SDK storage, card redrawn before the socket opens.
 - Double tap -> `shutDownPageContainer(1)`; glasses go blank.
 - Timings (simulator, not hardware): `textContainerUpgrade` 1-2 ms, `rebuildPageContainer` 0-3 ms per call.
@@ -396,3 +398,28 @@ page without the rail. Leaving the Card drops an open handoff popup, so a tap on
 - HW-PENDING: the command stream with the phone locked/backgrounded, and battery of streaming the mic.
 - HW-PENDING: long hold (SDK `LONG_PRESS_EVENT` 9) on the real ring/temple; AGENTS.md still says there
   is no long press, and the simulator may not send it.
+
+## Reconnect after a backend restart (PR #18)
+
+Demo report: after a backend restart the manager dashboard (`GET /health` `online`) showed the manager's glasses
+offline until the app was reopened. Simulator repro on a scratch backend (`uvicorn app.main:app --port 8790`,
+open dev token), one simulator as manager m1 and one as server s1, backend killed and restarted:
+
+- **Before the change:** both sockets reconnected on their own, with the URL for their role
+  (`role=manager&staff=m1`, `role=server&staff=s1`), and `/health` returned
+  `{"clients":2,"online":["m1","s1"],...}` without reopening anything. Retries were 0.5, 1, 2, 4, 8, 10, 10 s for
+  both simulators in lockstep (no jitter), so the restart was not reproduced in the simulator.
+- **Change:** `BackendSocket` now takes a `() => url` and asks it on every dial (`() => backendUrl(base, role, token,
+  staff)` in `main.ts`), so a retry, a role switch and `FOREGROUND_ENTER_EVENT` (`reconnectNow`) always use the
+  current role. Backoff is `retryDelay(attempt)`: doubling from 0.5 s, capped at 10 s, jittered to between half
+  and all of the step. A closed socket also clears its connect timer (a stale `ws connect timeout` log fired
+  during the next wait).
+- **After:** killed at 13:07:06 UTC, restarted 13:07:22. Retries m1: 368, 947, 1845, 3950, 6782, 9920 ms; s1: 250,
+  633, 1408, 2971, 6885, 5124 ms. s1 back 2.1 s after the restart, m1 8.7 s after; `/health` then returned
+  `{"ok":true,"tasksOpen":0,"clients":2,"online":["m1","s1"],...}`.
+- **Re-sent on connect:** the hub reads only `role`, `staff` and `token` from the URL and pushes the current
+  state itself (`send_current_state`); the server role also re-sends its `capture.start` command stream when it
+  comes back online (`server.onStatus`). Nothing else is needed.
+- HW-PENDING: on a real G2 the WebView may throttle timers in the background or with the phone locked, which
+  would stretch the retries; `FOREGROUND_ENTER_EVENT` redials at once. The 10 s cap plus the dashboard's 4 s
+  `/health` poll means up to about 14 s of "offline" after a restart, not "until reopened".

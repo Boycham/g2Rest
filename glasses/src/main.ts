@@ -25,7 +25,7 @@ const restoredManager = await loadManager(bridge)
 const restoredDone = await loadDone(bridge)
 log('role', role, 'restored queue', restoredQueue.length, 'alerts', restoredManager.exceptions.open.length)
 
-const socket = new BackendSocket(urlFor(role), {
+const socket = new BackendSocket(() => urlFor(role), {
   onMessage: msg => {
     server.onMessage(msg)
     manager.onMessage(msg)
@@ -75,7 +75,7 @@ async function switchRole(next: Role): Promise<void> {
   log('role ->', role)
   await saveRole(bridge, role)
   // The backend routes by the role/staff on the socket, so a new role is a new connection.
-  socket.redial(urlFor(role))
+  socket.reconnectNow()
   await active().enter()
   syncPhone()
 }
