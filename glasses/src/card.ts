@@ -33,6 +33,8 @@ export interface CardOptions {
   hint?: string
   /** A line under the task line, before the notes: the ramp dish hint (`ramp.ts`). */
   detail?: string
+  /** The top line when there is no task and nothing else to say, e.g. `No tasks`. */
+  empty?: string
 }
 
 export function seatsLabel(seats: readonly number[]): string {
@@ -78,7 +80,7 @@ export function formatCard(queue: readonly Task[], opts: CardOptions): CardView 
   const maxLines = opts.maxLines ?? CARD_MAX_LINES
   const head = queue[0]
   if (!head) {
-    const top = opts.banner ? fit(opts.banner, width) : opts.offline ? 'OFFLINE' : ''
+    const top = opts.banner ? fit(opts.banner, width) : opts.offline ? 'OFFLINE' : (opts.empty ?? '')
     const out = opts.eightySix ? [fit(opts.eightySix, width)] : []
     const shown = top || !out.length ? [...out, top] : out
     if (!opts.hint) return { text: shown.join('\n'), brightness: top ? 4 : out.length ? 2 : 4 }
