@@ -13,7 +13,7 @@ from pathlib import Path
 
 import httpx
 
-from commands import COMMANDS, find_commands
+from commands import COMMANDS, find_commands, parse_commands
 from make_fixtures import GUEST_VOICE, SERVER_VOICE, add_noise, tts
 from voice_session import API, api_key, transcribe_clip
 
@@ -23,6 +23,7 @@ NEAR_MISSES = [
     "Could you verify the bill for us?",
     "Verity is my sister's name, actually.",
     "We're done, I accept, let's go back up to the room.",
+    "Could we get a table for two by the window?",
 ]
 
 
@@ -34,6 +35,10 @@ def mix(fg: bytes, bg: bytes, bg_gain: float) -> bytes:
     ).tobytes()
 
 
+def phrase(w: str) -> str:
+    return "Verity, table four." if w == "table" else f"Verity, {w}."
+
+
 def text_of(turns: list[tuple[str, str]]) -> str:
     return " ".join(t for _, t in turns)
 
@@ -42,7 +47,7 @@ async def main() -> None:
     conv = (FIX / "conv_task.pcm").read_bytes()
     pad = bytes(16000)  # 0.5 s
     with httpx.Client(base_url=API, headers={"xi-api-key": api_key()}, timeout=30) as http:
-        cmds = {(w, v): tts(http, v, f"Verity, {w}.") for w in COMMANDS for v in (SERVER_VOICE,)}
+        cmds = {(w, v): tts(http, v, phrase(w)) for w in COMMANDS for v in (SERVER_VOICE,)}
         near = tts(http, GUEST_VOICE, " ".join(NEAR_MISSES))
     hits = total = 0
     spell: dict[str, int] = {}
@@ -64,7 +69,10 @@ async def main() -> None:
             first = (heard.lower().split() or [""])[0].strip(",.")
             spell[first] = spell.get(first, 0) + 1
             got = find_commands(heard)
-            ok += got == [w]
+            if w == "table":
+                ok += [(c.intent, c.table) for c in parse_commands(heard)] == [("table", 4)]
+            else:
+                ok += got == [w]
             print(f"[{cond}] {w!r}: heard {heard!r} -> {got}")
         hits += ok
         total += len(cmds)

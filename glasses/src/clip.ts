@@ -1,17 +1,18 @@
 import { CAPTURE_AUDIO_FORMAT } from './contract'
 
-// The always-on mic's last minute, held in WebView memory only. Nothing is written to SDK
-// storage, browser storage or disk; a swipe down copies the minute out as one clip, and
-// anything older than 60 s is overwritten frame by frame as new audio arrives.
+// The always-on mic's last 2 minutes, held in WebView memory only. Nothing is written to SDK
+// storage, browser storage or disk; a swipe down copies them out as one clip, and
+// anything older than 120 s is overwritten frame by frame as new audio arrives.
 
 const FRAME = CAPTURE_AUDIO_FORMAT.frameBytes
-export const CLIP_SECONDS = 60
+// 120 s × 32 000 B/s (16 kHz s16le mono) = 3.84 MB of frames.
+export const CLIP_SECONDS = 120
 const FRAMES_PER_SECOND = 1000 / 100
 export const CLIP_FRAMES = CLIP_SECONDS * FRAMES_PER_SECOND
 
 /**
  * A fixed ring of 100 ms frame slots. Each push replaces the oldest frame, so the buffer
- * never holds more than the last minute and never concatenates audio per frame (a
+ * never holds more than the last 2 minutes and never concatenates audio per frame (a
  * concatenating buffer once blocked the event loop; see the skill's 05 file).
  */
 export class RollingBuffer {
