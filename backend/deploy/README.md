@@ -19,7 +19,10 @@ phone / glasses / browser --https, wss--> Caddy :443 (<ip>.sslip.io, Let's Encry
   restart on failure, with separate venvs because they pin different `websockets` versions.
 - **Secrets:** only in `/etc/floor-sense/env` on the server (root and `floorsense` only). `deploy.sh
   --env` writes it over SSH stdin from your shell. The backend requires `FS_TOKEN` here, unlike local
-  dev, because this server is public.
+  dev, because this server is public. Optional, passed through when set in your shell:
+  `GEMINI_API_KEY`, `DATABASE_URL` (Tiger Data copy of the event log), `SENTRY_DSN_BACKEND` and
+  `SENTRY_DSN_WEB` (served to the pages by `GET /config`). Check with `curl https://<host>/health`:
+  `eventDb.ok` and `sentry`.
 
 ## Use it
 

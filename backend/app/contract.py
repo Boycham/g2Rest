@@ -306,6 +306,26 @@ class TaskRevert(Strict):
     taskId: str | None = None
 
 
+class TraceContext(Strict):
+    """Proposed (CONTRACT.md §8.12): a Sentry trace context, so the glasses' spans and the
+    backend's join the organizer's trace. Values are the `sentry-trace` and `baggage` headers."""
+
+    sentryTrace: str = Field(pattern=r"^[0-9a-f]{32}-[0-9a-f]{16}(-[01])?$")
+    baggage: str | None = Field(default=None, max_length=8192)
+
+
+class TaskAssignedTraced(TaskAssignedExt):
+    trace: TraceContext | None = None
+
+
+class TaskAcceptTraced(TaskAccept):
+    trace: TraceContext | None = None
+
+
+class TaskDoneTraced(TaskDone):
+    trace: TraceContext | None = None
+
+
 class TaskRejected(Strict):
     """New: a task.* frame from this socket was refused; `reason` is short enough for a card."""
 
@@ -316,7 +336,7 @@ class TaskRejected(Strict):
 
 
 BackendMessageExt = Annotated[
-    TaskAssignedExt
+    TaskAssignedTraced
     | TaskUpdatedExt
     | OrderDraft
     | OrderReadback
@@ -330,8 +350,8 @@ BackendMessageExt = Annotated[
     Field(discriminator="type"),
 ]
 GlassesJsonMessageExt = Annotated[
-    TaskAccept
-    | TaskDone
+    TaskAcceptTraced
+    | TaskDoneTraced
     | TaskBounce
     | TaskHandoff
     | TaskRevert

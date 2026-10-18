@@ -3,6 +3,10 @@
 Organizer (`index.html`) and kitchen (`kitchen.html`) pages for step 5 of the build plan. Plain
 HTML, CSS and ES modules: no framework, no build step, no npm dependencies.
 
+The Verity scroll story and the manager dashboard that replaces the organizer for managers live in
+`verity/` (React + Vite, its own `package.json`); see `verity/README.md`. They reuse `client.js`
+and `state.js` from here.
+
 ## Run it
 
 ```sh
@@ -75,6 +79,11 @@ that needs two runners can briefly hold back smaller runs when only one server i
 
 - Floor-plan editor (drag tables, assign sections). The plan lists it; the backend has no
   route to save a floor yet.
-- Task templates (drinks, VIP touch): the contract's task kinds are RUN, CLEAR, CHECK, SEAT,
-  so the organizer sends one of those with a note.
+- Task templates (drinks, VIP touch): the contract's task kinds are RUN, CLEAR, CHECK, SEAT
+  and ORDER, so the organizer sends one of those with a note.
+- "Take order" (ORDER) is dispatched by hand from the table panel, when the table is ready.
+  Seating a party does not create one: an unaccepted task escalates after 30 s, and an
+  accepted ORDER task stays open until the order fires, so the 5-minute reroute timer
+  (`FS_DONE_SEC`) would flag and move it while guests read the menu. The simulator creates
+  ORDER tasks when a table is ready to order for the same reason.
 - Phone layout is usable but not tuned; the organizer on the phone is the Even Hub app's job.

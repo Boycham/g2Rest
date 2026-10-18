@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -21,10 +22,14 @@ class Event:
 @dataclass
 class EventLog:
     _events: list[Event] = field(default_factory=list)
+    # called with every new event, synchronously: must be O(1) and never raise (app/eventdb.py)
+    listeners: list[Callable[[Event], None]] = field(default_factory=list)
 
     def append(self, type: str, **data: Any) -> Event:
         event = Event(len(self._events) + 1, datetime.now(UTC).isoformat(), type, data)
         self._events.append(event)
+        for listener in self.listeners:
+            listener(event)
         return event
 
     def since(self, seq: int = 0) -> list[Event]:

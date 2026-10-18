@@ -3,7 +3,7 @@
 //
 // "Food up" goes to POST /pass/up; the backend's planner decides when a run leaves and who
 // takes it. This page never decides anything about runs.
-import { api, chrome, h, live } from './client.js'
+import { api, chrome, h, live, startSentry, traced } from './client.js'
 import {
   activeHolds,
   allergyText,
@@ -35,7 +35,7 @@ function staffName(id) {
 
 async function act(label, fn) {
   try {
-    await fn()
+    await traced(label, fn)
   } catch (e) {
     ui.error(`${label}: ${e.message}`)
   }
@@ -202,4 +202,5 @@ async function start() {
   setInterval(render, 1000)
 }
 
+startSentry('kitchen')
 start()
