@@ -108,6 +108,7 @@ export function allergyText(allergies) {
 /**
  * A fired order as kitchen rows: each line with its index, course and temperature from the
  * menu, sorted by course then seat. `up` is true when the pass already has that line.
+ * `conflicts` lists the seat's allergens that the dish contains, uppercase.
  */
 export function ticketRows(order, menu, pass) {
   const byName = new Map((menu?.dishes ?? []).map((d) => [d.name, d]))
@@ -117,12 +118,15 @@ export function ticketRows(order, menu, pass) {
   return order.lines
     .map((line, index) => {
       const dish = byName.get(line.dish)
+      const seatAllergens = seatAllergies(order.allergies ?? [], line.seat).map((a) => a.allergen.toUpperCase())
+      const contains = new Set((dish?.allergens ?? []).map((a) => a.toUpperCase()))
       return {
         ...line,
         index,
         course: dish?.course ?? 'main',
         temperature: dish?.temperature ?? '',
         up: upLines.has(index),
+        conflicts: seatAllergens.filter((a) => contains.has(a)),
       }
     })
     .sort((a, b) => (COURSE_ORDER[a.course] ?? 9) - (COURSE_ORDER[b.course] ?? 9) || a.seat - b.seat)

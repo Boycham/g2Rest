@@ -145,6 +145,26 @@ test('ticketRows sorts by course then seat and marks lines already up', () => {
   )
 })
 
+test('ticketRows flags a dish that contains the seat allergen, and only for that seat', () => {
+  const menu = { dishes: [{ name: 'Soup', course: 'appetizer', temperature: 'hot', allergens: ['dairy', 'gluten'] }] }
+  const order = {
+    orderId: 'o1',
+    allergies: [{ allergen: 'DAIRY', seats: [2] }],
+    lines: [
+      { seat: 1, qty: 1, dish: 'Soup', alterations: [], flagged: [] },
+      { seat: 2, qty: 1, dish: 'Soup', alterations: ['no cream'], flagged: [] },
+    ],
+  }
+  const rows = ticketRows(order, menu, null)
+  assert.deepEqual(
+    rows.map((r) => [r.seat, r.conflicts]),
+    [
+      [1, []],
+      [2, ['DAIRY']],
+    ],
+  )
+})
+
 test('seatAllergies includes table-wide allergies', () => {
   const all = [
     { allergen: 'NUTS', seats: [2] },
