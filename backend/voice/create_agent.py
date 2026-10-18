@@ -1,6 +1,8 @@
 """Create the text-only order agent and its client tools via the ElevenLabs API.
 
-Usage: python create_agent.py [--llm gemini-2.5-flash] [--dry-run]
+Usage: python create_agent.py [--mode clip|stream] [--llm gemini-2.5-flash] [--dry-run]
+`clip` (default): the conversational-capture agent, one set_order call per minute-long clip.
+`stream`: the earlier per-segment agent used by run_spike.py.
 Writes the new agent id to .agent_id (gitignored) and prints it.
 """
 
@@ -13,9 +15,10 @@ from pathlib import Path
 import httpx
 
 from order import Menu
-from voice_session import API, HTTP_TIMEOUT, TOOL_SCHEMAS, api_key, log
+from voice_session import API, CLIP_TOOL_SCHEMAS, HTTP_TIMEOUT, TOOL_SCHEMAS, api_key, log
 
 AGENT_NAME = "floor-sense-order-spike"
+CLIP_AGENT_NAME = "floor-sense-clip-order"
 TOOL_TIMEOUT_SECS = 10
 
 PROMPT = """You turn a restaurant server's spoken order into tool calls. Each user message is
@@ -42,7 +45,31 @@ Rules:
   table or seat is genuinely unknown."""
 
 
-def build_payloads(llm: str) -> tuple[list[dict], dict]:
+CLIP_PROMPT = """You read the transcript of the last minute at one restaurant table, picked up
+by the server's smart glasses: the server, the guests, and sometimes people at nearby tables.
+Speaker labels come from voice diarization and may be wrong. Speech-to-text may mishear words.
+
+Menu (use these exact names):
+{menu}
+
+For every clip, call set_order exactly once with the complete order for this table.
+- Only ordering intent counts: dishes a guest orders, drops or changes, alterations
+  ("no butter"), and allergies. Ignore small talk, the server's own suggestions unless a guest
+  takes them, and anything said by or about other tables.
+- guest: number the guests 1, 2, 3 in the order they first order or state an allergy. Use seat
+  only when a seat number is said aloud.
+- If a choice is ambiguous ("the fish" when two dishes fit) or not on the menu, do not guess:
+  put it in unclear as a short statement, e.g. "'the fish': halibut or salmon".
+- notes: occasion, pacing or timing the server or kitchen should know (a few words each).
+- table: only if a table number is said for this order ("that was table two").
+- If this clip continues an order you already returned in this conversation, return the
+  complete order again and pass the seat numbers from your last result.
+- You cannot send or cancel orders; the server taps on the glasses. Nobody can answer you:
+  the glasses have no speaker and your text is never shown. Never ask questions. After the
+  tool call, reply with "ok" only."""
+
+
+def build_payloads(llm: str, mode: str = "clip") -> tuple[list[dict], dict]:
     tools = [
         {
             "tool_config": {
@@ -52,10 +79,11 @@ def build_payloads(llm: str) -> tuple[list[dict], dict]:
                 "response_timeout_secs": TOOL_TIMEOUT_SECS,
             }
         }
-        for schema in TOOL_SCHEMAS
+        for schema in (CLIP_TOOL_SCHEMAS if mode == "clip" else TOOL_SCHEMAS)
     ]
+    prompt = CLIP_PROMPT if mode == "clip" else PROMPT
     agent = {
-        "name": AGENT_NAME,
+        "name": CLIP_AGENT_NAME if mode == "clip" else AGENT_NAME,
         "tags": ["floor-sense", "spike"],
         "conversation_config": {
             "conversation": {"text_only": True},
@@ -63,7 +91,7 @@ def build_payloads(llm: str) -> tuple[list[dict], dict]:
                 "first_message": "",
                 "language": "en",
                 "prompt": {
-                    "prompt": PROMPT.format(menu=Menu.load().prompt_text()),
+                    "prompt": prompt.format(menu=Menu.load().prompt_text()),
                     "llm": llm,
                     "temperature": 0,
                     "tool_ids": [],
@@ -76,10 +104,11 @@ def build_payloads(llm: str) -> tuple[list[dict], dict]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--mode", choices=("clip", "stream"), default="clip")
     ap.add_argument("--llm", default="gemini-2.5-flash")
     ap.add_argument("--dry-run", action="store_true", help="print payloads, call nothing")
     args = ap.parse_args()
-    tools, agent = build_payloads(args.llm)
+    tools, agent = build_payloads(args.llm, args.mode)
     if args.dry_run:
         print(json.dumps({"tools": tools, "agent": agent}, indent=2))
         return
