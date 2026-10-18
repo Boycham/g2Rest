@@ -28,6 +28,9 @@ COMMANDS = {
     "menu": "menu",
     "controls": "menu",
     "queue": "queue",
+    # Scribe writes the TTS "verity queue" as "Verity Q" (2/2 in the simulator run).
+    "q": "queue",
+    "cue": "queue",
 }
 INTENTS = tuple(dict.fromkeys(COMMANDS.values()))
 # Scribe writes "hand off" / "hand-off" / "never mind" as two words.

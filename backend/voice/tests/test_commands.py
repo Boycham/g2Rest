@@ -52,3 +52,9 @@ def test_menu_controls_and_queue():
         "queue",
     ]
     assert find_commands("Is there a queue for the menu?") == []
+
+
+def test_scribe_spells_queue_as_q():
+    assert find_commands("Verity Q.") == ["queue"]
+    assert find_commands("Verity, cue.") == ["queue"]
+    assert find_commands("Q is my favourite letter.") == []
