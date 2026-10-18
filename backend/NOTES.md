@@ -106,6 +106,19 @@ sent). `tests/test_contract.py` builds every message type the backend can emit a
 `RUN` task is created per runner and reaches the server's socket as `task.assigned` with one item per
 plate; `priority` on the task is the run score.
 
+**Runs only go to a free server** (found live by the web lane: with a dispatch after every food-up, each
+course left alone the moment it was ready and hot plates never paired). Rule, in `Store.dispatch()`: a
+server is free when they have no open `RUN` task; the highest-scoring run takes the section's free
+server first, then anyone free; if it needs more hands than are free, the runs below it wait too (free
+hands are reserved for the best run, so a 5-plate course is not starved by single plates). Everything
+not dispatched stays `up` at the pass and is re-planned after every food-up, every task state change
+(done, bounce, escalation) and on the 1 s ticker, so the 5-minute ceiling fires on its own.
+`test_two_hot_courses_pair_because_the_runner_was_busy` is the live repro: T4 soup and T2 ribeye go
+out in one trip once Ava is done with her previous run.
+
+`POST /orders/{id}/cancel` now tells organizer sockets (`order.cancelled {order}`) and the glasses that
+hold the draft (`order.closed`); confirm sends `order.closed` to the glasses too.
+
 ### Order tools
 
 `tests/test_orders.py`: alias resolution, unknown dish -> `didYouMean` (closest names), disallowed
