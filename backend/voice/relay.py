@@ -133,6 +133,16 @@ def build_draft(
         "notice": notice,
         "notes": list(table.notes) if table else [],
         "uncertain": list(table.uncertain) if table else [],
+        "summary": table.summary if table else "",
+        "answers": [
+            {
+                **({"seat": a["seat"]} if a.get("seat") else {}),
+                "q": a["q"],
+                "a": a["a"],
+                "known": a["answered"],
+            }
+            for a in (table.answers if table else [])
+        ],
     }
 
 

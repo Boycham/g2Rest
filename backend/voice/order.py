@@ -123,6 +123,8 @@ class Table:
     status: str = "draft"  # draft -> sent | cancelled, only through a tap (accept/confirm)
     notes: list[str] = field(default_factory=list)
     uncertain: list[str] = field(default_factory=list)
+    summary: str = ""
+    answers: list[dict[str, Any]] = field(default_factory=list)
 
     def seat(self, n: int) -> Seat:
         return self.seats.setdefault(n, Seat())
@@ -412,6 +414,8 @@ class OrderBook:
         """The complete order heard in a clip. Code numbers the seats, checks every dish and
         alteration, and turns anything already on the draft that the clip drops into a
         removal proposal (a tap applies it), so the agent can only ever add live."""
+        from answers import answer_all, clean_summary
+
         notices: list[str] = []
         if p.get("table") not in (None, "", 0):
             try:
@@ -426,7 +430,9 @@ class OrderBook:
         items = _list_of_objects(p, "items")
         allergies = _list_of_objects(p, "allergies")
         unclear = _list_of_objects(p, "unclear")
-        seat_of = self._seat_numbers([*items, *allergies, *unclear])
+        questions = _list_of_objects(p, "questions")
+        asked_by = [q for q in questions if q.get("guest") or q.get("seat")]
+        seat_of = self._seat_numbers([*items, *allergies, *unclear, *asked_by])
 
         uncertain: list[str] = []
         flagged: list[str] = []
@@ -507,6 +513,18 @@ class OrderBook:
         table.uncertain = [_short(u) for u in uncertain[:MAX_UNCERTAIN]]
         notes = [n for n in _str_list_arg(p, "notes") if not is_question(n)]
         table.notes = [_short(n) for n in notes[:MAX_NOTES]]
+        table.answers, dropped_q = answer_all(
+            self.menu,
+            questions,
+            lambda q: seat_of(q) if q.get("guest") or q.get("seat") else None,
+            self.was_said,
+        )
+        table.summary = clean_summary(
+            self.menu,
+            str(p.get("summary") or ""),
+            {a for s in table.seats.values() for a in s.allergies},
+            {i.dish for s in table.seats.values() for i in s.items},
+        )
 
         result: dict[str, Any] = {
             "status": "ok",
@@ -533,6 +551,11 @@ class OrderBook:
         if rejected:
             result["rejected_unclear"] = rejected
             result["warning"] = "unclear lines must be statements, never questions"
+        if table.answers:
+            result["answers_shown"] = [f"{a['q']} -> {a['a']}" for a in table.answers]
+            result["note_answers"] = "answers about food are written by code from the menu"
+        if dropped_q:
+            result["dropped_questions"] = dropped_q
         if notices:
             result["table_notice"] = notices[0]
         if conflicts := [c for s in table.seats.values() for c in self._allergy_conflicts(s)]:

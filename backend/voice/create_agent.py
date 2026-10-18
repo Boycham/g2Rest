@@ -52,7 +52,8 @@ Speaker labels come from voice diarization and may be wrong. Speech-to-text may 
 Menu (use these exact names):
 {menu}
 
-For every clip, call set_order exactly once with the complete order for this table.
+For every clip, call set_order exactly once with the complete order for this table,
+a short summary and the guests' questions.
 - Only ordering intent counts: dishes a guest orders, drops or changes, alterations
   ("no butter"), and allergies. Ignore small talk, the server's own suggestions unless a guest
   takes them, and anything said by or about other tables.
@@ -69,6 +70,12 @@ For every clip, call set_order exactly once with the complete order for this tab
 - table: only if a table number is said for this order ("that was table two").
 - If this clip continues an order you already returned in this conversation, return the
   complete order again and pass the seat numbers from your last result.
+- summary: 1-2 short sentences on what the table said: mood, pacing, occasion
+  ("anniversary, relaxed; want mains quickly"). Call set_order even if nothing was ordered.
+- questions: every question or comment a guest made to the server ("is the risotto
+  vegetarian?", "can it come without nuts?", "we're in a rush"), with kind, dish and allergen
+  or change. Do not answer food questions yourself: code answers them from the menu. Only a
+  comment (kind comment) gets a short reply the server could say ("I'll tell the kitchen").
 - You cannot send or cancel orders; the server taps on the glasses. Nobody can answer you:
   the glasses have no speaker and your text is never shown. Never ask questions. After the
   tool call, reply with "ok" only."""
