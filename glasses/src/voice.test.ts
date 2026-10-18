@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { makeTask } from './fixtures.test-helpers'
 import { handoffFrame, handoffPrompt } from './handoff'
-import { didntGet, voiceAction } from './voice'
+import { didntGet, tableLine, voiceAction } from './voice'
 
 describe('voiceAction', () => {
   const assigned = makeTask({ id: 't1' })
@@ -45,5 +45,15 @@ describe('didntGet', () => {
   it('shows the words and the reason Gemini could not help', () => {
     expect(didntGet('sing louder')).toBe("Didn't get: sing louder")
     expect(didntGet('sing', 'timeout')).toBe("Didn't get: sing (timeout)")
+  })
+})
+
+describe('tableLine', () => {
+  it('says the table heard, what it replaced, or why it was refused', () => {
+    expect(tableLine({ table: 'T4' })).toBe('Heard: table T4')
+    expect(tableLine({ table: 'T4', was: 'T3' })).toBe('Table T3 → T4')
+    expect(tableLine({ table: 'T12', reason: 'no table 12' })).toBe('T12: no table 12')
+    expect(tableLine({ table: 'T2', reason: 'already sent' })).toBe('T2: already sent')
+    expect(tableLine({ reason: 'say verity table and a number' })).toBe('say verity table and a number')
   })
 })

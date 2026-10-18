@@ -290,6 +290,7 @@ export type VoiceIntent =
   | 'revert'
   | 'menu'
   | 'queue'
+  | 'table'
 
 /**
  * "verity <command>" heard on the always-on command stream. The glasses act on it exactly
@@ -300,6 +301,12 @@ export interface VoiceCommand {
   intent: VoiceIntent
   /** "verity handoff Maya": who to hand the task to. */
   name?: string
+  /** "verity table 4": the table heard ("T4"); the draft itself comes as order.draft. */
+  table?: string
+  /** The table it replaced (an ORDER task's or an earlier one). */
+  was?: string
+  /** Why the relay refused it ("no table 12", "already sent"); shown as is. */
+  reason?: string
 }
 
 /** Coder A: a refused task.* frame, to the sending socket only. The card shows `reason` as is. */

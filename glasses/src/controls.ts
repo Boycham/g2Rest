@@ -16,7 +16,7 @@ export const MAIN_GESTURES: Record<'tap' | 'up' | 'down' | 'hold', MainAction> =
 /** Always on the main card, bottom right. */
 export const CONTROLS_HINT = '↑ controls'
 
-export type ControlAction = MainAction | 'decline' | 'revert' | 'exit' | 'close'
+export type ControlAction = MainAction | 'decline' | 'revert' | 'table' | 'exit' | 'close'
 
 export interface ControlItem {
   label: string
@@ -45,6 +45,7 @@ export const CONTROLS: readonly ControlItem[] = [
   { label: 'Hand off', gesture: gestureFor('handoff'), voice: 'verity handoff', action: 'handoff' },
   { label: 'Decline', gesture: 'menu', voice: 'verity decline', action: 'decline' },
   { label: 'Revert last', gesture: 'menu', voice: 'verity revert', action: 'revert' },
+  { label: 'Set table', gesture: 'voice', voice: 'verity table N', action: 'table' },
   { label: 'Exit', gesture: 'double tap', voice: '-', action: 'exit' },
   { label: 'Close', gesture: 'menu', voice: 'verity back', action: 'close' },
 ]
