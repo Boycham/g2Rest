@@ -422,3 +422,40 @@ async def test_command_stream_sends_only_matched_intents_and_pauses_for_a_clip()
     await session.audio(b"\x03" * FRAME_BYTES)  # after the clip: back to commands
     assert len(streams[0].frames) == 2
     await session.close()
+
+
+@run
+async def test_unknown_words_after_the_wake_word_go_to_gemini_or_show_didnt_get():
+    import relay as relay_mod
+    from gemini_intent import IntentUnavailable
+
+    session, sent, _ = clip_relay()
+    streams: list[FakeStt] = []
+    session.make_stt = lambda p, c: streams.append(FakeStt(p, c)) or streams[-1]
+    replies = iter([("handoff", "Ben"), None, IntentUnavailable("timeout")])
+
+    async def fake_map(words: str):
+        r = next(replies)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    real = relay_mod.map_words
+    relay_mod.map_words = fake_map
+    try:
+        await session.handle_text('{"type": "capture.start", "captureId": "cmd-1", "mode": "command"}')
+        streams[0].on_committed("Verity, give it to Ben.", 0.0)
+        await settle()
+        assert sent[-1] == {"type": "voice.command", "intent": "handoff", "name": "Ben"}
+        streams[0].on_committed("Verity, sing.", 0.0)
+        await settle()
+        assert sent[-1] == {"type": "voice.unknown", "words": "sing"}
+        streams[0].on_committed("Verity, sing louder.", 0.0)
+        await settle()
+        assert sent[-1] == {"type": "voice.unknown", "words": "sing louder", "reason": "timeout"}
+        streams[0].on_committed("Verity, hand off to Maya.", 0.0)
+        await settle()
+        assert sent[-1] == {"type": "voice.command", "intent": "handoff", "name": "Maya"}
+    finally:
+        relay_mod.map_words = real
+        await session.close()

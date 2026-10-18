@@ -22,7 +22,8 @@ from typing import Any, Protocol
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from commands import find_commands
+from commands import Command, parse_commands
+from gemini_intent import IntentUnavailable, map_words
 from order import UNKNOWN_TABLE, Menu, OrderBook, ToolError
 from voice_session import (
     FRAME_BYTES,
@@ -297,9 +298,8 @@ class RelaySession:
             await self.cmd_stt.close()
 
         def committed(text: str, t: float) -> None:
-            for intent in find_commands(text):
-                log(f"voice command {intent}")
-                self._spawn(self._send({"type": "voice.command", "intent": intent}))
+            for cmd in parse_commands(text):
+                self._spawn(self._command(cmd))
 
         stt = self.make_stt(lambda text: None, committed)
         self.cmd_stt, self.cmd_capture_id = stt, capture_id
@@ -309,6 +309,31 @@ class RelaySession:
             log(f"command stream offline: {type(e).__name__}: {e}")
             if self.cmd_stt is stt:
                 self.cmd_stt = None
+
+    async def _command(self, cmd: Command) -> None:
+        """A fixed-list intent goes straight out; other words after "verity" go to Gemini,
+        and anything it can't map shows as `Didn't get: <words>` on the card."""
+        intent, name = cmd.intent, cmd.name
+        if intent == "unknown":
+            words = cmd.words or ""
+            try:
+                mapped = await map_words(words)
+            except IntentUnavailable as e:
+                log(f"voice command unmapped ({e})")
+                await self._send({"type": "voice.unknown", "words": words, "reason": str(e)})
+                return
+            if mapped is None:
+                log("voice command unmapped")
+                await self._send({"type": "voice.unknown", "words": words})
+                return
+            intent, name = mapped
+            log(f"voice command {intent} (gemini)")
+        else:
+            log(f"voice command {intent}")
+        msg: dict[str, Any] = {"type": "voice.command", "intent": intent}
+        if name:
+            msg["name"] = name
+        await self._send(msg)
 
     async def _command_frame(self, frame: bytes) -> None:
         stt = self.cmd_stt
