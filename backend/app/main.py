@@ -42,6 +42,7 @@ class TaskIn(BaseModel):
 
 class StatusIn(BaseModel):
     status: str
+    vip: bool = False  # seating a VIP party: the manager gets "VIP seated T7" once
 
 
 class PlateUp(BaseModel):
@@ -270,9 +271,10 @@ def create_app(
     @app.post("/tables/{table_id}/status", dependencies=auth)
     async def table_status(table_id: str, body: StatusIn) -> dict[str, Any]:
         try:
-            store.set_table_status(table_id, body.status)
+            out = store.set_table_status(table_id, body.status, vip=body.vip)
         except DataError as e:
             raise HTTPException(400, str(e)) from None
+        await hub.deliver(out)
         await hub.push_floor()
         return store.table_wire(table_id)
 

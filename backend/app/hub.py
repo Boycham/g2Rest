@@ -192,6 +192,10 @@ class Hub:
         if out:
             with telemetry.root("pass.run", "run dispatch", tasks=len(out)):
                 await self.deliver(out)
+        waits = self.store.exceptions()
+        if waits:
+            await self.deliver(waits)
+            await self.push_floor()
         if out or push:
             await self.push_pass()
         return bool(out)
