@@ -12,11 +12,9 @@ function fakeHud(queue: Task[] = []) {
   const rebuilds: Content[] = []
   const upgrades: string[] = []
   const sent: { type: string }[] = []
-  const imu: boolean[] = []
   const bridge = {
     rebuildPageContainer: async (p: Content) => (rebuilds.push(p), true),
     textContainerUpgrade: async (u: { content: string }) => (upgrades.push(u.content), true),
-    imuControl: async (on: boolean) => (imu.push(on), true),
     audioControl: async () => true,
     setLocalStorage: async () => true,
     getLocalStorage: async () => '',
@@ -32,7 +30,7 @@ function fakeHud(queue: Task[] = []) {
   const hud = new ServerHud(ctx, queue, [])
   const last = () => rebuilds.at(-1)!
   const isBlank = (p: Content) => p.containerTotalNum === 1 && p.textObject[0]!.content.trim() === '' && p.textObject[0]!.textColor === 0
-  return { hud, rebuilds, upgrades, sent, imu, last, isBlank }
+  return { hud, rebuilds, upgrades, sent, last, isBlank }
 }
 
 const task = (id: string, state: Task['state'] = 'assigned'): Task => ({
@@ -164,12 +162,5 @@ describe('server HUD idle blank', () => {
     expect(f.sent).toEqual([{ type: 'table.status', table: 'T2', status: 'check' }])
     vi.advanceTimersByTime(IDLE_MS)
     expect(f.hud.screen()).toBe('blank')
-  })
-
-  it('never turns the IMU on while blank', () => {
-    const f = fakeHud()
-    f.hud.startPage()
-    vi.advanceTimersByTime(IDLE_MS)
-    expect(f.imu.filter(Boolean)).toEqual([])
   })
 })

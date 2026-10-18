@@ -59,7 +59,7 @@ describe('Controls tab', () => {
   })
 
   it('pages by tap and wraps, the footer on the last line', () => {
-    expect(CONTROLS_PAGES).toBe(6)
+    expect(CONTROLS_PAGES).toBe(5)
     expect(nextControlsPage(0)).toBe(1)
     expect(nextControlsPage(CONTROLS_PAGES - 1)).toBe(0)
     for (let p = 0; p < CONTROLS_PAGES; p++) {

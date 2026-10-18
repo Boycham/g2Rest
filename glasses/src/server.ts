@@ -1,17 +1,16 @@
-import { ImuReportPace, RebuildPageContainer } from '@evenrealities/even_hub_sdk'
+import { RebuildPageContainer } from '@evenrealities/even_hub_sdk'
 import type { BackendMessage, GlassesJsonMessage, VoiceCommand, VoiceRequest } from './contract'
 import { TAB_TEXT_WIDTH, formatCard, formatQueue } from './card'
 import { EightySix } from './eightysix'
 import { CaptureScreen } from './capture'
 import { RollingBuffer } from './clip'
-import { debugFixtures, debugNod, debugSays, loadFixture } from './debug-pcm'
+import { debugFixtures, debugSays, loadFixture } from './debug-pcm'
 import { FrameChunker, Mic, toBytes } from './mic'
 import type { Hud, HudContext, PageSpec } from './hud'
 import { applyBackendTask, markDone, saveDone, type DoneIds } from './reconcile'
 import { MAIN_ID, MAIN_NAME, TextSlot, blankPage, fullTextPage, tabsPage } from './render'
 import { saveQueue, saveRamp } from './storage'
 import { formatRamp, rampHint, rampOn, rampPages, withRamp, type RampPrefs } from './ramp'
-import { NodDetector, nodWanted, parseNodConfig, syntheticNod, type ImuSample } from './nod'
 import { tap, type Queue } from './tasks'
 import { DONE_BEAT_MS, IdleBlank } from './idle'
 import { log } from './log'
@@ -29,9 +28,6 @@ const MAPPING_TIMEOUT_MS = 5000
 const NO_TASKS = 'No tasks'
 
 type Screen = Tab | 'draft' | 'ramp'
-
-/** Nod-to-accept tuning (HW-PENDING): `VITE_FS_NOD`, see nod.ts. */
-const NOD_CONFIG = parseNodConfig(import.meta.env.VITE_FS_NOD)
 
 /** Who wears the glasses (for their ramp-hint setting) and the saved settings. */
 export interface RampSettings {
@@ -71,10 +67,6 @@ export class ServerHud implements Hud {
   private revertSent = false
   private readonly out86 = new EightySix()
   private rampPage = 0
-  private readonly nod = NOD_CONFIG ? new NodDetector(NOD_CONFIG) : null
-  private imuOn = false
-  private imuSamples = 0
-  private debugNodPlayed = false
   private readonly idle = new IdleBlank(awake => this.onIdle(awake))
   /** The blank page is on the glasses (idle.ts): nothing renders until a wake rebuilds. */
   private blankShown = false
@@ -203,7 +195,6 @@ export class ServerHud implements Hud {
     const t0 = performance.now()
     const ok = await this.ctx.bridge.rebuildPageContainer(new RebuildPageContainer(blankPage()))
     log('rebuild blank (idle)', ok, `${(performance.now() - t0).toFixed(1)} ms`)
-    this.syncImu()
     this.ctx.syncPhone()
   }
 
@@ -268,7 +259,6 @@ export class ServerHud implements Hud {
     this.current = 'card'
     this.idle.reset()
     this.blankShown = false
-    this.syncImu()
   }
 
   private async showScreen(next: Screen): Promise<void> {
@@ -293,7 +283,6 @@ export class ServerHud implements Hud {
     const t0 = performance.now()
     const ok = await this.ctx.bridge.rebuildPageContainer(page)
     log('rebuild', next, ok, `${(performance.now() - t0).toFixed(1)} ms`)
-    this.syncImu()
     this.ctx.syncPhone()
   }
 
@@ -305,48 +294,7 @@ export class ServerHud implements Hud {
       this.syncIdle()
       void this.card.render()
     }
-    this.syncImu()
     this.ctx.syncPhone()
-  }
-
-  /** IMU on only while a task waits to be accepted (and this role is on the glasses). */
-  private syncImu(): void {
-    const want = this.nod !== null && this.ctx.active() && nodWanted(this.queue[0], this.current, this.popup !== null)
-    if (want === this.imuOn) return
-    this.imuOn = want
-    this.nod?.reset()
-    this.imuSamples = 0
-    this.ctx.bridge.imuControl(want, ImuReportPace.P100).then(
-      ok => log('imu', want ? 'on (nod to accept)' : 'off', ok),
-      err => log('imu control failed', String(err)),
-    )
-    if (want && debugNod() && !this.debugNodPlayed) void this.playDebugNod()
-  }
-
-  /** SDK IMU_DATA_REPORT: a deliberate down-up nod accepts the waiting task, like a tap. */
-  onImu(sample: ImuSample): void {
-    if (!this.imuOn || !this.nod) return
-    // A sample now and then, so the axis and threshold can be tuned from the phone console.
-    if (this.imuSamples++ % 100 === 0) log('imu sample', this.imuSamples, sample.x, sample.y, sample.z)
-    if (!this.nod.push(sample, performance.now())) return
-    const head = this.queue[0]
-    if (head?.state !== 'assigned' || this.popup || this.current === 'draft') return
-    log('nod -> task.accept', head.id)
-    this.taskTap()
-    this.flash('Heard: nod')
-  }
-
-  /** DEV ONLY: `?debugImu=nod` plays one synthetic nod 2.5 s after the IMU first turns on (the simulator's imuData is null). */
-  private async playDebugNod(): Promise<void> {
-    const samples = syntheticNod({ restMs: 2500, depth: 0.5, durationMs: 400, hz: 20, base: -0.9 }, this.nod!.cfg)
-    this.debugNodPlayed = true
-    log('debug imu nod queued')
-    const t0 = performance.now()
-    for (const s of samples) {
-      await new Promise(r => setTimeout(r, Math.max(0, t0 + s.t - performance.now())))
-      if (!this.imuOn) return
-      this.onImu(s.sample)
-    }
   }
 
   onMessage(msg: BackendMessage): void {
@@ -677,8 +625,6 @@ export class ServerHud implements Hud {
   /** Exit: mic off, minute forgotten, state saved. */
   cleanup(): void {
     this.stopRecording()
-    if (this.imuOn) void this.ctx.bridge.imuControl(false)
-    this.imuOn = false
     this.idle.reset()
     this.save()
   }
