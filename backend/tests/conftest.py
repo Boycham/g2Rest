@@ -6,6 +6,7 @@ from app.config import DATA_DIR
 from app.data import Floor, Menu
 from app.events import EventLog
 from app.tasks import TaskBook
+from tests.test_api import client  # noqa: F401 - shared FastAPI TestClient fixture
 
 
 @pytest.fixture(scope="session")

@@ -9,8 +9,9 @@ from typing import Any
 from app.config import Settings
 from app.data import TABLE_STATUSES, DataError, Floor, Menu
 from app.events import EventLog
-from app.orders import OrderBook
-from app.tasks import TaskBook
+from app.orders import Order, OrderBook
+from app.runs import Pass, Run
+from app.tasks import Outbound, TaskBook
 
 URGENCY_BY_STATUS = {"empty": 0, "seated": 0, "ordered": 0, "waiting": 1, "eating": 0, "check": 1}
 WAITING_URGENT_AFTER_SEC = 10 * 60
@@ -43,6 +44,7 @@ class Store:
     book: TaskBook = field(init=False)
     orders: OrderBook = field(init=False)
     captures: dict[str, Capture] = field(default_factory=dict)
+    pass_: Pass = field(init=False)
 
     def __post_init__(self) -> None:
         self.reset()
@@ -65,6 +67,7 @@ class Store:
         self.book = TaskBook(self.floor, self.events, self.settings.escalation_sec)
         self.orders = OrderBook(self.menu, set(self.floor.tables))
         self.captures = {}
+        self.pass_ = Pass(self.menu, self.floor)
         self.events.append("service.reset")
 
     # ---------- tables ----------
@@ -94,6 +97,57 @@ class Store:
 
     def floor_state(self) -> dict[str, Any]:
         return {"type": "floor.state", "tables": [self.table_wire(t) for t in self.floor.tables]}
+
+    # ---------- orders -> the pass -> run tasks ----------
+
+    def on_fired(self, order: Order) -> None:
+        """A confirmed order: the table is 'ordered' and its lines become plates at the pass."""
+        self.set_table_status(order.table, "ordered")
+        plates = self.pass_.add_order(order.id, order.table, order.lines, self.now())
+        self.events.append(
+            "pass.ticket", orderId=order.id, table=order.table, plates=[p.id for p in plates]
+        )
+
+    def plate_up(self, order_id: str, line: int) -> list[Outbound]:
+        """Mark a plate up, re-plan the pass and create one RUN task per runner of each run."""
+        now = self.now()
+        plate = self.pass_.mark_up(order_id, line, now)
+        self.events.append("pass.up", plateId=plate.id, table=plate.table, dish=plate.dish)
+        out: list[Outbound] = []
+        for run in self.pass_.dispatch(now):
+            out += self._run_tasks(run, now)
+        return out
+
+    def _run_tasks(self, run: Run, now: float) -> list[Outbound]:
+        chain = self.floor.escalation_chain(run.table)
+        per_runner = self.pass_.weights.max_plates_per_runner
+        out: list[Outbound] = []
+        for i in range(run.runners):
+            plates = run.plates[i * per_runner : (i + 1) * per_runner]
+            notes = [run.reason] if i == 0 else [f"runner {i + 1} of {run.runners}: {run.reason}"]
+            if len(run.tables) > 1:
+                notes.append("also " + ", ".join(t for t in run.tables if t != run.table))
+            task, outbound = self.book.create(
+                "RUN",
+                run.table,
+                now,
+                items=[
+                    {
+                        "qty": 1,
+                        "dish": f"{p.dish} ({p.table})" if p.table != run.table else p.dish,
+                        "seats": [p.seat],
+                    }
+                    for p in plates
+                ],
+                notes=notes,
+                assignee=chain[min(i, len(chain) - 1)],
+                priority=run.score,
+            )
+            self.events.append(
+                "pass.run", runId=run.id, taskId=task.id, plates=[p.id for p in plates]
+            )
+            out += outbound
+        return out
 
     # ---------- captures ----------
 
@@ -131,5 +185,6 @@ class Store:
             "orders": [o.to_dict() for o in self.orders.orders.values()],
             "alerts": [a.wire() for a in self.book.alerts.values()],
             "captures": [c.__dict__ for c in self.captures.values()],
+            "pass": self.pass_.state(self.now()),
             "events": len(self.events),
         }
