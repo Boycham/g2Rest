@@ -35,6 +35,10 @@
   (add/remove/modify item, set allergy, propose confirm/cancel). Our code validates every call
   against the menu. The agent can only propose sending or cancelling an order; a tap on the
   glasses does it.
+- **Conversational capture (current path):** the glasses keep the last 60 s of mic audio in memory; a swipe
+  down sends that minute to the relay, **Scribe batch speech-to-text** (`scribe_v2`, English) transcribes it
+  in one call, and the **text-only agent** (LLM `claude-haiku-4-5`, chosen by a measured comparison) returns
+  the whole order with one `set_order` tool call, which code validates. Devin built and measured this path.
 - **ElevenLabs text to speech** generates test audio for development only. No real audio is
   recorded or stored.
 - The glasses never call ElevenLabs and never hold the key: they stream G2 mic PCM to the voice
