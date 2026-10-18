@@ -43,6 +43,20 @@ flowchart LR
 The glasses only talk to the hub; API keys stay on the backend. The message contract is
 `glasses/src/contract.ts`, mirrored in `backend/CONTRACT.md`.
 
+## Live server
+
+The team's hosted backend runs on a Vultr server at **https://45-76-173-44.sslip.io** (Caddy with a Let's
+Encrypt certificate; how it's built: [backend/deploy/README.md](backend/deploy/README.md)).
+
+- `https://45-76-173-44.sslip.io/health` is public: `{"ok":true,"tasksOpen":...,"clients":...}`, where
+  `clients` counts the glasses and pages connected right now.
+- The pages are served under `/app/`: `/app/index.html` (Organizer), `/app/kitchen.html` (Kitchen), and,
+  from the next deploy of `main` on, the Verity manager dashboard and scroll story at
+  `/app/verity/dist/dashboard.html` and `/app/verity/dist/index.html`.
+- Everything else (the API, the `/ws` hub, the pages' live data) needs the server's access token, passed
+  once as `?token=...` on a page URL. The token is not in this repo; judges can ask the team for it, or
+  watch the demo where the pages and glasses are signed in.
+
 ## Run it locally
 
 Prerequisites: Node 20+ (22 or 24 tested), Python 3.11+, and on Linux `libwebkit2gtk-4.1-0` for the simulator.
@@ -66,6 +80,7 @@ local run; empty values turn the feature off.
 | `SENTRY_DSN_WEB` | Sentry DSN for the pages and glasses, served by `GET /config` |
 | `ELEVENLABS_API_KEY` | ElevenLabs key for the voice relay (backend only) |
 | `ELEVENLABS_AGENT_ID` | Clip order agent id (else read from `backend/voice/.agent_id`) |
+| `ELEVENLABS_TALK_AGENT_ID` | Clip summary + answers agent id (else read from `backend/voice/.talk_agent_id`) |
 | `ELEVENLABS_VOICE_ID` | TTS voice for generated test fixtures |
 | `VOICE_RELAY_PORT` | Voice relay port (default 8790) |
 | `VOICE_RELAY_URL` | Where the hub finds the relay (default `ws://localhost:8790/ws`) |
@@ -203,15 +218,19 @@ Standing brief for AI sessions: [AGENTS.md](AGENTS.md). AI use: [AI_USAGE.md](AI
 - [vitest](https://vitest.dev/): tests
 - [ws](https://www.npmjs.com/package/ws) and [tsx](https://www.npmjs.com/package/tsx): the dev-only fake backend
 
-### Voice spike (`backend/voice/`)
+### Voice relay (`backend/voice/`)
 - Python 3.11
-- [httpx](https://pypi.org/project/httpx/): REST calls to ElevenLabs
+- [httpx](https://pypi.org/project/httpx/): REST calls to ElevenLabs and Gemini
 - [websockets](https://pypi.org/project/websockets/): Scribe realtime and agent conversation sockets
 - [python-dotenv](https://pypi.org/project/python-dotenv/): loads the local, gitignored root `.env`
 - [pytest](https://pypi.org/project/pytest/): tests
 - [ruff](https://pypi.org/project/ruff/): lint and format
-- ElevenLabs APIs: Scribe realtime STT (`scribe_v2_realtime`), Agents (text-only mode, client
-  tools), and text to speech for test fixtures
+- ElevenLabs APIs: Scribe batch STT (`scribe_v2`, diarized, keyterms) for order clips, Scribe realtime
+  STT (`scribe_v2_realtime`) for "verity" commands, Agents (text-only mode, client tools, LLM
+  `claude-haiku-4-5` hosted by ElevenLabs) for the clip order and the clip summary, and text to speech
+  (`eleven_multilingual_v2`) for test fixtures only
+- Gemini API (`generateContent`, `gemini-3.1-flash-lite`): maps loose words after "verity" onto a fixed
+  action or a floor request (`backend/voice/gemini_intent.py`)
 
 ### Restaurant brain (`backend/`, `data/`)
 - Python 3.11, type hints, [ruff](https://pypi.org/project/ruff/) and [pytest](https://pypi.org/project/pytest/)
@@ -226,6 +245,12 @@ Standing brief for AI sessions: [AGENTS.md](AGENTS.md). AI use: [AI_USAGE.md](AI
 - [sentry-sdk](https://pypi.org/project/sentry-sdk/) (FastAPI integration, tracing, Logs): errors and
   spans for dispatch, hub delivery, accept, done and food up (`backend/app/telemetry.py`)
 - Shared fictional data in `data/menu.json` and `data/floor.json`; message contract in `backend/CONTRACT.md`
+
+### Dinner-rush simulator (`sim/`)
+- Python 3.11, runs on the backend's own `app` package and venv (no extra dependencies)
+- [httpx](https://pypi.org/project/httpx/) and [websockets](https://pypi.org/project/websockets/): the live
+  run and the mock servers talk to a real backend over HTTP and staff sockets
+- [pytest](https://pypi.org/project/pytest/) and [ruff](https://pypi.org/project/ruff/)
 
 ### Web pages (`web/`)
 - Plain HTML, CSS and JavaScript ES modules, no framework or build step
@@ -242,3 +267,21 @@ Standing brief for AI sessions: [AGENTS.md](AGENTS.md). AI use: [AI_USAGE.md](AI
 - [Motion](https://motion.dev/): component animation
 - Five [React Bits](https://reactbits.dev/) components, copied into `src/components/reactbits/` (license there)
 - [playwright-core](https://www.npmjs.com/package/playwright-core): page checks during development
+- Node's built-in test runner (`npm test` = `node --test`): keyframes and the dashboard view model
+- [Google Fonts](https://fonts.google.com/) (DM Mono, Gaegu, Inter), loaded from the Google Fonts CDN
+- Designed in [Paper](https://paper.design/) during the event; the pages follow its Developer Handoff keyframes
+
+### Hosting and services
+- [Vultr](https://www.vultr.com/): one `vc2-1c-2gb` Ubuntu 24.04 server in Los Angeles, created through the
+  Vultr API (`backend/deploy/provision.sh`)
+- [cloud-init](https://cloud-init.io/): first boot (packages, `ufw` firewall, key-only SSH, service user,
+  `backend/deploy/cloud-init.yaml`)
+- [Caddy](https://caddyserver.com/): HTTPS, static `/app/` pages and the reverse proxy to the backend and
+  its WebSocket hub (`backend/deploy/Caddyfile`)
+- [Let's Encrypt](https://letsencrypt.org/) certificates via Caddy, for a
+  [sslip.io](https://sslip.io/) host name (`45-76-173-44.sslip.io` resolves to the server's IP, no domain needed)
+- [systemd](https://systemd.io/): the `floor-sense-backend` (uvicorn) and `floor-sense-voice` (relay) services
+- SSH + `git archive` + `tar`: `backend/deploy/deploy.sh` ships a committed tree and builds `web/verity` first
+- [ElevenLabs](https://elevenlabs.io/) (Scribe, Agents, TTS), [Google Gemini API](https://ai.google.dev/),
+  [Tiger Data](https://www.tigerdata.com/) and [Sentry](https://sentry.io/), as listed above
+- [Even Hub](https://hub.evenrealities.com/): building, Beta distribution and installing the `.ehpk` on the G2
