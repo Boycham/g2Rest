@@ -10,6 +10,15 @@
   wrote the menu, the order model and guards, the tests, the ElevenLabs session code and the CLI
   scripts, and ran them live against ElevenLabs. A human briefed and reviewed the work.
 
+- **Devin (Cognition)** wrote the restaurant brain in `backend/` (not `backend/voice/`) and the shared
+  data in `data/`: the Python mirror of the message contract and the mock WebSocket server, the fictional
+  menu and floor plan, the FastAPI/WebSocket hub with the task state machine (bounce, 30 s escalation,
+  manager alert), the order-tool guards, the run-priority engine with its FIFO baseline, the kitchen
+  "food up" endpoints, the tests and the walkthrough script. A human briefed it, set the rules
+  (course above temperature, 5-minute ceiling, max 3 plates per runner, cold never delays hot) and
+  reviewed the PR; the web lane's requests (pass endpoints) came through the same session.
+- **Claude Code (Anthropic)** is building the organizer and kitchen web pages in `web/` against that API.
+
 ## How ElevenLabs is used in the product
 
 - **Scribe realtime speech-to-text** turns the server's spoken order (G2 mic, 16 kHz PCM) into
