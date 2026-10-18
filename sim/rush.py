@@ -35,6 +35,7 @@ def offline(scn: dict[str, Any], seed: int, planners: tuple[str, ...]) -> dict[s
         res = asyncio.run(run_offline(scn, parties, planner, seed))
         m = metrics.compute(res.events, dishes, servers)
         m["parties"] = len(parties)
+        m["served"] = res.world.left
         m["finished"] = res.world.finished
         out[planner] = m
         out.setdefault("_events", {})[planner] = res.events
@@ -42,7 +43,7 @@ def offline(scn: dict[str, Any], seed: int, planners: tuple[str, ...]) -> dict[s
 
 
 ROWS: list[tuple[str, Any]] = [
-    ("parties served", lambda m: m["parties"]),
+    ("parties served", lambda m: f"{m['served']}/{m['parties']}"),
     ("service end (min)", lambda m: round(m["serviceEndSec"] / 60, 1)),
     ("plates", lambda m: m["plates"]),
 ]
@@ -61,11 +62,18 @@ def table(results: dict[str, dict[str, Any]], servers: list[str]) -> str:
         add(f"{temp} plates", lambda m, t=temp: m["waitSec"][t]["n"])
         for stat in ("median", "p90", "max"):
             add(f"  {temp} wait {stat} (s)", lambda m, t=temp, s=stat: m["waitSec"][t][s])
+    add("hot plate to table median (s)", lambda m: m["toTableSec"]["hot"]["median"])
+    add("hot plate to table p90 (s)", lambda m: m["toTableSec"]["hot"]["p90"])
+    add("hot plate to table max (s)", lambda m: m["toTableSec"]["hot"]["max"])
+    add("hot wait after course up p90 (s)", lambda m: m["hotWaitAfterCourseUpSec"]["p90"])
+    add("hot course whole at table median (s)", lambda m: m["hotCourseToTableSec"]["median"])
+    add("hot course whole at table p90 (s)", lambda m: m["hotCourseToTableSec"]["p90"])
     add("plates over 5 min ceiling", lambda m: m["ceilingPlates"]["total"])
     add("  of them hot", lambda m: m["ceilingPlates"]["hot"])
     add("plates left at the pass", lambda m: m["stillAtPass"]["total"])
     add("runs", lambda m: m["runs"])
     add("RUN tasks (trips)", lambda m: m["runTasks"])
+    staff = sorted({w for p in names for w in results[p]["runTasksDoneBy"]})
     add("runs pairing 2+ tables", lambda m: m["multiTableRuns"])
     add("RUN tasks escalated", lambda m: m["escalatedRunTasks"])
     add("courses left together", lambda m: f"{m['courses']['leftTogether']}/{m['courses']['n']}")
@@ -73,6 +81,10 @@ def table(results: dict[str, dict[str, Any]], servers: list[str]) -> str:
     add("idle while reserved (s)", lambda m: m["idleReservedSec"]["total"])
     for s in servers:
         add(f"  {s}", lambda m, s=s: m["idleReservedSec"]["perServer"].get(s, 0))
+    add("  of it empty-handed (s)", lambda m: m["idleReservedSec"]["emptyHanded"])
+    for who in staff:
+        add(f"  RUN trips by {who}", lambda m, w=who: m["runTasksDoneBy"].get(w, 0))
+    add("floor tasks escalated", lambda m: m["escalatedFloorTasks"])
     width = max(len(r[0]) for r in rows) + 2
     lines = [f"{'':<{width}}" + "".join(f"{n:>12}" for n in names)]
     for label, vals in rows:
