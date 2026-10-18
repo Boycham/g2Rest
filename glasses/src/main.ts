@@ -15,20 +15,19 @@ import { tap, type Queue } from './tasks'
 import { applyBackendTask, loadDone, markDone, saveDone, type DoneIds } from './reconcile'
 import { log } from './log'
 import { mountUi, renderPhone } from './ui'
+import { CaptureScreen } from './capture'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'ws://localhost:8787/ws'
 
-type Screen = 'card' | 'queue' | 'listening'
+type Screen = 'card' | 'queue' | 'draft'
 
 const MAIN_ID = 1
 const MAIN_NAME = 'main'
-const LISTENING_TEXT = 'Listening… (swipe down to stop)'
 
 let queue: Queue = []
 let done: DoneIds = []
 let screen: Screen = 'card'
 let status: SocketStatus = 'connecting'
-let captureId: string | null = null
 
 mountUi(BACKEND_URL)
 const bridge = await waitForEvenAppBridge()
@@ -101,9 +100,15 @@ async function renderCard(): Promise<void> {
 }
 
 async function showScreen(next: Screen): Promise<void> {
+  if (screen === 'draft' && next !== 'draft') capture.leave()
   screen = next
+  if (next === 'draft') {
+    await capture.enter()
+    syncPhone()
+    return
+  }
   const card = currentCard()
-  const text = next === 'listening' ? LISTENING_TEXT : next === 'queue' ? formatQueue(queue) : card.text
+  const text = next === 'queue' ? formatQueue(queue) : card.text
   const brightness = next === 'card' ? card.brightness : 4
   const page = new RebuildPageContainer({ containerTotalNum: 1, textObject: [textPage(text, brightness)] })
   if (next === 'card') shownCard = JSON.stringify(card)
@@ -114,7 +119,7 @@ async function showScreen(next: Screen): Promise<void> {
 }
 
 function syncPhone(): void {
-  renderPhone({ status, screen, queue, capturing: captureId !== null })
+  renderPhone({ status, screen, queue, capturing: capture.capturing })
 }
 
 function changed(): void {
@@ -140,6 +145,10 @@ function onBackend(msg: BackendMessage): void {
       }
       changed()
       return
+    case 'order.draft':
+      log('<-', msg.type, msg.orderId, msg.voice ?? '', `${msg.lines.length} lines`, `${msg.pending?.length ?? 0} pending`)
+      capture.onDraft(msg)
+      return
     default:
       log('<- unhandled on server HUD', msg.type)
   }
@@ -150,29 +159,27 @@ const socket = new BackendSocket(BACKEND_URL, {
   onStatus: s => {
     status = s
     log('status', s)
+    capture.setOnline(s === 'online')
     void renderCard()
     syncPhone()
   },
 })
 
+const capture = new CaptureScreen(bridge, socket, syncPhone)
+
 // ---------- gestures ----------
 
-function newCaptureId(): string {
-  return `cap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+async function startCapture(): Promise<void> {
+  await showScreen('draft')
+  capture.start()
 }
 
-function startCapture(): void {
-  captureId = newCaptureId()
-  socket.send({ type: 'capture.start', captureId })
-  void showScreen('listening')
-}
-
-function stopCapture(): void {
-  if (captureId) socket.send({ type: 'capture.stop', captureId })
-  captureId = null
+function onDraftGesture(g: 'tap' | 'up' | 'down'): void {
+  if (capture.gesture(g) === 'back') void showScreen('card')
 }
 
 function onTap(): void {
+  if (screen === 'draft') return onDraftGesture('tap')
   if (screen === 'queue') {
     void showScreen('card')
     return
@@ -186,16 +193,14 @@ function onTap(): void {
 }
 
 function onSwipeUp(): void {
-  if (screen === 'card') void showScreen('queue')
+  if (screen === 'draft') onDraftGesture('up')
+  else if (screen === 'card') void showScreen('queue')
   else if (screen === 'queue') void showScreen('card')
 }
 
 function onSwipeDown(): void {
-  if (screen === 'card') startCapture()
-  else if (screen === 'listening') {
-    stopCapture()
-    void showScreen('card')
-  }
+  if (screen === 'card') void startCapture()
+  else if (screen === 'draft') onDraftGesture('down')
 }
 
 // CLICK_EVENT is 0 and protobuf omits zero values, so a tap arrives as an envelope whose
@@ -211,11 +216,12 @@ let cleanedUp = false
 function cleanup(): void {
   if (cleanedUp) return
   cleanedUp = true
-  stopCapture()
+  capture.stop()
   void saveQueue(bridge, queue)
 }
 
 bridge.onEvenHubEvent(event => {
+  if (event.audioEvent) return capture.onAudio(event.audioEvent.audioPcm)
   const type = eventTypeOf(event)
   if (type === null) return
   switch (type) {
@@ -238,7 +244,8 @@ bridge.onEvenHubEvent(event => {
       socket.reconnectNow()
       return
     case OsEventTypeList.FOREGROUND_EXIT_EVENT:
-      log('foreground exit: saving queue')
+      log('foreground exit: mic off, saving queue')
+      capture.stop()
       void saveQueue(bridge, queue)
       return
     case OsEventTypeList.SYSTEM_EXIT_EVENT:
