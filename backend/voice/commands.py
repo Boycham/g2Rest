@@ -47,6 +47,8 @@ INTENTS = tuple(dict.fromkeys(COMMANDS.values()))
 BIGRAMS = {("hand", "off"): "handoff", ("never", "mind"): "nevermind"}
 # Words after "verity" in the same sentence that are kept for Gemini; longer runs are talk.
 MAX_UNKNOWN_WORDS = 5
+# Words that may follow "verity table N" and still mean set-table.
+SET_TABLE_TAIL = frozenset({"please", "thanks", "thank", "you", "now"})
 # "Verity is my sister's name": a sentence about someone called Verity, not a command, so it
 # isn't sent to Gemini (realtime Scribe commits it as its own segment once the gate is on).
 ABOUT_VERITY = frozenset({"is", "was", "s", "has", "had", "said", "says", "and", "who", "will"})
@@ -255,6 +257,16 @@ def parse_commands(text: str, soundalikes: bool = True) -> list[Command]:
             name = None
             if intent == "table":
                 n, used = _table_after(ws[j + 1 : j + 3])
+                k0 = j + 1 + used
+                end = min([k for k in starts if k >= k0] + [len(ws)])
+                rest = ws[k0:end]
+                nxt = next((k for k in range(len(rest)) if rest[k] in WAKE_WORDS), len(rest))
+                if n is not None and any(w not in SET_TABLE_TAIL for w in rest[:nxt]):
+                    # "verity table two wants..." cut off: never set-table on a request
+                    if exact and 1 + used + nxt <= MAX_UNKNOWN_WORDS + 2:
+                        out.append(Command("unknown", words=" ".join(ws[j : j + 1 + used + nxt])))
+                    i = j + 1 + used + nxt
+                    continue
                 out.append(Command("table", table=n))
                 i = j + 1 + used
                 continue

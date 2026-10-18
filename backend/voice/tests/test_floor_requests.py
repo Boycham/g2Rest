@@ -208,3 +208,25 @@ async def test_gemini_mapped_request_takes_the_same_path(monkeypatch):
         "source": "voice",
     }  # fmt: skip
     await session.close()
+
+
+def test_cut_off_request_never_sets_the_table() -> None:
+    """Realtime Scribe in the simulator run: "Verity, table two wants..." (end cut off)."""
+    from commands import parse_commands
+
+    cut = parse_commands("Verity, table two wants...")
+    assert [c.intent for c in cut] == ["unknown"] and cut[0].words == "table two wants"
+    assert parse_commands("Verity, table two.")[0].table == 2
+    assert parse_commands("verity table 4 please")[0].table == 4
+    assert parse_commands("Verity, table two. Wants the check.")[0].table == 2
+
+
+def test_scribe_spellings_from_the_simulator_run() -> None:
+    from commands import parse_commands
+
+    (c,) = parse_commands("Verity, table three is eaten.")
+    assert c.request == Request(3, status="eating")
+    (c,) = parse_commands("Verity, table two, paid.")
+    assert c.request == Request(2, status="empty", note="paid")
+    (c,) = parse_commands("Verity, T4, seated, four.")
+    assert c.request == Request(4, status="seated")

@@ -22,7 +22,7 @@ STATUSES = ("empty", "seated", "ordered", "waiting", "eating", "check")
 STATUS_WORDS = {
     "free": "empty", "empty": "empty", "open": "empty", "available": "empty", "paid": "empty",
     "left": "empty", "gone": "empty", "seated": "seated", "sat": "seated", "ordered": "ordered",
-    "waiting": "waiting", "eating": "eating", "check": "check", "bill": "check",
+    "waiting": "waiting", "eating": "eating", "eaten": "eating", "check": "check", "bill": "check",
 }  # fmt: skip
 # A table whose status implies work gets that task too (backend dedupes an open one).
 STATUS_TASK = {"check": "CHECK"}
