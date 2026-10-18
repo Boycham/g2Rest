@@ -84,9 +84,14 @@ export class BackendSocket {
     ws.onerror = () => log('ws error')
   }
 
-  /** Dial a different URL (role switch); takes effect on the next connect. */
-  setUrl(url: string): void {
+  get currentUrl(): string {
+    return this.url
+  }
+
+  /** Role switch: the backend routes by the role/staff on the socket, so dial the new URL now. */
+  redial(url: string): void {
     this.url = url
+    this.reconnectNow()
   }
 
   /** Drop the current socket and dial again now (e.g. on the foreground event). */

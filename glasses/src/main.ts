@@ -73,8 +73,7 @@ async function switchRole(next: Role): Promise<void> {
   log('role ->', role)
   await saveRole(bridge, role)
   // The backend routes by the role/staff on the socket, so a new role is a new connection.
-  socket.setUrl(urlFor(role))
-  socket.reconnectNow()
+  socket.redial(urlFor(role))
   await active().enter()
   syncPhone()
 }
