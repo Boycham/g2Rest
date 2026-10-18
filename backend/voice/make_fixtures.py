@@ -56,6 +56,9 @@ CONVERSATIONS = {
         (S, "Okay, that was table two."),
     ],
 }
+# The same order before the server names the table: the draft shows TABLE? until a second
+# swipe down sends conv_tableless, whose last line is "that was table two".
+CONVERSATIONS["conv_notable"] = CONVERSATIONS["conv_tableless"][:-1]
 TTS_MODEL = "eleven_multilingual_v2"
 UTTERANCES = {
     # Soup and torte are ordered so fixtures 2 and 4 remove something that is there; after
