@@ -7,7 +7,7 @@ What was verified, how to run it, and what is still open. Numbers are from the d
 ```sh
 cd backend
 python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/ruff check app tests scripts mock && .venv/bin/python -m pytest -q      # 70 passed
+.venv/bin/ruff check app tests scripts mock && .venv/bin/python -m pytest -q      # 117 passed
 FS_TOKEN= .venv/bin/uvicorn app.main:app --port 8787                              # empty token = open dev mode
 ```
 
@@ -157,6 +157,51 @@ alteration -> `flagged`, never applied; allergy conflicts reported; confirm/canc
 - Full test suite: 70 tests, ~1.1 s.
 - Socket round trip (task.accept -> task.updated) in the walkthrough: < 10 ms on localhost.
 - Escalation timing: 2.14 s / 4.14 s / 6.14 s after `sent` for a 2 s timeout (1 s ticker granularity).
+
+## Observability: Tiger Data event log and Sentry (step 10, Oct 18)
+
+- **Event log copy** (`app/eventdb.py`, schema `app/schema.sql`, applied idempotently at every start):
+  `EventLog.append` calls `EventDB.offer`, which only appends to a bounded deque (50k); a separate task
+  writes batches of up to 500 with one `executemany` every 250 ms. Table `fs_events` (hypertable, 1-day
+  chunks): `time, boot, seq, type, task, table_id, staff, payload jsonb`. The in-memory log stays the
+  truth: an outage keeps the batch queued (reconnect with backoff 1 s -> 30 s), `GET /health` shows
+  `eventDb.ok: false` and `lastError`, `GET /stats` shows `history.available: false`.
+- **Aggregates:** `fs_accept_latency` (`task.accepted`, payload `acceptSec` = sent to accepted) and
+  `fs_ticket_time` (`task.done`, `ticketSec` = accepted to done, or assigned to done when never
+  accepted), 5-minute buckets per `staff` and `kind`, real-time (`materialized_only = false`), with
+  refresh policies. `GET /stats?hours=24` rolls them up into `history.accept` / `history.ticket`.
+- **Sentry:** off unless `SENTRY_DSN_BACKEND`; FastAPI integration, tracing (rate
+  `FS_SENTRY_TRACES_RATE`, default 1), Logs (INFO and up from `fs.*`). Spans: `task.dispatch`
+  (POST /tasks), `hub.deliver` (each message to a socket), `task.accept` / `task.done` (a transaction
+  per glasses frame, continuing the trace the task was created in), `pass.up` -> `pass.run` (food up to
+  the RUN it creates), `task.escalate` (ticker). WebSocket connections themselves are not sampled.
+- **Web:** Sentry browser SDK 10.76.2 from the CDN with SRI, DSN from `GET /config` (`SENTRY_DSN_WEB`).
+  Each organizer/kitchen action is a `ui.action` transaction; fetches to the backend carry
+  `sentry-trace` and `baggage`. Session Replay at 100% (fictional data). `?token=` moves to
+  `sessionStorage` and out of the URL so it never reaches Sentry.
+
+Measured on the dev VM (uvicorn on localhost, Tiger Data over the internet, us-east), 200 tasks each,
+`scripts/measure_observability.py` (dispatch = `POST /tasks` until `task.assigned` arrives on s1's
+socket; accept/done = frame until `task.updated` comes back):
+
+| run | dispatch median / p95 | accept median / p95 | done median / p95 |
+|---|---|---|---|
+| no DB, no Sentry | 1.44 / 2.87 ms | 0.30 / 0.58 ms | 0.24 / 0.83 ms |
+| Tiger Data on | 1.48 / 1.94 ms | 0.30 / 0.66 ms | 0.24 / 0.35 ms |
+| Tiger Data + Sentry on | 1.89 / 3.93 ms | 0.44 / 1.44 ms | 0.60 / 0.87 ms |
+
+- `EventLog.append`: 2.31-2.48 us without the listener, 2.48-2.56 us with `EventDB.offer` (100k appends):
+  the database adds nothing measurable to the hub. Sentry adds about 0.2-0.4 ms per action (span
+  bookkeeping), still well under a millisecond.
+- Batch write to Tiger Data (`/health` `eventDb.writeMs`): p50 4-10 ms, p95 38-41 ms per `executemany`
+  batch; 1204 rows for 200 tasks (6 events per task) in about 12 batches, none dropped.
+- Database unreachable (`DATABASE_URL` pointing at a closed port): `POST /tasks` still 201 in 13 ms,
+  `/health` `eventDb: {ok: false, queued: 2, failures: 2, lastError: "ConnectionRefusedError..."}`.
+- Real trace: organizer click "Dispatch" -> `POST /tasks` -> `task.dispatch` -> `hub.deliver` ->
+  `task.accept` -> `task.done`, all trace `717adbb232aa415ba6f32d8fa5bd5687` (environment
+  `devin-observability`); with `FS_TRACE_WIRE=1` the `task.assigned` frame carried that trace id too.
+- The full trace through the glasses needs the proposed `trace?` field (CONTRACT.md 8.11) in
+  `glasses/` (step 10b). Without it the backend already joins accept and done to the dispatch trace.
 
 ## Surprises
 
