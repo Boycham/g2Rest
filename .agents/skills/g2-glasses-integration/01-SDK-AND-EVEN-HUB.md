@@ -27,7 +27,10 @@
 
 ## Input
 
-- Event types: click, scroll top, scroll bottom, double click, lifecycle, IMU. **No long press.**
+- Event types: click, scroll top, scroll bottom, double click, long press (`LONG_PRESS_EVENT = 9`, release = 10, in
+  SDK 0.0.16), lifecycle, IMU.
+- On the G2 touchpad scroll top is a swipe **forward** (toward the eyes) and scroll bottom a swipe **back** (toward
+  the ear), checked on a real G2 at 0.1.5. Wearer-facing text says fwd/back, never up/down.
 - Tap arrives as a sys event with `eventType` undefined (that means click). Double tap arrives as type 3.
 - Swipes arrive as text events (scroll top / scroll bottom) on the event-capture container **with no event
   source**, so ring and temple swipes can't be told apart.
@@ -35,8 +38,8 @@
 - **Root-page double tap must call `shutDownPageContainer(1)`.** `0` or a custom exit screen gets the app
   auto-rejected.
 - IMU gives raw x/y/z only. A head-nod confirm would need our own detection, active only while a task waits.
-- Floor Sense mapping: tap = accept, tap again = done; swipe down = send the last minute as an order; swipe up = queue;
-  double tap = exit.
+- Floor Sense mapping (`glasses/src/controls.ts`): tap = accept, tap again = done; swipe back = clip the last minute
+  as an order; swipe forward = Controls menu (queue inside); long press = handoff popup; double tap = exit.
 
 ## Rendering
 

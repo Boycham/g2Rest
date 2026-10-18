@@ -4,12 +4,12 @@
 
 - Run `evenhub-simulator` with its **automation port** so you can work without a person:
   - `GET /api/screenshot/glasses`: screenshot of what the glasses show
-  - `POST /api/input`: send tap, double tap, swipe up, swipe down
+  - `POST /api/input`: send tap, double tap, long press, swipe up, swipe down (simulator names; up = a forward swipe on the G2)
   - `GET /api/console`: read the app's console
   No `evenhub login` is needed. Check the simulator's `--help` for the current flags.
 - It uses the laptop mic (`--list-audio-input-devices`, pick one with `--aid`). In a cloud VM there may be no mic
   at all, so build the text-injection and PCM-file paths first.
-- It supports tap, double tap, swipes and the mic. It does **not** support long press (nor does the device),
+- It supports tap, double tap, swipes and the mic. It sends long press too (0.9.5). It does **not** support
   ring source, device status, IMU, real fonts, or the exit dialog (`shutDownPageContainer(1)` just blanks the
   display).
 - **Restart the simulator after every app or backend restart.** Otherwise it keeps showing cards but silently
@@ -44,7 +44,7 @@ Write each answer in `NOTES.md` when someone reports it. Ask for these in your P
 2. A task card appears within about 1 s of the backend sending it, fits at the real font, and wraps correctly.
 3. Is `rebuildPageContainer` flicker acceptable when switching screens?
 4. Tap arrives as a click: accept, then done.
-5. Swipe down arrives as scroll bottom and opens order capture; swipe up opens the queue.
+5. Swipe back arrives as scroll bottom and clips the last minute; swipe forward (scroll top) opens Controls; long press opens the handoff popup.
 6. Double tap shows the real system exit dialog.
 7. Lock the phone for 5 minutes: does the socket reconnect, and does the queue come back?
 8. Speak an order in a noisy room: how much of it does speech-to-text get?

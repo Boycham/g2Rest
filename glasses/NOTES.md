@@ -190,6 +190,14 @@ little next to Scribe's 0.8 s VAD and the agent turn, and the spread run to run 
 - **Gestures:** tap accept → tap done for all 3 tasks; swipe down → `capture.start`, swipe down again →
   `capture.stop`. The backend received each message within the same second as the gesture.
 
+## Real G2: swipes are forward and back (0.1.5, reported by Boyuan)
+
+- The touchpad swipes run **forward** (toward the eyes) and **back** (toward the ear), not up and down. A
+  forward swipe opened Controls, so SDK `up` (scroll top) = forward and SDK `down` (scroll bottom) = back.
+- Labels only changed: the hint is `fwd: controls` (measured, fits beside `+N queued`), Controls rows say
+  `swipe fwd` / `swipe back`, and the draft bars say `tap=yes swipe fwd=no` and `say the table, then swipe
+  back`. `GESTURE_EVENTS` in `main.ts` and `MAIN_GESTURES` are unchanged.
+
 ## HW-PENDING (real G2 + phone)
 
 - Swipe up (queue and back) and double tap on hardware; ring vs temple input.
