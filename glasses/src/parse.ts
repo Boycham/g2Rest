@@ -36,11 +36,13 @@ const BACKEND_TYPES: readonly BackendMessage['type'][] = [
   'voice.command',
   'voice.mapping',
   'voice.unknown',
+  'voice.request',
   'task.rejected',
 ]
 const ALERT_KINDS: readonly AlertKind[] = ['unacked', 'slow', 'course_wait', 'vip', '86']
 const INTENTS = ['up', 'down', 'back', 'confirm', 'clip', 'accept', 'decline', 'done', 'handoff', 'nevermind', 'revert', 'menu', 'queue', 'table', 'ramp']
-const REJECTED_ACTIONS = ['accept', 'done', 'bounce', 'handoff', 'revert']
+const REJECTED_ACTIONS = ['accept', 'done', 'bounce', 'handoff', 'revert', 'request', 'status']
+const REQUEST_KINDS = ['RUN', 'CLEAR', 'CHECK', 'SEAT', 'ORDER']
 const CLOSED_STATUSES = ['fired', 'cancelled']
 
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -105,6 +107,17 @@ function isFloorState(v: Obj): v is Obj & FloorState {
   return Array.isArray(v.tables) && v.tables.every(isTableState)
 }
 
+function isVoiceRequest(v: Record<string, unknown>): boolean {
+  const optStr = (x: unknown) => x === undefined || isStr(x)
+  const kind = v.kind === undefined || REQUEST_KINDS.includes(v.kind as string)
+  const status = v.status === undefined || TABLE_STATUSES.includes(v.status as TableStatus)
+  const something = v.kind !== undefined || v.status !== undefined || isStr(v.reason)
+  return (
+    isStr(v.table) && kind && status && something && (v.vip === undefined || typeof v.vip === 'boolean') &&
+    optStr(v.note) && optStr(v.reason) && (v.source === 'clip' || v.source === 'voice')
+  )
+}
+
 /** Messages the glasses render are fully checked; the others only by type until they're used. */
 export function parseBackendMessage(raw: string): BackendMessage | null {
   let v: unknown
@@ -131,6 +144,7 @@ export function parseBackendMessage(raw: string): BackendMessage | null {
   ) {
     return null
   }
+  if (v.type === 'voice.request' && !isVoiceRequest(v)) return null
   if (v.type === 'voice.mapping' && !isStr(v.words)) return null
   if (v.type === 'voice.unknown' && !(isStr(v.words) && (v.reason === undefined || isStr(v.reason)))) return null
   return v as unknown as BackendMessage
