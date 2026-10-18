@@ -1,10 +1,13 @@
 // Shared browser client for the organizer and kitchen pages: backend URL and token,
 // fetch with a timeout, the live organizer socket, and a tiny element builder.
 //
-// Pages take ?api=http://host:8787&token=... ; both default to the local dev backend.
+// Pages take ?api=http://host:8787&token=... . Without ?api, a page served over https (by the
+// server's Caddy, at https://<host>/app/) talks to its own origin; served locally over http it
+// talks to the dev backend on localhost:8787.
 
 const params = new URLSearchParams(location.search)
-export const API = (params.get('api') ?? 'http://localhost:8787').replace(/\/$/, '')
+const defaultApi = location.protocol === 'https:' ? location.origin : 'http://localhost:8787'
+export const API = (params.get('api') ?? defaultApi).replace(/\/$/, '')
 export const TOKEN = params.get('token') ?? ''
 const TIMEOUT_MS = 4000
 
