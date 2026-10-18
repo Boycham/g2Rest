@@ -64,7 +64,12 @@ class Store:
     def reset(self) -> None:
         now = self.now()
         self.tables = {t: TableLive("empty", now) for t in self.floor.tables}
-        self.book = TaskBook(self.floor, self.events, self.settings.escalation_sec)
+        self.book = TaskBook(
+            self.floor,
+            self.events,
+            self.settings.escalation_sec,
+            self.settings.offline_escalation_sec,
+        )
         self.orders = OrderBook(self.menu, set(self.floor.tables))
         self.captures = {}
         self.pass_ = Pass(self.menu, self.floor)

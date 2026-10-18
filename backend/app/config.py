@@ -27,6 +27,7 @@ def _load_root_env() -> None:
 class Settings:
     token: str = ""
     escalation_sec: float = 30.0
+    offline_escalation_sec: float = 120.0
     port: int = 8787
     data_dir: Path = field(default=DATA_DIR)
     cors_origins: tuple[str, ...] = ("*",)
@@ -37,6 +38,7 @@ class Settings:
         return cls(
             token=os.environ.get("FS_TOKEN", ""),
             escalation_sec=float(os.environ.get("FS_ESCALATION_SEC", "30")),
+            offline_escalation_sec=float(os.environ.get("FS_OFFLINE_ESCALATION_SEC", "120")),
             port=int(os.environ.get("FS_PORT", "8787")),
             data_dir=Path(os.environ.get("FS_DATA_DIR", str(DATA_DIR))),
         )
