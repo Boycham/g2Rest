@@ -389,7 +389,8 @@ class AgentSession:
         """Send one transcript segment and wait until the agent's turn is over."""
         assert self.ws
         self._replied.clear()
-        await self.ws.send(json.dumps({"type": "user_message", "text": text}))
+        payload = json.dumps({"type": "user_message", "text": text})
+        await asyncio.wait_for(self.ws.send(payload), 2.0)
         deadline = time.monotonic() + turn_timeout
         while time.monotonic() < deadline:
             if not self.alive:
