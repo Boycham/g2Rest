@@ -200,13 +200,20 @@ take minutes); a CREAO end-of-shift digest could come later.
 
 ## Voice commands (`commands.py`, relay command stream)
 
-"verity" + one of up / down / back / confirm / clip / accept / decline / done. A fixed word list, no
-LLM: an intent only counts when it directly follows the wake word, so "we're done here" or "I accept"
+"verity" + one of up / down / back / confirm / clip / accept / decline / done / handoff [Name] /
+nevermind / revert / menu (or controls) / queue. A fixed word list, no LLM: an intent only counts when it directly follows the wake word, so "we're done here" or "I accept"
 in conversation never fires. While the Server role is on, the glasses stream the live mic to the relay
 as `capture.start {mode: "command"}`; the relay runs realtime Scribe (English, VAD commit 0.8 s) and
 sends back only `voice.command {intent}`. The transcript is never logged, stored or forwarded. While a
 clip uploads, frames go to the clip; after it, back to the command stream (the hub keeps a separate
 per-socket command capture with no table).
+
+Unknown words right after "verity" (at most 5; longer is ordinary speech and ignored) go to Gemini
+(`gemini_intent.py`, `GEMINI_API_KEY`, default `gemini-2.5-flash-lite`, 3 s timeout, structured JSON)
+with only that short phrase. Code checks the answer is one of the fixed intents and a handoff name is
+one plain word; anything else, a timeout or no key becomes `voice.unknown {words, reason?}` and the
+glasses show `Didn't get: <words>`. Realtime Scribe wrote the TTS "verity queue" as "Verity Q" (2/2 in
+the simulator run), so `q`/`cue` count as queue after the wake word.
 
 ### Noise test (`noise_test.py`, Scribe batch, TTS "Verity, <command>." in the server voice)
 

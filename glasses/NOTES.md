@@ -265,11 +265,37 @@ HW-PENDING (conversational capture):
 
 `?debugPcm=conv_notable&say=verity_accept,verity_decline,verity_done` plays TTS command fixtures into
 the command stream (4 s apart) as if the server said them. `src/voice.ts` maps intents to the gesture
-frames (`task.accept` / `task.bounce` / `task.done`; the hub checks the socket's staff); confirm taps
-the draft; up / down / back / clip act like the gesture at once. accept / decline / done / confirm wait
-3 s behind `Heard: <command>`; a tap or "verity back" in that window shows `Undone: <command>` instead.
-Decline on an accepted task shows `Can't decline: already accepted`.
+frames (`task.accept` / `task.bounce` / `task.done`; the hub checks the socket's staff). Commands act at
+once; the card shows `Heard: <command>` for 3 s. The backend decides: a refused frame comes back as
+`task.rejected` and its `reason` goes on the card as is (no local "Can't ..." guesses).
 
+### Gesture map (one place)
+
+`MAIN_GESTURES` in `src/controls.ts` says what each gesture does on the main card (moving clip is one
+line there); `GESTURE_EVENTS` in `src/main.ts` maps OS events to gestures.
+
+| Gesture (main card) | Action | Voice |
+|---|---|---|
+| Tap | accept, then done; confirms a popup or sends the draft | `verity accept` / `verity done` / `verity confirm` |
+| Swipe up | open Controls | `verity menu` / `verity controls` / `verity up` |
+| Swipe down | clip the last minute | `verity clip` / `verity down` |
+| Long hold | handoff: `Confirm handoff?` popup, then tap | `verity handoff [name]`, then `verity confirm` |
+| Double tap | exit dialog (`shutDownPageContainer(1)`, Even Hub review rule) | none |
+| Controls → Queue | queue view | `verity queue` |
+| Controls → Decline / Revert | `task.bounce` / `task.revert` | `verity decline` / `verity revert` |
+| Controls → Close | back to the card | `verity back` |
+| (popup open) | cancel it | `verity nevermind` |
+
+In Controls swipe up/down move the `>` row and stop at the ends; a tap picks the row. Swipe down does not
+close it (it's clip on the card), only Close or "verity back" do. The always-on `↑ controls` hint is the
+card's last line, right-aligned (sharing it with `+N queued`), measured with pretext (`controls.test.ts`).
+
+- Handoff sends `task.handoff {taskId, to?}` only after the popup is confirmed; "verity revert" sends
+  `task.revert` and the un-accepted `task.updated` that answers it isn't replayed as a lost accept.
+- Unknown words after "verity" go to Gemini on the relay; unmapped or failed: `Didn't get: <words>`
+  (with `(timeout)` / `(no key)` when Gemini wasn't reachable).
 - End of command → `Heard:` on the glasses: median 0.61 s of 5 (see backend/voice/NOTES.md).
 - No `task.command` frame: the gesture frames already cover the task intents, and navigation is local.
 - HW-PENDING: the command stream with the phone locked/backgrounded, and battery of streaming the mic.
+- HW-PENDING: long hold (SDK `LONG_PRESS_EVENT` 9) on the real ring/temple; AGENTS.md still says there
+  is no long press, and the simulator may not send it.
