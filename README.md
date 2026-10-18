@@ -56,6 +56,7 @@ local run; empty values turn the feature off.
 |---|---|
 | `VITE_BACKEND_URL` | Hub WebSocket URL baked into the glasses bundle (default `ws://localhost:8787/ws`) |
 | `FS_TOKEN` | Shared HTTP + WebSocket token on the backend; empty = open dev mode |
+| `FS_FLOOR` | `demo` = `data/floor.demo.json` (Ava + 3 mock servers, see step 6); empty = `data/floor.json` |
 | `VITE_FS_TOKEN` | The same token, baked into the glasses bundle |
 | `VITE_FS_STAFF` | Which server id the glasses sign in as (default `s1`) |
 | `VITE_FS_NOD` | Nod-to-accept tuning, or `off` (HW-PENDING) |
@@ -115,6 +116,22 @@ Restart the simulator after every app or backend restart. Pick Server or Manager
 `npx tsx dev/fake-backend.ts` is a no-backend fallback on port 8787. Details:
 [glasses/README.md](glasses/README.md), [glasses/NOTES.md](glasses/NOTES.md).
 
+### 6. Routing demo: mock servers next to the real G2
+
+The real glasses are `s1` (Ava). For the router to have choices, start the backend on the four-server demo
+floor and let `sim/mock_staff.py` play Ben, Cam and Dee over real staff sockets:
+
+```sh
+cd backend && FS_FLOOR=demo FS_TOKEN= .venv/bin/uvicorn app.main:app --port 8787
+cd sim && ../backend/.venv/bin/python mock_staff.py --staff s2,s3,s4 --dispatch-every 20
+cd web/verity && npm run dev                     # http://localhost:5176/dashboard.html
+```
+
+The mocks show online on the dashboard, accept after 3-10 s, finish after a per-kind time at their own speed
+(so `/stats` differs), sometimes bounce or run slow to show re-routing, and `--dispatch-every 20` posts a demo
+task through the router every 20 s. They never use `s1` or touch its cards; Ctrl-C takes them offline. Pass
+`--api http://host:port --token ...` for another backend. Details: [sim/README.md](sim/README.md).
+
 ## Install on real G2 glasses
 
 1. Whitelist the backend host in `glasses/app.json` (`https://` and `wss://`); the phone blocks any host not
@@ -156,7 +173,7 @@ cd backend/voice && .venv/bin/python -m pytest -q           # relay, guards, com
 cd glasses && npm test                                      # vitest
 cd web && node --test                                       # page state
 cd web/verity && npm test                                   # keyframes, dashboard view model
-cd sim && ../backend/.venv/bin/python -m pytest -q tests    # metrics + a tiny service
+cd sim && ../backend/.venv/bin/python -m pytest -q tests    # metrics, a tiny service, mock servers
 ```
 
 ## Repo map

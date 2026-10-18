@@ -12,7 +12,8 @@ FS_TOKEN= .venv/bin/uvicorn app.main:app --port 8787                            
 ```
 
 Environment: `FS_TOKEN` (shared HTTP + WebSocket token; empty = no auth, for local dev only),
-`FS_ESCALATION_SEC` (default 30), `FS_PORT`, `FS_DATA_DIR` (default `../data`),
+`FS_ESCALATION_SEC` (default 30), `FS_PORT`, `FS_DATA_DIR` (default `../data`), `FS_FLOOR` (`demo`
+= `floor.demo.json`, four servers for `sim/mock_staff.py`; empty = `floor.json`),
 `GEMINI_API_KEY` (empty = the router uses the rules only), `FS_GEMINI_MODEL` (default
 `gemini-3.1-flash-lite`), `FS_ROUTER_TIMEOUT_SEC` (default 1.5), `FS_DONE_SEC` (default 300: an
 accepted task held this long alerts the manager and is rerouted, RUN tasks alert only),
