@@ -47,7 +47,8 @@ export function apply(state, msg, now = Date.now()) {
       s.orders = { ...s.orders, [msg.orderId]: { ...prev, ...order } }
       return s
     }
-    case 'order.fired': {
+    case 'order.fired':
+    case 'order.cancelled': {
       s.orders = { ...s.orders, [msg.order.orderId]: msg.order }
       return s
     }

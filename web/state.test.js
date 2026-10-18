@@ -67,6 +67,22 @@ test('order.draft creates a draft and order.closed sets its status', () => {
   assert.equal(s.orders.o1.status, 'fired')
 })
 
+test('order.cancelled replaces the draft, so it leaves the "taking order" lane', () => {
+  let s = apply(emptyState(), {
+    type: 'order.draft',
+    orderId: 'o1',
+    captureId: 'c1',
+    table: 'T7',
+    lines: [],
+    allergies: [],
+  })
+  s = apply(s, {
+    type: 'order.cancelled',
+    order: { orderId: 'o1', table: 'T7', lines: [], allergies: [], status: 'cancelled' },
+  })
+  assert.equal(s.orders.o1.status, 'cancelled')
+})
+
 test('order.closed for an unknown order is ignored', () => {
   const s = emptyState()
   assert.equal(apply(s, { type: 'order.closed', orderId: 'nope', status: 'fired' }), s)
