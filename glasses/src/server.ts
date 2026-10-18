@@ -172,6 +172,7 @@ export class ServerHud implements Hud {
 
   private async showScreen(next: Screen): Promise<void> {
     if (this.current === 'draft' && next !== 'draft') this.capture.leave()
+    if (next !== 'card') this.popup = null
     this.current = next
     if (next === 'draft') {
       await this.capture.enter()
