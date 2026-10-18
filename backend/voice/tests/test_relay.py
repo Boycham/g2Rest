@@ -443,7 +443,9 @@ async def test_unknown_words_after_the_wake_word_go_to_gemini_or_show_didnt_get(
     real = relay_mod.map_words
     relay_mod.map_words = fake_map
     try:
-        await session.handle_text('{"type": "capture.start", "captureId": "cmd-1", "mode": "command"}')
+        await session.handle_text(
+            '{"type": "capture.start", "captureId": "cmd-1", "mode": "command"}'
+        )
         streams[0].on_committed("Verity, give it to Ben.", 0.0)
         await settle()
         assert sent[-1] == {"type": "voice.command", "intent": "handoff", "name": "Ben"}

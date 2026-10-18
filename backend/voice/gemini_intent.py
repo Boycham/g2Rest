@@ -51,11 +51,15 @@ def checked(reply: dict[str, object]) -> tuple[str, str | None] | None:
     if intent not in INTENTS:
         return None
     name = reply.get("name")
-    ok_name = intent == "handoff" and isinstance(name, str) and re.fullmatch(r"[A-Za-z]{1,20}", name)
+    ok_name = (
+        intent == "handoff" and isinstance(name, str) and re.fullmatch(r"[A-Za-z]{1,20}", name)
+    )
     return str(intent), name.capitalize() if ok_name else None  # type: ignore[union-attr]
 
 
-async def map_words(words: str, *, timeout: float = GEMINI_TIMEOUT) -> tuple[str, str | None] | None:
+async def map_words(
+    words: str, *, timeout: float = GEMINI_TIMEOUT
+) -> tuple[str, str | None] | None:
     """(intent, name) or None when Gemini says it isn't one; raises IntentUnavailable."""
     key = gemini_key()
     if not key:
