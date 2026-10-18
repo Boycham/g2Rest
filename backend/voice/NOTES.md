@@ -337,14 +337,14 @@ early reflections), level is babble vs command. Each column is 2 runs (28 comman
 `soundalikes` parser on in "after". Defaults now: `VOICE_CMD_GATE_DBFS=-22`, `VOICE_CMD_GATE_HOLD=3`,
 `VOICE_CMD_VAD_THRESHOLD=0.6`, `VOICE_CMD_KEYTERMS=on`, `VOICE_CMD_FILTER_BG=on` (each `off` to disable).
 
-| Babble level | before (main) | keyterms + gate -22 + VAD 0.6 | + filter_background (1 run, 14) |
+| Babble level | before (main) | keyterms + gate -22 + VAD 0.6 | + filter_background (now default) |
 |---|---|---|---|
-| clean | 28/28 | 28/28 | 14/14 |
-| -12 dB | 3/28 | 28/28 | 14/14 |
-| -6 dB | 2/28 | 28/28 | 14/14 |
-| -3 dB | 2/28 | 14/28 | 11/14 |
-| 0 dB | 0/28 | 0/28 | 1/14 |
-| +3 dB | 0/28 | 0/28 | 0/14 |
+| clean | 28/28 | 28/28 | 28/28 |
+| -12 dB | 3/28 | 28/28 | 28/28 |
+| -6 dB | 2/28 | 28/28 | 28/28 |
+| -3 dB | 2/28 | 14/28 | 21/28 |
+| 0 dB | 0/28 | 0/28 | 2/28 |
+| +3 dB | 0/28 | 0/28 | 0/28 |
 
 - Why main fails in realtime: with babble running Scribe's VAD never sees silence, so it doesn't commit
   until the babble pauses, and the commit mixes in other people's words. The gate turns everything
@@ -362,10 +362,13 @@ early reflections), level is babble vs command. Each column is 2 runs (28 comman
 
 End of command → `voice.command` (Heard), through `RelaySession`, 5 commands (`noise_test.py --latency`):
 
-| | before | after (gate, VAD 0.6, keyterms) |
-|---|---|---|
-| clean | 0.97, 1.03, 0.99, 0.82, 1.12 → **0.99 s** | 0.93, 0.84, 0.88, 0.94, 1.15 → **0.93 s** |
-| babble -12 dB | none heard (0/5) | 1.13, 0.87, 0.87, 1.07, 1.29 → **1.07 s** |
+| | before | gate, VAD 0.6, keyterms | + filter_background (default) |
+|---|---|---|---|
+| clean | 0.97, 1.03, 0.99, 0.82, 1.12 → **0.99 s** | 0.93, 0.84, 0.88, 0.94, 1.15 → **0.93 s** | 1.20, 1.12, 0.94, 0.95, 1.18 → **1.12 s** |
+| babble -12 dB | none heard (0/5) | 1.13, 0.87, 0.87, 1.07, 1.29 → **1.07 s** | 1.15, 1.00, 1.03, 1.02, 1.25 → **1.03 s** |
+
+filter_background costs about 0.1 s clean (one set of 5); it buys -3 dB 14/28 → 21/28. `VOICE_CMD_FILTER_BG=off`
+gives that back if the room turns out quieter.
 
 ### Sound-alikes (`commands.py`)
 
