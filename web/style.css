@@ -88,7 +88,7 @@ table.tasks .card { font-family: ui-monospace, Menlo, monospace; }
 /* ---------- kitchen ---------- */
 .kitchen { grid-template-columns: minmax(200px, 1fr) minmax(0, 2fr) minmax(260px, 1fr); align-items: start; }
 #mode { grid-column: 1 / -1; padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--line); font-size: 13px; }
-#mode[data-direct='true'] { border-color: var(--warn); color: var(--warn); }
+#mode[data-fifo='true'] { border-color: var(--warn); color: var(--warn); }
 .tickets { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
 .ticket { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; background: var(--bg); }
 .ticket.draft { opacity: .6; border-style: dashed; }

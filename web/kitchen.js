@@ -1,31 +1,30 @@
-// Kitchen page: live tickets by course and seat, a "food up" button per dish (stands in
-// for the ESP32 button), the pass queue and the runs it created.
+// Kitchen page: live tickets by course and seat, a "food up" button per dish (stands in for
+// the ESP32 button), and the pass: held courses, plates up, and the runs the engine sent.
 //
-// "Food up" goes to POST /pass/up, where the backend's priority engine decides the runs.
-// Until the backend has /pass, the page runs in DIRECT MODE: food up sends a RUN task
-// straight to the table's section server, with no scoring or pairing, and says so on screen.
+// "Food up" goes to POST /pass/up; the backend's planner decides when a run leaves and who
+// takes it. This page never decides anything about runs.
 import { api, chrome, h, live } from './client.js'
 import {
+  activeHolds,
   allergyText,
   apply,
   emptyState,
   fmtSince,
   fromSnapshot,
   itemsText,
-  seatAllergies,
+  liveSince,
   ticketRows,
+  withAt,
 } from './state.js'
 
 const $ = (id) => document.getElementById(id)
 const ui = chrome()
-const RESYNC_ON = new Set(['floor.state', 'order.closed'])
 const COURSE_LABEL = { appetizer: 'APP', main: 'MAIN', dessert: 'DSRT' }
+const PLATE_BUTTON = { waiting: 'Food up', up: 'Up', running: 'Running' }
 
 let state = emptyState()
 let menu = null
 let floor = null
-let passOn = null // null until GET /pass answers; false = direct mode
-const directUp = new Set() // "orderId:line" sent in direct mode (lost on reload)
 
 function staffName(id) {
   if (!id || !floor) return id ?? ''
@@ -41,44 +40,17 @@ async function act(label, fn) {
   }
 }
 
-async function loadPass() {
-  try {
-    state = { ...state, pass: await api('/pass') }
-    passOn = true
-  } catch (e) {
-    if (e.status !== 404) throw e
-    passOn = false
-  }
-}
-
 async function resync() {
   await act('Load state', async () => {
     state = fromSnapshot(await api('/state'), state)
-    if (passOn !== false) await loadPass()
     render()
   })
 }
 
-let resyncTimer
-function resyncSoon() {
-  clearTimeout(resyncTimer)
-  resyncTimer = setTimeout(resync, 150)
-}
-
 async function foodUp(order, row) {
   await act(`Food up ${order.table} ${row.dish}`, async () => {
-    if (passOn) {
-      state = { ...state, pass: await api('/pass/up', { orderId: order.orderId, line: row.index }) }
-    } else {
-      await api('/tasks', {
-        kind: 'RUN',
-        table: order.table,
-        items: [{ qty: row.qty, dish: row.dish, seats: [row.seat] }],
-        allergies: seatAllergies(order.allergies, row.seat),
-        notes: row.alterations,
-      })
-      directUp.add(`${order.orderId}:${row.index}`)
-    }
+    const pass = await api('/pass/up', { orderId: order.orderId, line: row.index })
+    state = { ...state, pass: withAt(pass) }
     render()
   })
 }
@@ -100,11 +72,10 @@ function ticket(order, { draft }) {
     ),
     allergies ? h('div', { class: 'allergy' }, `ALLERGY ${allergies}`) : null,
     rows.length ? null : h('div', { class: 'empty' }, 'No dishes yet'),
-    rows.map((r) => {
-      const up = r.up || directUp.has(`${order.orderId}:${r.index}`)
-      return h(
+    rows.map((r) =>
+      h(
         'div',
-        { class: `line${up ? ' up' : ''}` },
+        { class: `line${r.plate === 'up' || r.plate === 'running' ? ' up' : ''}` },
         h('span', { class: 'course' }, COURSE_LABEL[r.course] ?? r.course),
         h(
           'div',
@@ -122,44 +93,50 @@ function ticket(order, { draft }) {
           r.alterations.length ? h('div', { class: 'muted' }, r.alterations.join(', ')) : null,
           r.flagged.length ? h('div', { class: 'flagged' }, `flagged, not applied: ${r.flagged.join(', ')}`) : null,
         ),
-        draft ? null : h('button', { disabled: up, onclick: () => foodUp(order, r) }, up ? 'Up' : 'Food up'),
-      )
-    }),
+        r.plate
+          ? h('button', { disabled: r.plate !== 'waiting', onclick: () => foodUp(order, r) }, PLATE_BUTTON[r.plate])
+          : null,
+      ),
+    ),
   )
 }
 
 function renderMode() {
+  const planner = state.pass?.planner
   const mode = $('mode')
-  mode.dataset.direct = String(passOn === false)
+  mode.dataset.fifo = String(planner === 'fifo')
   mode.textContent =
-    passOn === false
-      ? 'DIRECT MODE: the backend has no /pass yet, so "Food up" sends a RUN task straight to the section server, with no priority scoring or pairing.'
-      : passOn
-        ? 'Priority engine on: "Food up" puts the plate on the pass and the engine builds the runs.'
-        : 'Checking the pass…'
+    planner === 'fifo'
+      ? 'Planner: FIFO baseline. Plates leave in the order they came up, 3 per runner, with no scoring or pairing.'
+      : planner
+        ? "Planner: priority. A run leaves as soon as a table's whole course is up."
+        : 'Loading the pass…'
 }
 
 function renderPass() {
   const pass = state.pass
   $('holds').replaceChildren(
-    ...(pass?.holds ?? []).map((hd) =>
+    ...activeHolds(pass).map((hd) =>
       h('div', { class: 'hold' }, `${hd.table} ${hd.course} held for: ${hd.waitingOn.join(', ')}`),
     ),
   )
-  const plates = [...(pass?.plates ?? [])].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+  const up = (pass?.plates ?? []).filter((p) => p.status === 'up').sort((a, b) => b.score - a.score)
   $('plates').replaceChildren(
-    ...(plates.length
-      ? plates.map((p) =>
+    ...(up.length
+      ? up.map((p) =>
           h(
             'div',
             { class: 'plate' },
             h('strong', {}, `${p.table} S${p.seat} `),
             h('span', { class: p.temperature === 'hot' ? 'temp-hot' : '' }, p.dish),
-            h('span', { class: 'muted' }, ` · ${p.status} · ${fmtSince(p.upSec ?? 0)}`),
-            p.score != null ? h('span', { class: 'muted' }, ` · score ${Number(p.score).toFixed(1)}`) : null,
+            h(
+              'span',
+              { class: 'muted' },
+              ` · up ${fmtSince(liveSince({ sinceSec: p.upSec, at: pass.at }))} · score ${p.score.toFixed(1)}`,
+            ),
           ),
         )
-      : [h('div', { class: 'empty' }, passOn ? 'Nothing at the pass.' : 'No pass queue in direct mode.')]),
+      : [h('div', { class: 'empty' }, 'Nothing waiting at the pass.')]),
   )
   const runs = Object.values(state.tasks).filter((t) => t.kind === 'RUN' && t.state !== 'done')
   $('runs').replaceChildren(
@@ -172,6 +149,7 @@ function renderPass() {
             itemsText(t.items),
             ' ',
             h('span', { class: `pill ${t.state}` }, `${staffName(t.assignee)} · ${t.state}`),
+            (t.notes ?? []).map((n) => h('div', { class: 'muted' }, n)),
           ),
         )
       : [h('div', { class: 'empty' }, 'No runs out.')]),
@@ -210,7 +188,6 @@ async function start() {
   live(
     (msg) => {
       state = apply(state, msg)
-      if (RESYNC_ON.has(msg.type)) resyncSoon()
       render()
     },
     (ok) => {
