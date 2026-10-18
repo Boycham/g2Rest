@@ -51,6 +51,15 @@ export const CONTROLS: readonly ControlItem[] = [
   { label: 'Set table', gesture: 'voice', voice: 'verity table N' },
   { label: 'Ramp', gesture: 'voice', voice: 'verity ramp' },
   { label: 'Ramp hints', gesture: 'voice', voice: 'verity ramp on/off' },
+  { label: 'Request', gesture: 'voice', voice: 'verity T4 needs bread' },
+  { label: 'Check / clear', gesture: 'voice', voice: 'verity T2 check / clear T2' },
+  { label: 'Ready to order', gesture: 'voice', voice: 'verity T5 ready to order' },
+  { label: 'Status free', gesture: 'voice', voice: 'verity T2 free / paid' },
+  { label: 'Status seated', gesture: 'voice', voice: 'verity T2 seated (VIP)' },
+  { label: 'Status ordered', gesture: 'voice', voice: 'verity T2 ordered' },
+  { label: 'Status waiting', gesture: 'voice', voice: 'verity T2 waiting' },
+  { label: 'Status eating', gesture: 'voice', voice: 'verity T2 eating' },
+  { label: 'Drop request', gesture: 'voice', voice: 'verity nevermind' },
   { label: 'Exit', gesture: 'double tap', voice: '-' },
 ]
 
