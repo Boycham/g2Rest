@@ -67,6 +67,13 @@ describe('manager messages', () => {
     expect(parseBackendMessage(JSON.stringify(full))).toEqual(full)
   })
 
+  it('accepts the alert kinds and rejects an unknown one', () => {
+    for (const kind of ['unacked', 'slow', 'course_wait', 'vip', '86']) {
+      expect(parseBackendMessage({ type: 'alert', id: 'a', level: 'warn', text: 'x', kind })).not.toBeNull()
+    }
+    expect(parseBackendMessage({ type: 'alert', id: 'a', level: 'warn', text: 'x', kind: 'nope' })).toBeNull()
+  })
+
   it('rejects malformed alerts', () => {
     const bare = { type: 'alert', id: 'a', level: 'info', text: 'x' }
     expect(parseBackendMessage(JSON.stringify({ ...bare, level: 'loud' }))).toBeNull()

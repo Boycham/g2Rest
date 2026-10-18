@@ -247,6 +247,12 @@ export interface OrderReadback {
 
 export type AlertLevel = 'info' | 'warn' | 'urgent'
 
+/**
+ * What an alert is about (backend/CONTRACT.md §4). `86` (a dish ran out) also goes to every
+ * server, who shows it as a one-line banner on the card; the rest are manager exceptions.
+ */
+export type AlertKind = 'unacked' | 'slow' | 'course_wait' | 'vip' | '86'
+
 /** A manager exception. Re-sending the same `id` replaces it. */
 export interface Alert {
   type: 'alert'
@@ -261,6 +267,7 @@ export interface Alert {
   table?: string
   /** Seconds the condition has lasted when this message is sent; starts the local timer. */
   sinceSec?: number
+  kind?: AlertKind
   /** True once the condition is resolved; the glasses drop the alert. */
   cleared?: boolean
 }
