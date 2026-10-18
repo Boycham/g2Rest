@@ -34,8 +34,15 @@ Docs: [API ref](https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-spee
   of trailing silence, then a final chunk with `commit: true`, then wait up to 5 s for the
   `committed_transcript`, then close the socket. Verified live: `commit: true` is accepted with
   `commit_strategy=vad`.
-- `keyterms` (biasing toward dish names) exists, but the docs don't show how an array is encoded
-  in the query string. Not used yet. TO-VERIFY before relying on it for rare dish names.
+- `keyterms` ([realtime](https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime),
+  [batch](https://elevenlabs.io/docs/api-reference/speech-to-text/convert), extra cost per the docs).
+  Verified live (branch `devin/voice-crowd`): realtime takes the query parameter **repeated**
+  (`keyterms=Verity&keyterms=Halibut`); a JSON array in one parameter is not accepted, and a term over
+  20 characters is rejected, at most 50 terms. Batch takes repeated `keyterms` multipart fields (200 OK;
+  a term with `<` is a 400). `commands.keyterms()` builds the list from the wake word, the command words,
+  the staff in `data/floor.json`, one..eight and the dishes (+aliases) in `data/menu.json`, trimmed to
+  each endpoint's limits. `vad_threshold` (default 0.4, echoed in `session_started`) and
+  `filter_background_audio=true` are also accepted on realtime.
 
 ### Agents: text-only (chat) mode
 Docs: [chat mode](https://elevenlabs.io/docs/eleven-agents/guides/chat-mode),
@@ -321,6 +328,80 @@ Babble = the 59 s table conversation fixture mixed under the command; white nois
 
 15/16 before, 16/16 after: realtime wrote "Verity, done." as "Verity Dunn." both times (a surname after
 a first name), so `dunn`/`dun` map to done. Everything else came back verbatim.
+
+### Crowd: realtime noise test (branch `devin/voice-crowd`, `noise_test.py`)
+
+Realtime Scribe, streamed in 100 ms frames like the relay. 14 TTS "Verity, <command>." in a near voice
+(active speech -20 dBFS), 4 s apart, over 4 far talkers (babble from other TTS voices, low-pass +
+early reflections), level is babble vs command. Each column is 2 runs (28 commands) unless noted.
+`soundalikes` parser on in "after". Defaults now: `VOICE_CMD_GATE_DBFS=-22`, `VOICE_CMD_GATE_HOLD=3`,
+`VOICE_CMD_VAD_THRESHOLD=0.6`, `VOICE_CMD_KEYTERMS=on`, `VOICE_CMD_FILTER_BG=on` (each `off` to disable).
+
+| Babble level | before (main) | keyterms + gate -22 + VAD 0.6 | + filter_background (now default) |
+|---|---|---|---|
+| clean | 28/28 | 28/28 | 28/28 |
+| -12 dB | 3/28 | 28/28 | 28/28 |
+| -6 dB | 2/28 | 28/28 | 28/28 |
+| -3 dB | 2/28 | 14/28 | 21/28 |
+| 0 dB | 0/28 | 0/28 | 2/28 |
+| +3 dB | 0/28 | 0/28 | 0/28 |
+
+- Why main fails in realtime: with babble running Scribe's VAD never sees silence, so it doesn't commit
+  until the babble pauses, and the commit mixes in other people's words. The gate turns everything
+  under -22 dBFS into digital silence, so the VAD commits right after the wearer stops.
+- Sweep (1 run, 14 per level, keyterms on): gate -24: -6 dB 12/14, -3 dB 2/14; -22: 14/14, 8/14;
+  -20: clean drops to 11/14 (it clips quiet syllables). VAD 0.6 alone: -12 dB 2/14 (no help); with the
+  gate it's neutral, kept because the brief asked for it. Keyterms alone: no change (the problem is the
+  commit, not the words).
+- **False triggers: 0** in every run, before and after: 59 s conversation, near misses, babble alone at
+  -12/-6/-3/0/+3 dB. With the gate, realtime committed "Verity is my sister's name" as its own segment,
+  which went to Gemini as an unknown; `ABOUT_VERITY` ("is", "was", "said", ...) now drops it.
+- 0 dB and louder still fail: when a talker a metre away is as loud at the mic as the wearer, a level
+  gate can't separate them. HW-PENDING: the -22 dBFS gate is relative to our TTS level; it needs
+  checking against real G2 mic levels (wearer vs a guest at 1 m) in a loud room.
+
+End of command → `voice.command` (Heard), through `RelaySession`, 5 commands (`noise_test.py --latency`):
+
+| | before | gate, VAD 0.6, keyterms | + filter_background (default) |
+|---|---|---|---|
+| clean | 0.97, 1.03, 0.99, 0.82, 1.12 → **0.99 s** | 0.93, 0.84, 0.88, 0.94, 1.15 → **0.93 s** | 1.20, 1.12, 0.94, 0.95, 1.18 → **1.12 s** |
+| babble -12 dB | none heard (0/5) | 1.13, 0.87, 0.87, 1.07, 1.29 → **1.07 s** | 1.15, 1.00, 1.03, 1.02, 1.25 → **1.03 s** |
+
+filter_background costs about 0.1 s clean (one set of 5); it buys -3 dB 14/28 → 21/28. `VOICE_CMD_FILTER_BG=off`
+gives that back if the room turns out quieter.
+
+### Sound-alikes (`commands.py`)
+
+After an exact "verity", the next word may be a listed sound-alike (`SOUNDALIKES`, each with its reason:
+except→accept, conform→confirm, click/clear→clip, dunne→done, queued→queue) or one edit from a command
+of 5+ letters. Wake-word sound-alikes (`WAKE_SOUNDALIKES`: verily, variety, verety, varity) only count
+at the start of a sentence and must be followed by an exact command; `NOT_WAKE` (verify, very, rarity,
+clarity, ...) never counts. Negative tests in `tests/test_commands.py`.
+
+### Order clips: diarization (`voice_session.transcribe_clip`, `clip_test.py`)
+
+Batch Scribe with `diarize=true` and keyterms; the agent gets `speaker_N: ...` lines. Each speaker's
+level is the median dBFS of 50 ms frames over their words. Reference = the loudest speaker, or the
+second loudest if the loudest (the wearer, at the mic) is 6+ dB above it. Speakers more than
+`VOICE_CLIP_QUIET_DB` (6) below it, or 3+ dB below with under 20% of the top speaker's words, are dropped
+as another table. Test: `tests/test_relay.py` two-table fixture (no network).
+
+Live (`clip_test.py`, 20 s clip: wearer + 4 guests ordering 5 dishes, a second table 10 dB quieter and
+"far" ordering duck/ribeye/risotto/pork belly), 5 runs each:
+
+| | leaks (runs with a neighbour dish) | our dishes kept | batch Scribe median | clip stop → draft median |
+|---|---|---|---|---|
+| before, wearer = guests | 5/5 | 15/15 | 1.14 s | 3.29 s |
+| after, wearer = guests | 0/5 | 12/15 (1 run: Scribe returned a garbage 1-word transcript) | 1.07 s | 3.00 s |
+| before, wearer +12 dB | 5/5 | 15/15 | 1.39 s | 3.99 s |
+| after, wearer +12 dB | 0/5 | 15/15 | 1.33 s | 3.13 s |
+| neighbours only 6 dB quieter, after | 5/5 | 15/15 | 1.21 s | 3.60 s |
+
+- Diarize adds no measurable latency (batch medians within run-to-run noise).
+- 2 of ~30 keyterm runs came back as a 1-word garbage transcript; a repeat of 8 calls each with no /
+  batch / realtime keyterms gave 0 garbage, so it's intermittent, not keyterms. HW-PENDING to watch.
+- A neighbour only 6 dB quieter still leaks: the level rule can't tell them from a soft-spoken guest.
+  HW-PENDING: real speaker levels at a table vs the next table.
 
 ### Simulator against the real backend (`?say=` debug path)
 
