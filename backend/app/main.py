@@ -16,9 +16,10 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, 
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from app import router
+from app import router, telemetry
 from app.config import Settings
 from app.data import DataError
+from app.eventdb import EventDB, asyncpg_connect
 from app.hub import DEFAULT_STAFF, ROLES, Hub
 from app.orders import TOOL_NAMES, ToolError
 from app.runs import PassError
@@ -43,6 +44,10 @@ class StatusIn(BaseModel):
     status: str
 
 
+class RerouteIn(BaseModel):
+    to: str | None = None  # staff id or name; None lets the router pick anyone but the holder
+
+
 class PlateUp(BaseModel):
     orderId: str
     line: int = Field(ge=0)
@@ -52,32 +57,54 @@ class PlannerIn(BaseModel):
     planner: Literal["priority", "fifo"]
 
 
-def create_app(settings: Settings | None = None, store: Store | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, store: Store | None = None, eventdb: EventDB | None = None
+) -> FastAPI:
     settings = settings or Settings.from_env()
+    sentry_on = telemetry.init_sentry(
+        settings.sentry_dsn_backend, settings.sentry_environment, settings.sentry_traces_rate
+    )
     store = store or Store.from_settings(settings)
+    if eventdb is None and settings.database_url:
+        eventdb = EventDB(asyncpg_connect(settings.database_url))
+    if eventdb is not None:
+        for event in store.events.since(0):
+            eventdb.offer(event)
+        store.events.listeners.append(eventdb.offer)
     http = httpx.AsyncClient()
-    hub = Hub(store, settings.voice_relay_url, http)
+    hub = Hub(store, settings.voice_relay_url, http, trace_wire=settings.trace_wire)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         ticker = asyncio.create_task(tick_loop())
-        log.info("[fs] backend up, token %s", "set" if settings.token else "EMPTY (dev)")
+        writer = asyncio.create_task(eventdb.run()) if eventdb else None
+        log.info(
+            "[fs] backend up, token %s, event db %s, Sentry %s",
+            "set" if settings.token else "EMPTY (dev)",
+            "on" if eventdb else "off",
+            "on" if sentry_on else "off",
+        )
         yield
         ticker.cancel()
+        if writer and eventdb:
+            writer.cancel()
+            await eventdb.close()
         await http.aclose()
 
     async def tick_loop() -> None:
         while True:
             await asyncio.sleep(min(TICK_SEC, settings.escalation_sec / 4))
             try:
-                await hub.deliver(store.book.tick(store.now()))
+                if out := store.book.tick(store.now()):
+                    with telemetry.root("task.escalate", "escalate", messages=len(out)):
+                        await hub.deliver(out)
                 await hub.reroute_overdue()
                 await hub.replan()
             except Exception:  # noqa: BLE001 - the ticker must survive any one bad task
                 log.exception("[fs] tick failed")
 
     app = FastAPI(title="Floor Sense backend", lifespan=lifespan)
-    app.state.store, app.state.hub = store, hub
+    app.state.store, app.state.hub, app.state.eventdb = store, hub, eventdb
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
@@ -100,7 +127,28 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
 
     @app.get("/health")
     def health() -> dict[str, Any]:
-        return {"ok": True, "tasksOpen": len(store.book.open_tasks()), "clients": len(hub.conns)}
+        return {
+            "ok": True,
+            "tasksOpen": len(store.book.open_tasks()),
+            "clients": len(hub.conns),
+            # staff whose glasses are connected right now (the dashboard's "Glasses n/m online")
+            "online": sorted({c.staff for c in hub.conns.values() if c.role != "organizer"}),
+            "eventDb": eventdb.status() if eventdb else {"enabled": False},
+            "sentry": sentry_on,
+        }
+
+    @app.get("/config", dependencies=auth)
+    def config() -> dict[str, Any]:
+        """What the web pages need at load: the browser Sentry DSN (none committed in web/)."""
+        if not settings.sentry_dsn_web:
+            return {"sentry": None}
+        return {
+            "sentry": {
+                "dsn": settings.sentry_dsn_web,
+                "environment": settings.sentry_environment,
+                "tracesSampleRate": settings.sentry_traces_rate,
+            }
+        }
 
     # ---------- websocket ----------
 
@@ -169,31 +217,66 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
             table = store.floor.table(body.table).id
         except DataError as e:
             raise HTTPException(404, str(e)) from None
-        assignee = body.assignee or await router.pick(store, http, body.kind, table, body.notes)
-        try:
-            task, out = store.book.create(
-                body.kind,
-                table,
-                store.now(),
-                items=body.items,
-                allergies=body.allergies,
-                notes=body.notes,
-                assignee=assignee,
-                priority=body.priority,
-            )
-        except DataError as e:
-            raise HTTPException(404, str(e)) from None
-        await hub.deliver(out)
+        with telemetry.span("task.dispatch", f"dispatch {body.kind} {table}", kind=body.kind):
+            assignee = body.assignee or await router.pick(store, http, body.kind, table, body.notes)
+            try:
+                task, out = store.book.create(
+                    body.kind,
+                    table,
+                    store.now(),
+                    items=body.items,
+                    allergies=body.allergies,
+                    notes=body.notes,
+                    assignee=assignee,
+                    priority=body.priority,
+                )
+            except DataError as e:
+                raise HTTPException(404, str(e)) from None
+            await hub.deliver(out)
         return task.to_dict()
 
     @app.get("/stats", dependencies=auth)
-    def stats() -> dict[str, Any]:
-        """How long each server takes: for the manager dashboard (and the router's context)."""
-        return {"doneSec": settings.done_sec, "servers": store.book.stats(store.now())}
+    async def stats(hours: float = Query(default=24.0, gt=0, le=24 * 30)) -> dict[str, Any]:
+        """How long each server takes: for the manager dashboard (and the router's context).
+        `history`: accept latency and ticket time per server and kind over the last `hours`,
+        from the Tiger Data continuous aggregates (every boot, not just this service)."""
+        history = (
+            await eventdb.stats(hours)
+            if eventdb
+            else {"available": False, "reason": "DATABASE_URL not set"}
+        )
+        return {
+            "doneSec": settings.done_sec,
+            # unaccepted this long and the task moves on (the dashboard's countdown ring)
+            "escalationSec": settings.escalation_sec,
+            "servers": store.book.stats(store.now()),
+            "history": history,
+        }
 
     @app.get("/tasks", dependencies=auth)
     def list_tasks() -> list[dict[str, Any]]:
         return [t.to_dict() for t in store.book.tasks.values()]
+
+    @app.post("/tasks/{task_id}/reroute", dependencies=auth)
+    async def reroute_task(task_id: str, body: RerouteIn) -> dict[str, Any]:
+        """The manager moves an open task to someone else (the dashboard's Reroute button).
+        Same frames as a handoff: `bounced` to the old holder, `task.assigned` to the new one.
+        Managers only send and re-route; accept and done stay on the glasses."""
+        with telemetry.span("task.reroute", f"task.reroute {task_id}", to=body.to or "router"):
+            try:
+                task = store.book.get(task_id)
+            except TaskError as e:
+                raise HTTPException(404, str(e)) from None
+            to = body.to or await router.pick(
+                store, http, task.kind, task.table, task.notes, exclude=frozenset({task.assignee})
+            )
+            try:
+                out = store.book.handoff(task_id, store.now(), by=None, to=to, manager=True)
+            except TaskError as e:
+                raise HTTPException(409, str(e)) from None
+            await hub.deliver(out)
+            await hub.replan()
+        return store.book.get(task_id).to_dict()
 
     @app.post("/tasks/{task_id}/{action}", dependencies=auth)
     async def task_action(task_id: str, action: str, by: str = Query(...)) -> dict[str, Any]:
@@ -202,12 +285,13 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         moves = {"accept": store.book.accept, "done": store.book.done, "bounce": store.book.bounce}
         if action not in moves:
             raise HTTPException(404, f"action must be one of {sorted(moves)}")
-        try:
-            out = moves[action](task_id, store.now(), by=by)
-        except TaskError as e:
-            raise HTTPException(409, str(e)) from None
-        await hub.deliver(out)
-        await hub.replan()
+        with telemetry.span(f"task.{action}", f"task.{action} {task_id}", by=by):
+            try:
+                out = moves[action](task_id, store.now(), by=by)
+            except TaskError as e:
+                raise HTTPException(409, str(e)) from None
+            await hub.deliver(out)
+            await hub.replan()
         return store.book.get(task_id).to_dict()
 
     # ---------- tables ----------
@@ -277,11 +361,12 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     @app.post("/pass/up", dependencies=auth)
     async def plate_up(body: PlateUp) -> dict[str, Any]:
         """Food up: mark the plate, give the best ready run to a free server, return the pass."""
-        try:
-            store.plate_up(body.orderId, body.line)
-        except PassError as e:
-            raise HTTPException(409, str(e)) from None
-        await hub.replan(push=True)
+        with telemetry.span("pass.up", f"food up {body.orderId}:{body.line}"):
+            try:
+                store.plate_up(body.orderId, body.line)
+            except PassError as e:
+                raise HTTPException(409, str(e)) from None
+            await hub.replan(push=True)
         return store.pass_.state(store.now())
 
     @app.post("/pass/planner", dependencies=auth)

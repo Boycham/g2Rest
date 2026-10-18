@@ -36,6 +36,12 @@ class Settings:
     gemini_api_key: str = ""  # empty: the router uses the rules only (app/router.py)
     gemini_model: str = "gemini-3.1-flash-lite"
     router_timeout_sec: float = 3.0
+    database_url: str = ""  # empty: no Tiger Data copy of the event log (app/eventdb.py)
+    sentry_dsn_backend: str = ""  # empty: Sentry off for the backend (app/telemetry.py)
+    sentry_dsn_web: str = ""  # empty: GET /config tells the pages Sentry is off
+    sentry_environment: str = "dev"
+    sentry_traces_rate: float = 1.0
+    trace_wire: bool = False  # send `trace` on task.assigned (proposed, CONTRACT.md §8.12)
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -51,4 +57,10 @@ class Settings:
             gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
             gemini_model=os.environ.get("FS_GEMINI_MODEL", "gemini-3.1-flash-lite"),
             router_timeout_sec=float(os.environ.get("FS_ROUTER_TIMEOUT_SEC", "3")),
+            database_url=os.environ.get("DATABASE_URL", ""),
+            sentry_dsn_backend=os.environ.get("SENTRY_DSN_BACKEND", ""),
+            sentry_dsn_web=os.environ.get("SENTRY_DSN_WEB", ""),
+            sentry_environment=os.environ.get("SENTRY_ENVIRONMENT", "dev"),
+            sentry_traces_rate=float(os.environ.get("FS_SENTRY_TRACES_RATE", "1")),
+            trace_wire=os.environ.get("FS_TRACE_WIRE", "") == "1",
         )

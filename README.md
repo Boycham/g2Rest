@@ -31,10 +31,17 @@ Restaurant floor on Even Realities G2 glasses. See `AGENTS.md` for the brief.
 - [websockets](https://pypi.org/project/websockets/): the step-0 mock server and the walkthrough client
 - [httpx](https://pypi.org/project/httpx/): the walkthrough script, FastAPI's test client and the Gemini call
 - Gemini API (`generateContent`, Flash-Lite): picks the server for each new task (`backend/app/router.py`)
+- [asyncpg](https://pypi.org/project/asyncpg/) + [Tiger Data](https://www.tigerdata.com/)
+  (TimescaleDB 2.30, hypertable, continuous aggregates, Toolkit `percentile_agg`): the event log copy
+  and the accept/ticket-time history in `GET /stats` (`backend/app/eventdb.py`, `backend/app/schema.sql`)
+- [sentry-sdk](https://pypi.org/project/sentry-sdk/) (FastAPI integration, tracing, Logs): errors and
+  spans for dispatch, hub delivery, accept, done and food up (`backend/app/telemetry.py`)
 - Shared fictional data in `data/menu.json` and `data/floor.json`; message contract in `backend/CONTRACT.md`
 
 ### Web pages (`web/`)
 - Plain HTML, CSS and JavaScript ES modules, no framework or build step
+- [Sentry browser SDK](https://docs.sentry.io/platforms/javascript/install/loader/#cdn) 10.76.2
+  (`bundle.tracing.replay.min.js` from the Sentry CDN, with SRI): tracing and Session Replay
 - Node's built-in test runner (`node --test`): tests for the page state
 - [playwright-core](https://www.npmjs.com/package/playwright-core) with the local Chrome: used
   during development to check the pages in two tabs; not a dependency of the repo

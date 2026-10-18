@@ -8,7 +8,13 @@
 const params = new URLSearchParams(location.search)
 const defaultApi = location.protocol === 'https:' ? location.origin : 'http://localhost:8787'
 export const API = (params.get('api') ?? defaultApi).replace(/\/$/, '')
-export const TOKEN = params.get('token') ?? ''
+export const TOKEN = params.get('token') ?? sessionStorage.getItem('fs-token') ?? ''
+// Keep the token out of the address bar (and so out of Sentry's page URLs and replays).
+if (params.has('token')) {
+  sessionStorage.setItem('fs-token', TOKEN)
+  params.delete('token')
+  history.replaceState(null, '', `${location.pathname}${params.size ? `?${params}` : ''}${location.hash}`)
+}
 const TIMEOUT_MS = 4000
 
 export class ApiError extends Error {
@@ -39,15 +45,55 @@ export async function api(path, body) {
 }
 
 /**
+ * Sentry for this page (the SDK comes from the pinned CDN script tag). The DSN comes from the
+ * backend's GET /config, so none is committed; no DSN there, or the CDN blocked, means off.
+ * Fetches to the backend carry sentry-trace/baggage, so a click joins its backend span.
+ */
+export async function startSentry(page) {
+  const Sentry = globalThis.Sentry
+  if (!Sentry) return false
+  let cfg
+  try {
+    cfg = (await api('/config')).sentry
+  } catch (e) {
+    console.warn('[fs] no /config, Sentry off:', e.message)
+    return false
+  }
+  if (!cfg?.dsn) return false
+  Sentry.init({
+    dsn: cfg.dsn,
+    environment: cfg.environment,
+    integrations: [Sentry.browserTracingIntegration(), Sentry.replayIntegration({ maskAllText: false })],
+    tracesSampleRate: cfg.tracesSampleRate ?? 1,
+    tracePropagationTargets: [API],
+    replaysSessionSampleRate: 1, // fictional demo data only; every session is worth replaying
+    replaysOnErrorSampleRate: 1,
+    initialScope: { tags: { page } },
+  })
+  console.info('[fs] Sentry on')
+  return true
+}
+
+/** Run a user action as its own Sentry trace (op ui.action); just runs fn when Sentry is off. */
+export function traced(name, fn) {
+  const Sentry = globalThis.Sentry
+  if (!Sentry?.getClient?.()) return fn()
+  return Sentry.startSpan({ name, op: 'ui.action', forceTransaction: true }, fn)
+}
+
+/**
  * Organizer socket with reconnect. `staff=organizer` keeps the hub from treating this tab
- * as a server's glasses. onStatus(true) fires on every (re)connect so the page can resync.
+ * as a server's glasses. onStatus(true) fires on every (re)connect so the page can resync;
+ * onStatus(false, ms) says when the next attempt is. retry() skips the wait.
  */
 export function live(onMessage, onStatus) {
   const q = new URLSearchParams({ role: 'organizer', staff: 'organizer' })
   if (TOKEN) q.set('token', TOKEN)
   const url = `${API.replace(/^http/, 'ws')}/ws?${q}`
   let delay = 500
+  let timer = null
   const open = () => {
+    timer = null
     const ws = new WebSocket(url)
     ws.onopen = () => {
       delay = 500
@@ -64,12 +110,20 @@ export function live(onMessage, onStatus) {
       onMessage(msg)
     }
     ws.onclose = () => {
-      onStatus(false)
-      setTimeout(open, delay)
+      onStatus(false, delay)
+      timer = setTimeout(open, delay)
       delay = Math.min(delay * 2, 8000)
     }
   }
   open()
+  return {
+    retry() {
+      if (timer === null) return
+      clearTimeout(timer)
+      delay = 500
+      open()
+    },
+  }
 }
 
 /** h('div', {class: 'x', onclick}, child, 'text', [more]) -> Element. Text is never parsed as HTML. */

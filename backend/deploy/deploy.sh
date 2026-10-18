@@ -4,7 +4,8 @@
 #   source .env.sh && backend/deploy/deploy.sh <server-ip> [--env] [--agent]
 #
 #   --env    (re)write /etc/floor-sense/env from your shell: FLOOR_SENSE_TOKEN (the backend's
-#            FS_TOKEN), ELEVENLABS_API_KEY and, if set, ELEVENLABS_AGENT_ID and GEMINI_API_KEY.
+#            FS_TOKEN), ELEVENLABS_API_KEY and, if set, ELEVENLABS_AGENT_ID, GEMINI_API_KEY,
+#            DATABASE_URL (Tiger Data event log), SENTRY_DSN_BACKEND and SENTRY_DSN_WEB.
 #            Secrets go over SSH stdin, never into the repo or a command line.
 #   --agent  create the ElevenLabs clip-order agent on the server (create_agent.py) and add its id
 #            to the env file. Needed once, or after the agent prompt or tools change.
@@ -46,6 +47,9 @@ if [ "$WRITE_ENV" = 1 ]; then
     echo "ELEVENLABS_API_KEY=$ELEVENLABS_API_KEY"
     [ -n "${ELEVENLABS_AGENT_ID:-}" ] && echo "ELEVENLABS_AGENT_ID=$ELEVENLABS_AGENT_ID"
     [ -n "${GEMINI_API_KEY:-}" ] && echo "GEMINI_API_KEY=$GEMINI_API_KEY"
+    [ -n "${DATABASE_URL:-}" ] && echo "DATABASE_URL=$DATABASE_URL"
+    [ -n "${SENTRY_DSN_BACKEND:-}" ] && echo "SENTRY_DSN_BACKEND=$SENTRY_DSN_BACKEND"
+    [ -n "${SENTRY_DSN_WEB:-}" ] && echo "SENTRY_DSN_WEB=$SENTRY_DSN_WEB"
     true
   } | "${SSH[@]}" 'set -e; umask 027; cd /etc/floor-sense; cat > env.new
       # keep the agent made by --agent unless the shell sent one

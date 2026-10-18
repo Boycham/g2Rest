@@ -161,13 +161,15 @@ Operations (used by the organizer page, the walkthrough script and the simulator
 
 | method + path | purpose |
 |---|---|
-| `GET /health` | `{ok, tasksOpen, clients}` (no token) |
+| `GET /health` | `{ok, tasksOpen, clients, online, eventDb, sentry}` (no token); `online` lists the staff ids whose glasses are connected; `eventDb` is `{enabled: false}` without `DATABASE_URL`, else `{enabled, ok, queued, written, dropped, failures, lastError, lastWriteAgoSec, writeMs: {p50, p95, max}, schemaErrors}` |
+| `GET /config` | what the web pages need at load: `{sentry: null}` or `{sentry: {dsn, environment, tracesSampleRate}}` (from `SENTRY_DSN_WEB`) |
 | `GET /state` | tables, orders, tasks, open alerts |
-| `GET /stats` | how long each server takes: `{doneSec, servers: [{id, name, done, avgSec, avgSecByKind: {CHECK: 60}, open: [{taskId, kind, table, state, heldSec}]}]}`; `avgSec` is accept to done over this service's finished tasks (`null` before the first), `heldSec` counts from accept (or from assignment if not accepted yet) |
+| `GET /stats` | how long each server takes: `{doneSec, escalationSec, servers: [{id, name, done, avgSec, avgSecByKind: {CHECK: 60}, open: [{taskId, kind, table, state, heldSec}]}]}`; `avgSec` is accept to done over this service's finished tasks (`null` before the first), `heldSec` counts from accept (or from assignment if not accepted yet). `?hours=` (default 24) and `history: {available, hours, accept: [...], ticket: [...]}`: per server (`staff`) and `kind`, `{n, avgSec, p50Sec, p90Sec, maxSec}` from the Tiger Data continuous aggregates, across every boot (`accept` = sent to accepted, `ticket` = accepted to done); `{available: false, reason}` without a database or during an outage |
 | `GET /events?since=<n>` | append-only event log (`seq`, `at`, `type`, `data`) |
 | `GET /menu`, `GET /floor` | the loaded `data/menu.json`, `data/floor.json` |
 | `POST /tasks` | create a task: `{kind, table, items?, allergies?, notes?, assignee?}`; without `assignee` Gemini picks the server (`app/router.py`), falling back to the table's section server |
 | `POST /tasks/{id}/{accept|done|bounce}?by={staff}` | same as the glasses gestures, for the simulator and tests; `by` must be the assignee (409 otherwise), so only the server holding a task closes it, never the organizer |
+| `POST /tasks/{id}/reroute` | `{to?}` (staff id or name): the manager dashboard moves an open task to someone else; without `to` the router picks anyone but the holder. Same frames as a handoff (`bounced` to the old holder, `task.assigned` to the new one), logged with reason `manager reroute to <id>`, and the old holder can't `task.revert` it. 404 unknown task, 409 already theirs or closed |
 | `POST /tables/{id}/status` | `{status}`; broadcasts `floor.state` |
 | `POST /plates` | `{table, dish, seat?, orderId?}` registers a plate the kitchen is cooking |
 | `POST /plates/{id}/up` | the plate is at the pass; the priority engine re-plans runs |
@@ -317,3 +319,14 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
       inside a clip ("that was table four", even as the last words) binds only when no task or
       "verity table" has set one. Only an unsent draft changes. Additive; `contract.py` `VoiceCommand`
       has the three optional fields.
+12. **PROPOSED (backend/web observability, for the glasses lane's step 10b): `trace?` on task frames.**
+    So one Sentry trace runs organizer click -> backend -> glasses -> accept:
+    - backend -> glasses `task.assigned` + `trace?: {sentryTrace: string, baggage?: string}`: the
+      `sentry-trace` and `baggage` header values of the backend span that delivered it. Sent only
+      when the backend runs with `FS_TRACE_WIRE=1`, so today's glasses never see it.
+    - glasses -> backend `task.accept` / `task.done` + the same optional `trace?`: the glasses' own
+      span (child of the one they received). Without it the backend still links accept and done to
+      the dispatch trace, from the trace the task was created in.
+    - `sentryTrace` is `<32 hex trace id>-<16 hex span id>[-0|1]`; anything else is rejected like any
+      malformed frame. The backend accepts the field today (`app/contract.py`: `TraceContext`);
+      `contract.ts` needs `trace?` on those three types, and `parse.ts` already ignores it.
