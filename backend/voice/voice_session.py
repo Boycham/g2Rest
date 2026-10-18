@@ -24,7 +24,7 @@ from websockets.asyncio.client import ClientConnection, connect
 
 from order import OrderBook
 
-load_dotenv(Path(__file__).with_name(".env"))
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 API = "https://api.elevenlabs.io"
 WSS = "wss://api.elevenlabs.io"
