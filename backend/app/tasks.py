@@ -149,7 +149,9 @@ class TaskBook:
 
     # ---------- transitions ----------
 
-    def _move(self, task: Task, to: TaskState, now: float, reason: str) -> None:
+    def _move(self, task: Task, to: TaskState, now: float, reason: str, **timing: float) -> None:
+        """`timing` (acceptSec, ticketSec) goes to the event log only: the Tiger Data
+        aggregates (app/schema.sql) read it, the task history stays as it was."""
         entry = {
             "from": task.state,
             "to": to,
@@ -159,7 +161,7 @@ class TaskBook:
         }
         task.history.append(entry)
         task.state = to
-        self.events.append("task." + to, taskId=task.id, **entry)
+        self.events.append("task." + to, taskId=task.id, kind=task.kind, **entry, **timing)
 
     def create(
         self,
@@ -207,7 +209,8 @@ class TaskBook:
         self._check_owner(task, by)
         self.last_action[task.assignee] = (task.id, "accept", task.state)
         task.accepted_at = now
-        self._move(task, "accepted", now, "task.accept")
+        timing = {"acceptSec": round(now - task.sent_at, 3)} if task.sent_at is not None else {}
+        self._move(task, "accepted", now, "task.accept", **timing)
         return [Outbound(task.assignee, {"type": "task.updated", "task": task.wire()})]
 
     def done(self, task_id: str, now: float, by: str | None = None) -> list[Outbound]:
@@ -217,7 +220,8 @@ class TaskBook:
         self._check_owner(task, by)
         self.last_action[task.assignee] = (task.id, "done", task.state)
         task.done_at = now
-        self._move(task, "done", now, "task.done")
+        start = task.accepted_at if task.accepted_at is not None else task.assigned_at
+        self._move(task, "done", now, "task.done", ticketSec=round(now - start, 3))
         out = [Outbound(task.assignee, {"type": "task.updated", "task": task.wire()})]
         return out + self._clear_unacked_alert(task)
 
