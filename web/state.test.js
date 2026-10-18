@@ -14,6 +14,7 @@ import {
   liveSince,
   seatAllergies,
   ticketRows,
+  upReason,
 } from './state.js'
 
 const task = (id, state, extra = {}) => ({
@@ -127,6 +128,13 @@ test('alertText fills in the elapsed time and keeps ticking', () => {
     0,
   )
   assert.equal(alertText(s.alerts.a1, 15_000), 'T4 run task unacknowledged 1m')
+})
+
+test('upReason tells a held plate from one waiting for a runner', () => {
+  const pass = { holds: [{ table: 'T4', course: 'main', waitingOn: ['Duck Breast'] }] }
+  assert.equal(upReason(pass, { table: 'T4', course: 'main' }), 'held')
+  assert.equal(upReason(pass, { table: 'T4', course: 'appetizer' }), 'runner')
+  assert.equal(upReason(pass, { table: 'T2', course: 'main' }), 'runner')
 })
 
 test('liveSince ticks forward from when the table was received', () => {

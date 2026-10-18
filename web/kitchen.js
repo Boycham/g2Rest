@@ -14,6 +14,7 @@ import {
   itemsText,
   liveSince,
   ticketRows,
+  upReason,
   withAt,
 } from './state.js'
 
@@ -109,7 +110,7 @@ function renderMode() {
     planner === 'fifo'
       ? 'Planner: FIFO baseline. Plates leave in the order they came up, 3 per runner, with no scoring or pairing.'
       : planner
-        ? "Planner: priority. A run leaves as soon as a table's whole course is up."
+        ? "Planner: priority. A run leaves when a table's whole course is up and a server is free; the best-scoring run goes first, and hot plates in one section ride together."
         : 'Loading the pass…'
 }
 
@@ -132,8 +133,11 @@ function renderPass() {
             h(
               'span',
               { class: 'muted' },
-              ` · up ${fmtSince(liveSince({ sinceSec: p.upSec, at: pass.at }))} · score ${p.score.toFixed(1)}`,
+              ` · up ${fmtSince(liveSince({ sinceSec: p.upSec, at: pass.at }))} · score ${p.score.toFixed(1)} · `,
             ),
+            upReason(pass, p) === 'held'
+              ? h('span', { class: 'muted' }, 'held')
+              : h('span', { class: 'flagged' }, 'needs a server'),
           ),
         )
       : [h('div', { class: 'empty' }, 'Nothing waiting at the pass.')]),

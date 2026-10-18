@@ -84,6 +84,15 @@ export function activeHolds(pass) {
   )
 }
 
+/**
+ * Why a plate that is up is still at the pass: 'held' while other plates of its course are not
+ * up yet, otherwise 'runner' (its course is ready and waits for a free server).
+ */
+export function upReason(pass, plate) {
+  const held = (pass?.holds ?? []).some((hd) => hd.table === plate.table && hd.course === plate.course)
+  return held ? 'held' : 'runner'
+}
+
 /** Seconds since `sinceSec` was measured, ticking client-side between updates. */
 export function liveSince(entry, now = Date.now()) {
   return entry.sinceSec + Math.max(0, Math.floor((now - entry.at) / 1000))
