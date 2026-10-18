@@ -11,10 +11,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from app import router
 from app.config import Settings
 from app.data import DataError
 from app.hub import DEFAULT_STAFF, ROLES, Hub
@@ -53,7 +55,8 @@ class PlannerIn(BaseModel):
 def create_app(settings: Settings | None = None, store: Store | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = store or Store.from_settings(settings)
-    hub = Hub(store, settings.voice_relay_url)
+    http = httpx.AsyncClient()
+    hub = Hub(store, settings.voice_relay_url, http)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -61,12 +64,14 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         log.info("[fs] backend up, token %s", "set" if settings.token else "EMPTY (dev)")
         yield
         ticker.cancel()
+        await http.aclose()
 
     async def tick_loop() -> None:
         while True:
             await asyncio.sleep(min(TICK_SEC, settings.escalation_sec / 4))
             try:
                 await hub.deliver(store.book.tick(store.now()))
+                await hub.reroute_overdue()
                 await hub.replan()
             except Exception:  # noqa: BLE001 - the ticker must survive any one bad task
                 log.exception("[fs] tick failed")
@@ -161,14 +166,19 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     @app.post("/tasks", dependencies=auth, status_code=201)
     async def create_task(body: TaskIn) -> dict[str, Any]:
         try:
+            table = store.floor.table(body.table).id
+        except DataError as e:
+            raise HTTPException(404, str(e)) from None
+        assignee = body.assignee or await router.pick(store, http, body.kind, table, body.notes)
+        try:
             task, out = store.book.create(
                 body.kind,
-                store.floor.table(body.table).id,
+                table,
                 store.now(),
                 items=body.items,
                 allergies=body.allergies,
                 notes=body.notes,
-                assignee=body.assignee,
+                assignee=assignee,
                 priority=body.priority,
             )
         except DataError as e:
@@ -176,17 +186,24 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         await hub.deliver(out)
         return task.to_dict()
 
+    @app.get("/stats", dependencies=auth)
+    def stats() -> dict[str, Any]:
+        """How long each server takes: for the manager dashboard (and the router's context)."""
+        return {"doneSec": settings.done_sec, "servers": store.book.stats(store.now())}
+
     @app.get("/tasks", dependencies=auth)
     def list_tasks() -> list[dict[str, Any]]:
         return [t.to_dict() for t in store.book.tasks.values()]
 
     @app.post("/tasks/{task_id}/{action}", dependencies=auth)
-    async def task_action(task_id: str, action: str) -> dict[str, Any]:
+    async def task_action(task_id: str, action: str, by: str = Query(...)) -> dict[str, Any]:
+        """The assignee's own gesture over HTTP (simulator, tests). `by` must be the assignee:
+        only the server holding a task accepts, finishes or bounces it, never the organizer."""
         moves = {"accept": store.book.accept, "done": store.book.done, "bounce": store.book.bounce}
         if action not in moves:
             raise HTTPException(404, f"action must be one of {sorted(moves)}")
         try:
-            out = moves[action](task_id, store.now())
+            out = moves[action](task_id, store.now(), by=by)
         except TaskError as e:
             raise HTTPException(409, str(e)) from None
         await hub.deliver(out)

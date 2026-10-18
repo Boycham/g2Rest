@@ -59,6 +59,8 @@ Every field name is camelCase on the wire. Times are seconds (`sinceSec`) or ISO
 | `task.accept` | `taskId` | task `sent -> accepted`; `task.updated` echoed to the assignee; organizer sees it |
 | `task.done` | `taskId` | task `accepted -> done` (also allowed straight from `sent`); next queued card is already on the glasses |
 | `task.bounce` | `taskId` | task leaves this server (`task.updated` with state `bounced`) and is re-sent to the next server as a new `task.assigned` with the **same id** |
+| `task.handoff` | `taskId`, `to?` | gives an open task (accepted or not) to `to` (a staff id or name, any case: `"Ben"`); without `to` the router (Gemini, else rules) picks anyone but the sender. Same frames as a bounce: `bounced` to the sender, `task.assigned` (same `id`) to the new holder |
+| `task.revert` | `taskId?` | undoes the sender's **last** accept, done, bounce or handoff (one level): un-accept -> `task.updated` `assigned` with a fresh 30 s timer; un-done -> `task.assigned` (the card comes back, state as before); un-bounce/un-handoff -> the task comes back with `task.assigned`, the holder gets `bounced`, but only while the holder hasn't accepted it |
 | `capture.start` | `captureId` | opens a voice capture for this staff member's current table; mic audio frames follow |
 | `capture.audio` | binary frame | raw PCM 16 kHz, s16le, mono, 3200 bytes = 100 ms, belonging to the last `capture.start` on this socket |
 | `capture.stop` | `captureId` | closes the capture (trailing silence is the backend's job) |
@@ -130,6 +132,12 @@ Delivery rules:
 - `alert` and `floor.state` go to manager and organizer sockets.
 - The glasses may apply taps optimistically; the backend's `task.updated` is the truth and wins.
 
+```jsonc
+// A task.* frame from this socket was refused (wrong owner, unknown name, nothing to revert,
+// "Ben already accepted it"). Only to the sending socket; `reason` is short enough for the card.
+{ "type": "task.rejected", "taskId": "task-4f2a" | null, "action": "accept" | "done" | "bounce" | "handoff" | "revert", "reason": "Ben already accepted it" }
+```
+
 ## 5. HTTP API (shared token)
 
 Agent tools. The voice lane's ElevenLabs agent calls these (or the voice module calls them in-process).
@@ -155,10 +163,11 @@ Operations (used by the organizer page, the walkthrough script and the simulator
 |---|---|
 | `GET /health` | `{ok, tasksOpen, clients}` (no token) |
 | `GET /state` | tables, orders, tasks, open alerts |
+| `GET /stats` | how long each server takes: `{doneSec, servers: [{id, name, done, avgSec, avgSecByKind: {CHECK: 60}, open: [{taskId, kind, table, state, heldSec}]}]}`; `avgSec` is accept to done over this service's finished tasks (`null` before the first), `heldSec` counts from accept (or from assignment if not accepted yet) |
 | `GET /events?since=<n>` | append-only event log (`seq`, `at`, `type`, `data`) |
 | `GET /menu`, `GET /floor` | the loaded `data/menu.json`, `data/floor.json` |
-| `POST /tasks` | create a task: `{kind, table, items?, allergies?, notes?, assignee?}`; without `assignee` the table's section server gets it |
-| `POST /tasks/{id}/{accept|done|bounce}` | same as the glasses gestures, for the organizer |
+| `POST /tasks` | create a task: `{kind, table, items?, allergies?, notes?, assignee?}`; without `assignee` Gemini picks the server (`app/router.py`), falling back to the table's section server |
+| `POST /tasks/{id}/{accept|done|bounce}?by={staff}` | same as the glasses gestures, for the simulator and tests; `by` must be the assignee (409 otherwise), so only the server holding a task closes it, never the organizer |
 | `POST /tables/{id}/status` | `{status}`; broadcasts `floor.state` |
 | `POST /plates` | `{table, dish, seat?, orderId?}` registers a plate the kitchen is cooking |
 | `POST /plates/{id}/up` | the plate is at the pass; the priority engine re-plans runs |
@@ -212,6 +221,10 @@ Backend state -> what the glasses see (`Task.state` in `contract.ts`):
   drop the card. The new assignee gets `task.assigned` with the same `id`.
 - Every transition is appended to the event log with `taskId`, `from`, `to`, `assignee`, `reason`.
 - Timeout is `FS_ESCALATION_SEC` (default 30); the walkthrough script lowers it.
+- **Done timer: an accepted task not done after `FS_DONE_SEC` (default 300) raises a `warn` alert**
+  to the manager (`id: "slow-<taskId>"`, text like `T4 check: Ava 5:00, moved to Ben`) and the router
+  moves it to someone else (`escalated`, same frames as a bounce; the new holder's timers start over).
+  A `RUN` is only flagged, never moved: its plates are in the server's hands. Done clears the alert.
 
 ## 7. Data files
 
@@ -276,3 +289,6 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
    like the wire; `backend/voice/order.py` keeps snake_case internally behind the relay.
 8. **Voice fields** from the voice capture lane: `order.confirm` / `order.cancel_confirm` + `proposalId?`,
    `order.reject {orderId, proposalId}`, and `order.draft` + `status?`, `pending?`, `voice?`, `notice?`.
+9. **Handoff and revert** (Coder A, for voice "handoff" / "revert" and the double-tap handoff):
+   glasses -> backend `task.handoff {taskId, to?}` and `task.revert {taskId?}`; backend -> glasses
+   `task.rejected {taskId, action, reason}`. Additive; `contract.ts` needs the three types.

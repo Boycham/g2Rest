@@ -16,7 +16,14 @@ Floor Sense puts the floor of a high-end restaurant on Even Realities G2 smart g
   Swipe for a floor minimap: tables as boxes with a status glyph and a timer, brightness for urgency. The G2
   has no camera, so this is a minimap, not AR.
 - **Organizer.** The phone screen of the same Even Hub app (role picker: Server / Manager / Organizer) plus web
-  pages for dispatch, floor plan and the kitchen.
+  pages for dispatch, floor plan and the kitchen. The organizer sends tasks and watches them; only the assigned
+  server accepts, finishes or bounces a task, on their glasses.
+- **Task routing.** Gemini (Flash-Lite, about a second) picks which server gets each new task from the table's
+  section and everyone's open tasks. The fixed rules take over if Gemini is slow, down or unset, and they still
+  run escalation (next server after 30 s unaccepted, then the manager) and the run planner below.
+- **Task timing.** The backend times every task from accept to done per server (`GET /stats`, for the
+  manager dashboard and Gemini's context). A task accepted but not done after 5 minutes alerts the manager
+  and is rerouted to someone else; a RUN is only flagged, since the server is holding the plates.
 - **Run priority.** Food is scored: appetizers first, hot beats cold, hot plates rise fastest while they wait,
   hot plates for nearby tables are paired into one trip (max 3 per server), cold never holds up hot, and a
   table's whole course goes out together.
@@ -33,7 +40,7 @@ Two coders work in parallel, in separate folders, so there are no merge conflict
 | Lane | Owner | Folders | Stack |
 |---|---|---|---|
 | Glasses + voice | Coder B (Devin works here) | `glasses/`, `backend/voice/` | TypeScript + Vite, `@evenrealities/even_hub_sdk`; Python for the voice spike |
-| Restaurant brain | Coder A | the rest of `backend/`, `web/`, `sim/` | Python FastAPI, WebSocket hub, task state machine |
+| Restaurant brain | Coder A | the rest of `backend/`, `web/`, `sim/` | Python FastAPI, WebSocket hub, task state machine, Gemini task router |
 
 **Only change files inside your lane's folders.** If you need something from the other lane (a new message
 type, a field, an endpoint), don't build it there: write what you need in your PR description and, if

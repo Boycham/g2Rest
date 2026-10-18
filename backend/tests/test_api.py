@@ -86,7 +86,7 @@ def test_task_flows_through_the_socket(client: TestClient) -> None:
 def test_connect_gets_current_state_not_a_replay(client: TestClient) -> None:
     a = client.post("/tasks", headers=H, json={"kind": "CLEAR", "table": "T1"}).json()
     b = client.post("/tasks", headers=H, json={"kind": "CHECK", "table": "T1"}).json()
-    client.post(f"/tasks/{a['id']}/done", headers=H)
+    client.post(f"/tasks/{a['id']}/done?by={a['assignee']}", headers=H)
     with client.websocket_connect(f"/ws?token={TOKEN}&staff=s1") as ws:
         msg = recv(ws)
         assert msg["task"]["id"] == b["id"]
@@ -169,3 +169,11 @@ def test_organizer_socket_watches_but_never_counts_as_delivery(client: TestClien
             assert s1.receive_json()["task"]["id"] == task["id"]
             state = client.get("/tasks", headers=H).json()
             assert [t["backendState"] for t in state] == ["sent"]
+
+
+def test_only_the_assignee_can_finish_a_task(client: TestClient) -> None:
+    task = client.post("/tasks", headers=H, json={"kind": "CLEAR", "table": "T1"}).json()
+    assert client.post(f"/tasks/{task['id']}/done", headers=H).status_code == 422
+    assert client.post(f"/tasks/{task['id']}/done?by=organizer", headers=H).status_code == 409
+    r = client.post(f"/tasks/{task['id']}/done?by={task['assignee']}", headers=H)
+    assert r.status_code == 200 and r.json()["state"] == "done"
