@@ -41,6 +41,7 @@ export interface ControlItem {
  */
 export const CONTROLS: readonly ControlItem[] = [
   { label: 'Accept / done', gesture: 'tap', voice: 'verity accept/done' },
+  { label: 'Accept hands-free', gesture: 'nod', voice: 'verity accept' },
   { label: 'Clip last 2 min', gesture: 'swipe back', voice: 'verity clip' },
   { label: 'Hand off', gesture: 'hold', voice: 'verity handoff' },
   { label: 'Queue, Controls', gesture: 'swipe fwd', voice: 'verity queue/menu' },

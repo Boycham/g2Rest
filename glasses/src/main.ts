@@ -153,6 +153,9 @@ bridge.onEvenHubEvent(event => {
     return hud.onLongPress()
   }
   switch (type) {
+    case OsEventTypeList.IMU_DATA_REPORT:
+      if (event.sysEvent?.imuData) server.onImu(event.sysEvent.imuData)
+      return
     case OsEventTypeList.FOREGROUND_ENTER_EVENT:
       log('foreground enter: reconnecting')
       telemetry.crumb('socket', 'reconnect (foreground)')

@@ -1,16 +1,17 @@
-import { RebuildPageContainer } from '@evenrealities/even_hub_sdk'
+import { ImuReportPace, RebuildPageContainer } from '@evenrealities/even_hub_sdk'
 import type { BackendMessage, GlassesJsonMessage, VoiceCommand } from './contract'
 import { TAB_TEXT_WIDTH, formatCard, formatQueue } from './card'
 import { EightySix } from './eightysix'
 import { CaptureScreen } from './capture'
 import { RollingBuffer } from './clip'
-import { debugFixtures, debugSays, loadFixture } from './debug-pcm'
+import { debugFixtures, debugNod, debugSays, loadFixture } from './debug-pcm'
 import { FrameChunker, Mic, toBytes } from './mic'
 import type { Hud, HudContext, PageSpec } from './hud'
 import { applyBackendTask, markDone, saveDone, type DoneIds } from './reconcile'
 import { MAIN_ID, MAIN_NAME, TextSlot, fullTextPage, tabsPage } from './render'
 import { saveQueue, saveRamp } from './storage'
 import { formatRamp, rampHint, rampOn, rampPages, withRamp, type RampPrefs } from './ramp'
+import { NodDetector, nodWanted, parseNodConfig, syntheticNod, type ImuSample } from './nod'
 import { tap, type Queue } from './tasks'
 import { log } from './log'
 import { CARD_GESTURES, CARD_HINT, formatControls, nextControlsPage, tabAfter, type CardAction, type Tab } from './controls'
@@ -24,6 +25,9 @@ const FLASH_MS = 3000
 const MAPPING_TIMEOUT_MS = 5000
 
 type Screen = Tab | 'draft' | 'ramp'
+
+/** Nod-to-accept tuning (HW-PENDING): `VITE_FS_NOD`, see nod.ts. */
+const NOD_CONFIG = parseNodConfig(import.meta.env.VITE_FS_NOD)
 
 /** Who wears the glasses (for their ramp-hint setting) and the saved settings. */
 export interface RampSettings {
@@ -61,6 +65,9 @@ export class ServerHud implements Hud {
   private revertSent = false
   private readonly out86 = new EightySix()
   private rampPage = 0
+  private readonly nod = NOD_CONFIG ? new NodDetector(NOD_CONFIG) : null
+  private imuOn = false
+  private imuSamples = 0
 
   constructor(
     private readonly ctx: HudContext,
@@ -195,6 +202,7 @@ export class ServerHud implements Hud {
     this.capture.leave()
     this.stopRecording()
     this.current = 'card'
+    this.syncImu()
   }
 
   private async showScreen(next: Screen): Promise<void> {
@@ -214,6 +222,7 @@ export class ServerHud implements Hud {
     const t0 = performance.now()
     const ok = await this.ctx.bridge.rebuildPageContainer(page)
     log('rebuild', next, ok, `${(performance.now() - t0).toFixed(1)} ms`)
+    this.syncImu()
     this.ctx.syncPhone()
   }
 
@@ -222,7 +231,47 @@ export class ServerHud implements Hud {
     // The head task left or names no dishes any more: the ramp view has nothing to show.
     if (this.current === 'ramp' && !rampPages(this.queue[0]).length) void this.showScreen('card')
     else void this.card.render()
+    this.syncImu()
     this.ctx.syncPhone()
+  }
+
+  /** IMU on only while a task waits to be accepted (and this role is on the glasses). */
+  private syncImu(): void {
+    const want = this.nod !== null && this.ctx.active() && nodWanted(this.queue[0], this.current, this.popup !== null)
+    if (want === this.imuOn) return
+    this.imuOn = want
+    this.nod?.reset()
+    this.imuSamples = 0
+    this.ctx.bridge.imuControl(want, ImuReportPace.P100).then(
+      ok => log('imu', want ? 'on (nod to accept)' : 'off', ok),
+      err => log('imu control failed', String(err)),
+    )
+    if (want && debugNod()) void this.playDebugNod()
+  }
+
+  /** SDK IMU_DATA_REPORT: a deliberate down-up nod accepts the waiting task, like a tap. */
+  onImu(sample: ImuSample): void {
+    if (!this.imuOn || !this.nod) return
+    // A sample now and then, so the axis and threshold can be tuned from the phone console.
+    if (this.imuSamples++ % 100 === 0) log('imu sample', this.imuSamples, sample.x, sample.y, sample.z)
+    if (!this.nod.push(sample, performance.now())) return
+    const head = this.queue[0]
+    if (head?.state !== 'assigned' || this.popup || this.current === 'draft') return
+    log('nod -> task.accept', head.id)
+    this.taskTap()
+    this.flash('Heard: nod')
+  }
+
+  /** DEV ONLY: `?debugImu=nod` plays a synthetic nod 2.5 s after the IMU turns on (the simulator's imuData is null). */
+  private async playDebugNod(): Promise<void> {
+    const samples = syntheticNod({ restMs: 2500, depth: 0.5, durationMs: 400, hz: 20, base: -0.9 }, this.nod!.cfg)
+    log('debug imu nod queued')
+    const t0 = performance.now()
+    for (const s of samples) {
+      await new Promise(r => setTimeout(r, Math.max(0, t0 + s.t - performance.now())))
+      if (!this.imuOn) return
+      this.onImu(s.sample)
+    }
   }
 
   onMessage(msg: BackendMessage): void {
@@ -506,6 +555,8 @@ export class ServerHud implements Hud {
   /** Exit: mic off, minute forgotten, state saved. */
   cleanup(): void {
     this.stopRecording()
+    if (this.imuOn) void this.ctx.bridge.imuControl(false)
+    this.imuOn = false
     this.save()
   }
 }
