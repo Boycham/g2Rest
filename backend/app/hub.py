@@ -117,6 +117,18 @@ class Hub:
         await self.to_organizers({"type": "order.fired", "order": order.to_dict()})
         await self.push_pass()
 
+    async def after_cancel(self, order: Any) -> None:
+        await self.to_organizers({"type": "order.cancelled", "order": order.to_dict()})
+
+    async def replan(self, *, push: bool = False) -> bool:
+        """Hand out any run a free server can take now; push pass.state if something moved."""
+        out = self.store.dispatch()
+        if out:
+            await self.deliver(out)
+        if out or push:
+            await self.push_pass()
+        return bool(out)
+
     # ---------- inbound ----------
 
     async def on_bytes(self, ws: WebSocket, data: bytes) -> None:
@@ -155,8 +167,10 @@ class Hub:
                 await self.deliver(book.accept(msg.taskId, now, by=conn.staff))
             case "task.done":
                 await self.deliver(book.done(msg.taskId, now, by=conn.staff))
+                await self.replan()
             case "task.bounce":
                 await self.deliver(book.bounce(msg.taskId, now, by=conn.staff))
+                await self.replan()
             case "capture.start":
                 cap = self.store.start_capture(msg.captureId, conn.staff, msg.table)
                 self.last_capture[conn.ws] = cap.id
@@ -180,6 +194,8 @@ class Hub:
         )
         if fire:
             await self.after_fire(order)
+        else:
+            await self.after_cancel(order)
         await self.send_staff(
             conn.staff, {"type": "order.closed", "orderId": order.id, "status": order.status}
         )

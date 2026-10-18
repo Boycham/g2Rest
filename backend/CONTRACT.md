@@ -153,6 +153,21 @@ Operations (used by the organizer page, the walkthrough script and the simulator
 | `GET /runs?mode=priority|fifo` | the planned runs (debug view of the engine) |
 | `POST /reset` | clears orders, tasks, plates and alerts (keeps menu and floor) |
 
+### 5.1 Pass (kitchen page; not part of the glasses contract)
+
+- `GET /pass` -> `{planner, plates: [{plateId, orderId, line, table, seat, dish, course, temperature,
+  upSec, score, status: "waiting"|"up"|"running"}], holds: [{table, course, waitingOn: [dish]}],
+  runs: [{runId, tables, section, runners, assignees, score, hot, reason, plates}]}`.
+  `plateId` is `"<orderId>:<line>"`; one plate per order line even when `qty > 1`.
+- `POST /pass/up {orderId, line}` -> same body. 409 if the order is not fired, the line is bad or the
+  plate is already up. A run leaves only when a server with no open `RUN` task is free (highest score
+  first; the section's server first, then anyone free); otherwise the plates wait `up` at the pass and
+  are re-planned on every task change and on the ticker.
+- `POST /pass/planner {"planner": "priority"|"fifo"}` (simulator switch).
+- Organizer sockets only (`role=organizer`): `{"type": "pass.state", ...GET /pass body}` after every
+  change, `{"type": "order.fired", "order"}` when an order fires, `{"type": "order.cancelled", "order"}`
+  when a draft is cancelled. Glasses never receive these.
+
 ## 6. Task lifecycle (backend)
 
 ```

@@ -67,6 +67,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
             await asyncio.sleep(min(TICK_SEC, settings.escalation_sec / 4))
             try:
                 await hub.deliver(store.book.tick(store.now()))
+                await hub.replan()
             except Exception:  # noqa: BLE001 - the ticker must survive any one bad task
                 log.exception("[fs] tick failed")
 
@@ -189,6 +190,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         except TaskError as e:
             raise HTTPException(409, str(e)) from None
         await hub.deliver(out)
+        await hub.replan()
         return store.book.get(task_id).to_dict()
 
     # ---------- tables ----------
@@ -242,6 +244,11 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         store.events.append("order." + order.status, orderId=order.id, table=order.table)
         if fire:
             await hub.after_fire(order)
+        else:
+            await hub.after_cancel(order)
+        await hub.push_order(
+            order.table, {"type": "order.closed", "orderId": order.id, "status": order.status}
+        )
         return order.to_dict()
 
     # ---------- the pass (kitchen page) ----------
@@ -252,13 +259,12 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
 
     @app.post("/pass/up", dependencies=auth)
     async def plate_up(body: PlateUp) -> dict[str, Any]:
-        """Food up: mark the plate, run the priority engine, dispatch RUN tasks, return the pass."""
+        """Food up: mark the plate, give the best ready run to a free server, return the pass."""
         try:
-            out = store.plate_up(body.orderId, body.line)
+            store.plate_up(body.orderId, body.line)
         except PassError as e:
             raise HTTPException(409, str(e)) from None
-        await hub.deliver(out)
-        await hub.push_pass()
+        await hub.replan(push=True)
         return store.pass_.state(store.now())
 
     @app.post("/pass/planner", dependencies=auth)

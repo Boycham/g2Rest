@@ -128,6 +128,7 @@ class Run:
     runners: int
     score: float
     reason: str
+    assignees: list[str] = field(default_factory=list)
 
     @property
     def table(self) -> str:
@@ -154,6 +155,7 @@ class Run:
             "tables": self.tables,
             "section": self.section,
             "runners": self.runners,
+            "assignees": list(self.assignees),
             "score": self.score,
             "hot": self.hot,
             "reason": self.reason,
@@ -296,15 +298,34 @@ class Pass:
         plate.up_at = now
         return plate
 
-    def dispatch(self, now: float) -> list[Run]:
-        """Plan with the current planner and mark the chosen plates as running."""
+    def dispatch(self, now: float, free: dict[str, str] | None = None) -> list[Run]:
+        """Plan, then hand runs to free runners in score order; the rest wait at the pass.
+
+        `free` maps a free server to their section. The best run takes the section's free
+        servers first, then anyone else free. When it needs more hands than are free, nothing
+        below it goes either: the free hands are reserved for it, so a big course is never
+        starved by a stream of single plates. Waiting costs no heat (a busy server could not
+        carry it sooner) and is what lets scoring and pairing happen. `free=None` means
+        everyone is free (pure planner tests).
+        """
         runs = PLANNERS[self.planner](list(self.plates.values()), now, self.weights, self._seq)
+        pool = dict(free) if free is not None else None
+        chosen: list[Run] = []
         for run in runs:
+            if pool is not None:
+                same = [s for s, sec in pool.items() if sec == run.section]
+                picks = (same + [s for s in pool if s not in same])[: run.runners]
+                if len(picks) < run.runners:
+                    break
+                for s in picks:
+                    del pool[s]
+                run.assignees = picks
             self.runs[run.id] = run
             for p in run.plates:
                 p.run_id = run.id
             self._seq += 1
-        return runs
+            chosen.append(run)
+        return chosen
 
     def holds(self) -> list[Hold]:
         return holds(list(self.plates.values()))
