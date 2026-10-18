@@ -200,6 +200,19 @@ def test_the_run_waits_for_the_server_to_finish_the_order(client: TestClient) ->
     assert [p["status"] for p in state["plates"]] == ["running"]
 
 
+def test_a_server_held_for_a_big_course_gets_no_new_floor_task(client: TestClient) -> None:
+    ben_run = busy(client, "T5")  # Ben is out on a run
+    order = fire_order(client, "T1", [(i + 1, "ribeye") for i in range(4)])  # 2 runners
+    for line in range(4):
+        state = food_up(client, order["orderId"], line).json()
+    assert state["runs"] == []  # Ava alone can't carry it: she is held for it
+    r = client.post("/tasks", json={"kind": "ORDER", "table": "T2"}, headers=H)
+    assert r.status_code == 201 and r.json()["assignee"] == "s2"  # Ava's table, Ben's queue
+    assert client.post(f"/tasks/{ben_run}/done?by=s2", headers=H).status_code == 200
+    run = client.get("/pass", headers=H).json()["runs"][-1]
+    assert run["assignees"] == ["s1", "s2"] and len(run["plates"]) == 4  # together
+
+
 def test_http_cancel_tells_organizers_and_the_glasses(client: TestClient) -> None:
     with (
         client.websocket_connect("/ws?token=test-token&role=organizer&staff=organizer") as org,

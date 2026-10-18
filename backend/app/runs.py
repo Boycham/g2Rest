@@ -261,6 +261,8 @@ class Pass:
     planner: Planner = "priority"
     plates: dict[str, Plate] = field(default_factory=dict)
     runs: dict[str, Run] = field(default_factory=dict)
+    # free servers held for the best run, which needs more hands than are free (server -> run)
+    reserved: dict[str, str] = field(default_factory=dict)
     _seq: int = 1
 
     def add_order(self, order_id: str, table: str, lines: list[Any], now: float) -> list[Plate]:
@@ -298,27 +300,42 @@ class Pass:
         plate.up_at = now
         return plate
 
-    def dispatch(self, now: float, free: dict[str, str] | None = None) -> list[Run]:
+    def dispatch(
+        self, now: float, free: dict[str, str] | None = None, extra: dict[str, str] | None = None
+    ) -> list[Run]:
         """Plan, then hand runs to free runners in score order; the rest wait at the pass.
 
         `free` maps a free server to their section. The best run takes the section's free
         servers first, then anyone else free. When it needs more hands than are free, nothing
-        below it goes either: the free hands are reserved for it, so a big course is never
-        starved by a stream of single plates. Waiting costs no heat (a busy server could not
-        carry it sooner) and is what lets scoring and pairing happen. `free=None` means
-        everyone is free (pure planner tests).
+        below it goes either: the free hands are reserved for it (`reserved`, which also keeps
+        new floor tasks off them), so a big course is never starved by a stream of single
+        plates. Waiting costs no heat (a busy server could not carry it sooner) and is what
+        lets scoring and pairing happen. `free=None` means everyone is free (pure planner tests).
+
+        Past the ceiling a run stops waiting for hands: it leaves with whoever is free, then
+        `extra` (the manager, if free), each carrying up to `max_plates_per_runner`. Plates
+        nobody can carry yet stay at the pass, on top, for the next free hands.
         """
         runs = PLANNERS[self.planner](list(self.plates.values()), now, self.weights, self._seq)
         pool = dict(free) if free is not None else None
+        spare = dict(extra or {})
+        self.reserved = {}
         chosen: list[Run] = []
         for run in runs:
             if pool is not None:
                 same = [s for s, sec in pool.items() if sec == run.section]
                 picks = (same + [s for s in pool if s not in same])[: run.runners]
                 if len(picks) < run.runners:
-                    break
+                    if not self.past_ceiling(run, now):
+                        self.reserved = dict.fromkeys(picks, run.id)
+                        break
+                    picks += [s for s in spare if s not in picks][: run.runners - len(picks)]
+                    if not picks:
+                        break
+                    self._shrink(run, len(picks), now)
                 for s in picks:
-                    del pool[s]
+                    pool.pop(s, None)
+                    spare.pop(s, None)
                 run.assignees = picks
             self.runs[run.id] = run
             for p in run.plates:
@@ -326,6 +343,19 @@ class Pass:
             self._seq += 1
             chosen.append(run)
         return chosen
+
+    def past_ceiling(self, run: Run, now: float) -> bool:
+        return any(p.minutes_up(now) > self.weights.ceiling_min for p in run.plates)
+
+    def _shrink(self, run: Run, runners: int, now: float) -> None:
+        """Cut a run down to `runners` pairs of hands: the highest-scoring plates go first."""
+        cap = runners * self.weights.max_plates_per_runner
+        if cap < len(run.plates):
+            ranked = sorted(run.plates, key=lambda p: (-p.score(now, self.weights), p.up_at or 0))
+            keep = {p.id for p in ranked[:cap]}
+            run.plates = [p for p in run.plates if p.id in keep]
+        run.reason += f", past {self.weights.ceiling_min:g} min: {runners} of {run.runners} runners"
+        run.runners = runners
 
     def holds(self) -> list[Hold]:
         return holds(list(self.plates.values()))

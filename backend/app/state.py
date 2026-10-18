@@ -133,22 +133,29 @@ class Store:
         """
         free: dict[str, str] = {}
         for server in self.floor.servers.values():
-            if any(t.kind == "RUN" or t.state == "accepted" for t in self.book.open_for(server.id)):
+            if self.hands_full(server.id):
                 continue
             home = [sec for sec, srv in self.floor.sections.items() if srv == server.id]
             free[server.id] = home[0] if home else (server.sections[0] if server.sections else "")
         return free
 
+    def hands_full(self, staff: str) -> bool:
+        return any(t.kind == "RUN" or t.state == "accepted" for t in self.book.open_for(staff))
+
     def dispatch(self) -> list[Outbound]:
         """Re-plan the pass: the best run goes to the next free server, the rest keep waiting.
 
         Called after food up, after every task state change and on the ticker (so the
-        5-minute ceiling fires without anyone pressing a button).
+        5-minute ceiling fires without anyone pressing a button). The manager only runs food
+        past the ceiling. Servers held for a run get no new floor tasks (`TaskBook.held`).
         """
         now = self.now()
+        manager = self.floor.manager.id
+        extra = {} if self.hands_full(manager) else {manager: ""}
         out: list[Outbound] = []
-        for run in self.pass_.dispatch(now, self.free_runners()):
+        for run in self.pass_.dispatch(now, self.free_runners(), extra):
             out += self._run_tasks(run, now)
+        self.book.held = frozenset(self.pass_.reserved)
         return out
 
     def _run_tasks(self, run: Run, now: float) -> list[Outbound]:

@@ -210,3 +210,36 @@ def test_pass_marks_plates_up_and_dispatches(menu: Menu, floor: Floor) -> None:
     assert len(runs) == 1 and runs[0].id == "run-1"
     assert [p["status"] for p in pass_.state(now=3)["plates"]] == ["running", "running"]
     assert pass_.dispatch(now=4) == []  # nothing left to plan
+
+
+def four_hot_mains(menu: Menu, floor: Floor) -> Pass:
+    from app.orders import Line
+
+    pass_ = Pass(menu, floor)
+    pass_.add_order("o1", "T1", [Line(i + 1, 1, "Dry-Aged Ribeye") for i in range(4)], now=0)
+    for i in range(4):
+        pass_.mark_up("o1", i, now=0)
+    return pass_
+
+
+def test_big_course_reserves_free_hands_then_leaves_with_the_manager_past_the_ceiling(
+    menu: Menu, floor: Floor
+) -> None:
+    pass_ = four_hot_mains(menu, floor)  # 4 plates: 2 runners
+    assert pass_.dispatch(now=299, free={"s1": "A"}, extra={"m1": ""}) == []
+    assert list(pass_.reserved) == ["s1"]  # before the ceiling the course waits whole
+    runs = pass_.dispatch(now=301, free={"s1": "A"}, extra={"m1": ""})
+    assert [(r.assignees, r.runners, len(r.plates)) for r in runs] == [(["s1", "m1"], 2, 4)]
+    assert pass_.reserved == {}
+
+
+def test_past_the_ceiling_one_free_server_takes_what_they_can_carry(
+    menu: Menu, floor: Floor
+) -> None:
+    pass_ = four_hot_mains(menu, floor)
+    runs = pass_.dispatch(now=301, free={"s1": "A"})
+    assert [(r.assignees, len(r.plates)) for r in runs] == [(["s1"], 3)]
+    assert "past 5 min: 1 of 2 runners" in runs[0].reason
+    assert [p["status"] for p in pass_.state(now=301)["plates"]].count("up") == 1
+    rest = pass_.dispatch(now=302, free={"s2": "B"})
+    assert [(r.assignees, len(r.plates)) for r in rest] == [(["s2"], 1)]
