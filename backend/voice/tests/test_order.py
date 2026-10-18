@@ -402,7 +402,7 @@ def test_a_sent_order_keeps_its_table():
 
 def test_an_86d_dish_from_the_clip_becomes_a_question_line_not_an_item(book):
     book.out = {"Pan-Roasted Halibut"}
-    result, err = book.dispatch(
+    _, err = book.dispatch(
         "set_order", {"items": [{"guest": 1, "dish": "halibut"}, {"guest": 2, "dish": "duck"}]}
     )
     assert not err
