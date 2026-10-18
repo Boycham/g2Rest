@@ -400,7 +400,10 @@ def test_speaker_turns_split_on_speaker_and_on_pauses():
 
 
 @run
-async def test_command_stream_sends_only_matched_intents_and_pauses_for_a_clip():
+async def test_command_stream_sends_only_matched_intents_and_pauses_for_a_clip(monkeypatch):
+    import relay
+
+    monkeypatch.setattr(relay, "CMD_GATE_DBFS", None)  # the fake frames are below the default gate
     session, sent, made = clip_relay()
     streams: list[FakeStt] = []
 
@@ -590,6 +593,161 @@ async def test_verity_table_refuses_unknown_tables_sent_orders_and_no_order():
     await say_table(session, 2)
     assert sent[-1]["reason"] == "already sent"
     await session.close()
+
+
+def test_loudness_gate_zeroes_quiet_frames_and_holds_after_loud_ones():
+    import array
+
+    from relay import LoudnessGate
+
+    def frame(amp: int) -> bytes:
+        return array.array("h", [amp, -amp] * (FRAME_BYTES // 4)).tobytes()
+
+    loud, quiet, silent = frame(8000), frame(300), bytes(FRAME_BYTES)  # -12, -41 dBFS
+    gate = LoudnessGate(-30.0, hold=2)
+    assert [gate(f) for f in (quiet, loud, quiet, quiet, quiet)] == [
+        silent,
+        loud,
+        quiet,
+        quiet,
+        silent,
+    ]
+    assert LoudnessGate(None)(quiet) == quiet
+
+
+def test_crowd_settings_come_from_env(monkeypatch):
+    from relay import env_float
+
+    monkeypatch.setenv("X_GATE", "-31.5")
+    assert env_float("X_GATE", -30.0) == -31.5
+    monkeypatch.setenv("X_GATE", "off")
+    assert env_float("X_GATE", -30.0) is None
+    monkeypatch.setenv("X_GATE", "")
+    assert env_float("X_GATE", -30.0) == -30.0
+
+
+@run
+async def test_command_frames_pass_the_loudness_gate():
+    import relay as relay_mod
+
+    session, _, _ = clip_relay()
+    streams: list[FakeStt] = []
+    session.make_stt = lambda p, c: streams.append(FakeStt(p, c)) or streams[-1]
+    real = relay_mod.CMD_GATE_DBFS
+    relay_mod.CMD_GATE_DBFS = -30.0
+    try:
+        await session.handle_text('{"type": "capture.start", "captureId": "c", "mode": "command"}')
+        await session.audio(b"\x01\x00" * (FRAME_BYTES // 2))  # -90 dBFS: far talk
+    finally:
+        relay_mod.CMD_GATE_DBFS = real
+    assert streams[0].frames == [bytes(FRAME_BYTES)]
+    await session.close()
+
+
+# ---- order clips: a neighbouring table's speaker never reaches the draft ----
+
+TWO_TABLES = [  # (speaker label, start s, words, level dBFS): table near, neighbour ~18 dB down
+    ("speaker_0", 0.0, "I'll have the halibut, no butter.", -16.0),
+    ("speaker_1", 2.5, "Can we get the ribeye, medium rare?", -34.0),
+    ("speaker_0", 5.0, "The salmon for me, please.", -17.0),
+    ("speaker_1", 7.5, "And the duck breast.", -35.0),
+]
+
+
+def two_table_clip(same_label: bool = False) -> tuple[dict, bytes]:
+    """A mixed two-speaker clip: PCM with each line's words at its level, and the batch
+    Scribe response (word timings plus diarization labels) for it."""
+    import array
+    import math
+
+    secs = 10.0
+    pcm = array.array("h", bytes(int(secs * 16000) * 2))
+    words: list[dict] = []
+    for speaker, start, text, db in TWO_TABLES:
+        amp = int(32768 * 10 ** (db / 20) * math.sqrt(2))
+        for k, token in enumerate(text.split()):
+            a, b = start + 0.35 * k, start + 0.35 * k + 0.3
+            for i in range(int(a * 16000), int(b * 16000)):
+                pcm[i] = int(amp * math.sin(2 * math.pi * 220 * i / 16000))
+            label = "speaker_0" if same_label else speaker
+            words.append({"type": "word", "text": token, "start": a, "end": b, "speaker_id": label})
+            words.append({"type": "spacing", "text": " ", "speaker_id": label})
+    body = {"text": " ".join(t for _, _, t, _ in TWO_TABLES), "words": words}
+    return body, pcm.tobytes()
+
+
+class HearingAgent(ClipAgent):
+    """Orders every dish it reads in the clip message, one guest per line: an agent that
+    can't tell tables apart, so only the relay's transcript decides what leaks."""
+
+    DISHES = ("halibut", "salmon", "ribeye", "duck")
+
+    async def say(self, text: str) -> None:
+        self.heard.append(text)
+        items = [
+            {"guest": n, "dish": d, "alterations": []}
+            for n, line in enumerate(text.splitlines()[1:], 1)
+            for d in self.DISHES
+            if d in line.lower()
+        ]
+        order = {"items": items, "allergies": [], "unclear": [], "notes": []}
+        result, err = self.book.dispatch("set_order", order)
+        self.on_tool("set_order", order, result, err, 0.0)
+
+
+async def two_table_draft(drop: bool = True, same_label: bool = False) -> tuple[list[str], str]:
+    from voice_session import clip_turns
+
+    body, pcm = two_table_clip(same_label)
+    sent: list[dict[str, Any]] = []
+    made: dict[str, Any] = {}
+
+    async def send(msg):
+        sent.append(msg)
+
+    def make_agent(book, on_tool):
+        made["agent"] = HearingAgent(book, on_tool, None)
+        return made["agent"]
+
+    async def transcribe(clip: bytes):
+        return clip_turns(body, pcm, drop_other_tables=drop)[0]
+
+    session = RelaySession(send, lambda p, c: FakeStt(p, c), make_agent, transcribe)
+    await send_clip(session)
+    await session.close()
+    return [ln["dish"] for ln in sent[-1]["lines"]], made["agent"].heard[0]
+
+
+@run
+async def test_neighbouring_table_dishes_never_reach_the_draft():
+    dishes, heard = await two_table_draft()
+    assert dishes == ["halibut", "salmon"]
+    assert "speaker_0: I'll have the halibut" in heard and "speaker_1" not in heard
+
+
+@run
+async def test_the_speaker_labels_are_what_keeps_the_other_table_out():
+    dishes, heard = await two_table_draft(drop=False)  # labels passed through, no rule
+    assert "ribeye" in dishes and "speaker_1: Can we get the ribeye" in heard
+    dishes, _ = await two_table_draft(same_label=True)  # diarization merged both tables
+    assert "ribeye" in dishes
+
+
+def test_other_tables_rule():
+    from voice_session import other_tables
+
+    def drop(levels):
+        return other_tables(levels, quiet_db=8.0)
+
+    assert drop({"a": (40, -18.0), "b": (12, -30.0)}) == {"b"}  # much quieter
+    assert drop({"a": (40, -18.0), "b": (4, -23.0)}) == {"b"}  # quieter, few words
+    assert drop({"a": (40, -18.0), "b": (3, -19.0)}) == set()  # short but near
+    assert drop({"a": (40, -18.0), "b": (30, -23.0)}) == set()  # a quieter guest
+    assert drop({"a": (40, -40.0)}) == set()  # one speaker is always the table
+    # the wearer right at the mic: guests are measured against the loudest guest instead
+    wearer = {"server": (50, -8.0), "g1": (12, -26.0), "g2": (9, -29.0), "far": (14, -37.0)}
+    assert drop(wearer) == {"far"}
+    assert other_tables({"a": (40, -18.0), "b": (12, -30.0)}, quiet_db=None) == {"b"}
 
 
 @run

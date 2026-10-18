@@ -23,13 +23,14 @@ from typing import Any, Protocol
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from commands import Command, parse_commands, tables_said
+from commands import Command, keyterms, parse_commands, tables_said
 from gemini_intent import IntentUnavailable, map_words
 from order import UNKNOWN_TABLE, Menu, OrderBook, ToolError, floor_tables
 from voice_session import (
     FRAME_BYTES,
     AgentSession,
     ScribeStream,
+    frame_dbfs,
     log,
     speech_end_offset,
     transcribe_clip,
@@ -40,6 +41,50 @@ START_TIMEOUT = 8.0  # Scribe + agent connect, each already has its own timeout
 MAX_BUFFERED_FRAMES = 50  # 5 s of audio kept while the providers connect
 MAX_CLIP_FRAMES = 1220  # a 120 s clip plus slack; anything past it is dropped
 Transcribe = Callable[[bytes], Awaitable[list[tuple[str, str]]]]
+
+
+def env_float(name: str, default: float | None) -> float | None:
+    raw = os.environ.get(name, "").strip().lower()
+    if raw in ("off", "none"):
+        return None
+    try:
+        return float(raw) if raw else default
+    except ValueError:
+        return default
+
+
+# Command-stream crowd defaults, picked from noise_test.py (NOTES.md); "off" disables one.
+CMD_VAD_THRESHOLD = env_float("VOICE_CMD_VAD_THRESHOLD", 0.6)
+CMD_GATE_DBFS = env_float("VOICE_CMD_GATE_DBFS", -22.0)
+CMD_GATE_HOLD = int(env_float("VOICE_CMD_GATE_HOLD", 3) or 0)
+CMD_KEYTERMS = os.environ.get("VOICE_CMD_KEYTERMS", "on").strip().lower() != "off"
+CMD_FILTER_BG = os.environ.get("VOICE_CMD_FILTER_BG", "on").strip().lower() != "off"
+
+
+class LoudnessGate:
+    """Command stream only: frames quieter than `dbfs` go to Scribe as digital silence.
+
+    The wearer's own voice is much louder at the glasses mic than talk a metre away, so far
+    talk becomes silence, which also lets Scribe's VAD commit right after the command. Frames
+    are zeroed, not dropped, so the VAD still sees the pause. `hold` frames after a loud one
+    stay open so word endings aren't clipped. `dbfs=None` passes everything through.
+    """
+
+    def __init__(self, dbfs: float | None, hold: int = 3):
+        self.dbfs = dbfs
+        self.hold = hold
+        self._open_for = 0
+
+    def __call__(self, frame: bytes) -> bytes:
+        if self.dbfs is None:
+            return frame
+        if frame_dbfs(frame) >= self.dbfs:
+            self._open_for = self.hold
+            return frame
+        if self._open_for > 0:
+            self._open_for -= 1
+            return frame
+        return bytes(len(frame))
 
 
 class Stt(Protocol):
@@ -175,6 +220,8 @@ class RelaySession:
         make_agent: Callable[[OrderBook, Callable[..., None]], Agent],
         transcribe: Transcribe | None = None,
         make_talk_agent: Callable[[OrderBook, Callable[..., None]], Agent | None] | None = None,
+        make_cmd_stt: Callable[[Callable[[str], None], Callable[[str, float], None]], Stt]
+        | None = None,
     ):
         self._send = send
         self.make_stt = make_stt
@@ -194,13 +241,15 @@ class RelaySession:
         self.segments: asyncio.Queue[str] = asyncio.Queue()
         self.tasks: set[asyncio.Task[None]] = set()
         self.speech_end = 0.0
-        self.transcribe = transcribe or transcribe_clip
+        self.transcribe = transcribe or clip_transcriber()
         self.mode = "stream"
         self.clip = bytearray()
         self.clip_stop = 0.0
         self.got_order = False
         self.agent_ready: asyncio.Task[None] | None = None
+        self.make_cmd_stt = make_cmd_stt
         self.cmd_stt: Stt | None = None
+        self.cmd_gate = LoudnessGate(CMD_GATE_DBFS, CMD_GATE_HOLD)
         self.cmd_capture_id = ""
         self.worker = self._spawn(self._forward_segments())
 
@@ -329,8 +378,9 @@ class RelaySession:
             for cmd in parse_commands(text):
                 self._spawn(self._command(cmd))
 
-        stt = self.make_stt(lambda text: None, committed)
+        stt = (self.make_cmd_stt or self.make_stt)(lambda text: None, committed)
         self.cmd_stt, self.cmd_capture_id = stt, capture_id
+        self.cmd_gate = LoudnessGate(CMD_GATE_DBFS, CMD_GATE_HOLD)
         try:
             await asyncio.wait_for(stt.open(), START_TIMEOUT)
         except (Exception, SystemExit) as e:  # noqa: BLE001 - commands are optional
@@ -394,7 +444,7 @@ class RelaySession:
         if not stt or not stt.alive:
             return
         try:
-            await stt.send(frame)
+            await stt.send(self.cmd_gate(frame))
         except (Exception, SystemExit) as e:  # noqa: BLE001 - commands are optional
             log(f"command stream send failed: {type(e).__name__}: {e}")
             self.cmd_stt = None
@@ -617,6 +667,30 @@ def live_stt(on_partial: Callable[[str], None], on_committed: Callable[[str, flo
     return ScribeStream(on_partial, on_committed)
 
 
+def clip_transcriber() -> Transcribe:
+    """Batch Scribe for order clips: diarized, biased to the menu and staff, quieter
+    speakers dropped as another table (voice_session.other_tables)."""
+    terms = keyterms(realtime=False)
+
+    async def transcribe(pcm: bytes) -> list[tuple[str, str]]:
+        return await transcribe_clip(pcm, keyterms=terms)
+
+    return transcribe
+
+
+def live_cmd_stt(
+    on_partial: Callable[[str], None], on_committed: Callable[[str, float], None]
+) -> Stt:
+    """The command stream's Scribe: keyterm-biased, with the crowd VAD threshold."""
+    return ScribeStream(
+        on_partial,
+        on_committed,
+        vad_threshold=CMD_VAD_THRESHOLD,
+        filter_background=CMD_FILTER_BG,
+        keyterms=keyterms() if CMD_KEYTERMS else (),
+    )
+
+
 def live_agent(book: OrderBook, on_tool: Callable[..., None]) -> Agent:
     try:
         aid = agent_id()
@@ -644,7 +718,9 @@ async def handler(ws: ServerConnection) -> None:
         except (ConnectionClosed, TimeoutError):
             pass
 
-    session = RelaySession(send, live_stt, live_agent, make_talk_agent=live_talk_agent)
+    session = RelaySession(
+        send, live_stt, live_agent, make_talk_agent=live_talk_agent, make_cmd_stt=live_cmd_stt
+    )
     try:
         async for data in ws:
             if isinstance(data, bytes):

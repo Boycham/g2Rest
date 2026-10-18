@@ -10,12 +10,13 @@
     { "name": "g2-microphone", "desc": "Hear the table's order, only while the server is taking one." },
     {
       "name": "network",
-      "desc": "Receive task cards from and send gestures to the Floor Sense backend.",
+      "desc": "Receive task cards from and send gestures to the Floor Sense backend; send error reports and timings to Sentry.",
       "whitelist": [
         "ws://localhost:8787",
         "http://localhost:8787",
         "https://45-76-173-44.sslip.io",
-        "wss://45-76-173-44.sslip.io"
+        "wss://45-76-173-44.sslip.io",
+        "https://o4512224561594368.ingest.us.sentry.io"
       ]
     }
   ],
