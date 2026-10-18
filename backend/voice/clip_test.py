@@ -20,6 +20,7 @@ import asyncio
 import json
 import statistics
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -53,30 +54,45 @@ THEIRS = {"ribeye", "duck", "pork belly", "risotto"}
 
 
 def track(
-    http: httpx.Client, lines, tag: str, gap: float, levels, start: float = 0.0
+    http: httpx.Client, lines, tag: str, gap: float, levels, start: float = 0.0, take: int = 0
 ) -> list[float]:
     """Lines one after another, each normalised to its active-speech level in dBFS."""
     out: list[float] = [0.0] * int(start * SR)
     for n, ((voice, text), db) in enumerate(zip(lines, levels, strict=True)):
-        pcm = cached(f"clip2_{tag}{n}.pcm", lambda v=voice, t=text: tts(http, v, t))
+        name = f"clip2_{tag}{n}.pcm" if take == 0 else f"clip2_{tag}{n}_k{take}.pcm"
+        pcm = cached(name, lambda v=voice, t=text: tts(http, v, t))
         out += list(scaled(pcm, db - active_dbfs(pcm))) + [0.0] * int(gap * SR)
     return out
 
 
-def two_table_clip(bg_db: float, wearer_db: float) -> bytes:
+# Each take is a fresh TTS rendering of every line, with the neighbours starting a little
+# earlier or later: repeat runs of one take return the same diarization, so the spread
+# comes from takes.
+TAKE_SHIFT = (0.0, -0.5, 0.5, -0.25, 0.25)
+
+
+def two_table_clip(bg_db: float, wearer_db: float, take: int = 0) -> bytes:
     """Our table's guests at -20 dBFS, the wearer `wearer_db` above them, the neighbours
     `bg_db` below them and 'far'."""
     with httpx.Client(base_url=API, headers={"xi-api-key": api_key()}, timeout=60) as http:
         ours = track(
-            http, TABLE, "t", 0.7, [-20 + (wearer_db if v == SERVER_VOICE else 0) for v, _ in TABLE]
+            http,
+            TABLE,
+            "t",
+            0.7,
+            [-20 + (wearer_db if v == SERVER_VOICE else 0) for v, _ in TABLE],
+            take=take,
         )
+        start = 1.5 + TAKE_SHIFT[take % len(TAKE_SHIFT)]
         lines = [(NEIGHBOUR_VOICES[v], t) for v, t in NEIGHBOURS]
         theirs = far(
             array.array(
                 "h",
                 (
                     clamp(x)
-                    for x in track(http, lines, "n", 1.6, [-20 + bg_db] * len(lines), start=1.5)
+                    for x in track(
+                        http, lines, "n", 1.6, [-20 + bg_db] * len(lines), start=start, take=take
+                    )
                 ),
             )
         )
@@ -103,6 +119,10 @@ async def run_once(pcm: bytes, after: bool) -> dict[str, Any]:
         info["speakers"] = {s: (n, round(db, 1)) for s, (n, db) in levels.items()}
         info["dropped"] = sorted(dropped)
         info["turns"] = turns
+        info["words"] = [
+            {k: w.get(k) for k in ("text", "type", "speaker_id", "start", "end")}
+            for w in body.get("words") or []
+        ]
         return turns
 
     session = RelaySession(send, lambda p, c: None, live_agent, transcribe)  # type: ignore[arg-type,return-value]
@@ -133,22 +153,26 @@ async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--bg-db", type=float, default=-10.0)
     ap.add_argument("--wearer-db", type=float, default=0.0, help="server above the guests")
-    ap.add_argument("--runs", type=int, default=5)
+    ap.add_argument("--runs", type=int, default=5, help="runs per take")
+    ap.add_argument("--takes", type=int, default=1, help="fresh TTS renderings of the clip")
     ap.add_argument("--only", choices=("before", "after"))
+    ap.add_argument("--dump", type=Path, help="write every run (words, levels, draft) here")
     args = ap.parse_args()
-    pcm = two_table_clip(args.bg_db, args.wearer_db)
-    log(f"two-table clip {len(pcm) / 32000:.1f} s, neighbours at {args.bg_db:+.0f} dB, "
-        f"wearer at {args.wearer_db:+.0f} dB")  # fmt: skip
+    pcms = [two_table_clip(args.bg_db, args.wearer_db, k) for k in range(args.takes)]
+    log(f"{len(pcms)} two-table clip take(s) ~{len(pcms[0]) / 32000:.1f} s, neighbours at "
+        f"{args.bg_db:+.0f} dB, wearer at {args.wearer_db:+.0f} dB")  # fmt: skip
     summary: dict[str, Any] = {"bg_db": args.bg_db, "wearer_db": args.wearer_db}
+    dumped: list[dict[str, Any]] = []
     for after in (False, True):
         tag = "after" if after else "before"
         if args.only and args.only != tag:
             continue
         runs = []
-        for r in range(args.runs):
+        for r, (k, pcm) in enumerate((k, p) for k, p in enumerate(pcms) for _ in range(args.runs)):
             info = await run_once(pcm, after)
             runs.append(info)
-            print(f"[{tag} r{r}] dishes {info['dishes']} leaked {info['leaked']} "
+            dumped.append({"mode": tag, "run": r, "take": k, **info})
+            print(f"[{tag} r{r} k{k}] dishes {info['dishes']} leaked {info['leaked']} "
                   f"stt {info.get('stt', 0):.2f}s total {info['total']:.2f}s "
                   f"speakers {info.get('speakers')} dropped {info.get('dropped')}")  # fmt: skip
             if r == 0:
@@ -162,6 +186,8 @@ async def main() -> None:
         }
         print(f"[{tag}] {summary[tag]}")
     print("SUMMARY " + json.dumps(summary))
+    if args.dump:
+        args.dump.write_text(json.dumps({"summary": summary, "runs": dumped}))
 
 
 if __name__ == "__main__":
