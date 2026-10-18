@@ -408,9 +408,21 @@ class OrderBook:
 
         uncertain: list[str] = []
         flagged: list[str] = []
+        held: list[str] = []
         wanted: dict[tuple[int, str], Item] = {}
+        unclear_seats = {
+            seat_of(u): _norm(str(u.get("text", "")))
+            for u in unclear
+            if u.get("guest") not in (None, "", 0) or u.get("seat") not in (None, "", 0)
+        }
+        per_seat: dict[int, int] = {}
+        for raw in items:
+            per_seat[seat_of(raw)] = per_seat.get(seat_of(raw), 0) + 1
         for raw in items:
             seat = seat_of(raw)
+            if seat in unclear_seats and self._guessed(raw, unclear_seats[seat], per_seat[seat]):
+                held.append(f"s{seat} {raw.get('dish')}")
+                continue
             name = str(raw.get("dish", "")).strip()
             if not name:
                 continue
@@ -481,6 +493,9 @@ class OrderBook:
             result["note"] = "dropped dishes are NOT removed until the server taps"
         if flagged:
             result["flagged_not_applied"] = flagged
+        if held:
+            result["held_unclear"] = held
+            result["note_unclear"] = "a guest whose choice is unclear gets no guessed dish"
         if rejected:
             result["rejected_unclear"] = rejected
             result["warning"] = "unclear lines must be statements, never questions"
@@ -489,6 +504,18 @@ class OrderBook:
         if conflicts := [c for s in table.seats.values() for c in self._allergy_conflicts(s)]:
             result["allergy_conflicts"] = conflicts
         return result
+
+    def _guessed(self, raw: dict[str, Any], unclear_text: str, items_for_seat: int) -> bool:
+        """A dish for a guest whose choice is marked unclear is a guess unless it is clearly
+        something else: it is held if the unclear line names it, or if it is that guest's
+        only dish in the clip (the unclear line is their order)."""
+        if items_for_seat == 1:
+            return True
+        try:
+            dish = self.menu.resolve(str(raw.get("dish", "")))
+        except ToolError:
+            return False
+        return any(_norm(k) in unclear_text for k in (dish.name, *dish.aliases))
 
     def _label(self, name: str) -> str:
         dish = self.menu.dishes[name]

@@ -330,3 +330,21 @@ def test_set_order_bad_shapes_are_errors_not_crashes(book):
     for params in ({"items": "halibut"}, {"items": [{"guest": "x", "dish": "soup"}]}):
         result, err = book.dispatch("set_order", params)
         assert err and "error" in result
+
+
+def test_a_guessed_dish_for_an_unclear_guest_is_held_not_applied(book):
+    order = clip_order()
+    order["items"] = order["items"] + [{"guest": 3, "dish": "nicoise"}]
+    result, _ = book.dispatch("set_order", order)
+    assert 3 not in book.tables[0].seats or not book.tables[0].seats[3].items
+    assert result["held_unclear"] == ["s3 nicoise"]
+    assert book.tables[0].uncertain == ["? s3 'the fish': halibut or salmon"]
+
+
+def test_unclear_guest_keeps_a_clearly_different_second_dish(book):
+    order = {
+        "items": [{"guest": 1, "dish": "soup"}, {"guest": 1, "dish": "halibut"}],
+        "unclear": [{"guest": 1, "text": "'the fish': halibut or salmon"}],
+    }
+    book.dispatch("set_order", order)
+    assert [i.dish for i in book.tables[0].seats[1].items] == ["Roasted Tomato Soup"]
