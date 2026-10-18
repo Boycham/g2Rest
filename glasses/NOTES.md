@@ -543,3 +543,29 @@ with `--automation-port 9898`, role switched on the phone page.
 - HW-PENDING (tuning, needs a person with a G2): log `imu sample` lines (every 100th sample) while nodding and
   while walking with plates; pick the axis, sign and threshold; check what `ImuReportPace.P100` means; check the
   battery cost of the IMU while tasks wait; check that a nod is not triggered by looking down at the pass.
+
+## Idle blank (server HUD)
+
+Owner's request: "make it so that when there are no current tasks, the entire hud goes away, and either comes
+back after a tap or when a task is assigned or something enters the queue".
+
+- How it blanks: `rebuildPageContainer` to one full-screen text container with content `' '` and
+  `textColor: 0` (`blankPage()` in render.ts). SDK 0.0.16 has no display/backlight brightness call on
+  `EvenAppBridge` (only per-container `textColor` 0..4, `MIN_TEXT_BRIGHTNESS = 0`), and
+  `shutDownPageContainer` would exit the app. The blank container keeps `isEventCapture: 1`, so tap, swipes and
+  double tap still arrive. Rebuild (not an upgrade) because the tab rail has to go too. Simulator: 2-3 ms.
+- State machine in `src/idle.ts` (`IdleBlank`): held while a task is queued, the draft, a popup, the processing
+  indicator or the ramp view is open. Once nothing holds it, it blanks after `IDLE_MS` = 8 s with no input, or
+  `DONE_BEAT_MS` = 1.5 s after the last task is done (the card shows `Done` meanwhile).
+- Wakes: tap (also swipe fwd, long press) -> Card with `No tasks`, no task action; `task.assigned` / anything in the
+  queue; an 86 alert; `voice.unknown` (a processing result); an `order.draft` while blank -> the draft; `verity
+  menu` / `queue` / `ramp`. Other voice commands while blank stay blank (their flash isn't shown).
+- While blank: mic buffer and command stream keep running, swipe back clips (opens the draft), double tap still
+  calls `shutDownPageContainer(1)`, IMU stays off (no task waiting), socket untouched. An offline socket doesn't
+  wake it (nothing to do anyway); the next wake shows `OFFLINE`.
+- Simulator run (fake backend): 3 scripted tasks tapped through -> `Done` -> blank 1.5 s later (0 lit pixels);
+  tap -> `No tasks` -> blank after 8 s; `POST /add` -> task card at once; done -> blank. Swipe back on blank opened
+  the draft (sim has no audio device, so `mic off: nothing recorded`; the processing indicator path is covered by
+  unit tests only).
+- HW-PENDING: a rebuild to blank and back on a real G2 (flicker); whether 8 s feels right on the floor; that an
+  all-blank text page doesn't let the firmware dim/sleep the display in a way that delays the wake.
