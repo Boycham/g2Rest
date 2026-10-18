@@ -22,6 +22,7 @@ from typing import Any, Protocol
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
+from commands import find_commands
 from order import UNKNOWN_TABLE, Menu, OrderBook, ToolError
 from voice_session import (
     FRAME_BYTES,
@@ -175,6 +176,8 @@ class RelaySession:
         self.clip_stop = 0.0
         self.got_order = False
         self.agent_ready: asyncio.Task[None] | None = None
+        self.cmd_stt: Stt | None = None
+        self.cmd_capture_id = ""
         self.worker = self._spawn(self._forward_segments())
 
     def _spawn(self, coro: Awaitable[None]) -> asyncio.Task[None]:
@@ -235,6 +238,9 @@ class RelaySession:
     async def capture_start(
         self, capture_id: str, table: str | None = None, mode: str | None = None
     ) -> None:
+        if mode == "command":
+            await self._command_start(capture_id)
+            return
         current = self.book.tables.get(self.book.draft_table)
         if current and current.status != "draft":
             self.book = OrderBook(Menu.load())
@@ -281,6 +287,38 @@ class RelaySession:
             await self._send_frame(frame)
         self.buffer = []
         await self.draft()
+
+    # ---- commands: "verity <command>" on the always-on stream ----
+
+    async def _command_start(self, capture_id: str) -> None:
+        """Live Scribe on the command stream. Only matched intents leave this method; the
+        transcript itself is never logged, stored or sent."""
+        if self.cmd_stt:
+            await self.cmd_stt.close()
+
+        def committed(text: str, t: float) -> None:
+            for intent in find_commands(text):
+                log(f"voice command {intent}")
+                self._spawn(self._send({"type": "voice.command", "intent": intent}))
+
+        stt = self.make_stt(lambda text: None, committed)
+        self.cmd_stt, self.cmd_capture_id = stt, capture_id
+        try:
+            await asyncio.wait_for(stt.open(), START_TIMEOUT)
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - commands are optional
+            log(f"command stream offline: {type(e).__name__}: {e}")
+            if self.cmd_stt is stt:
+                self.cmd_stt = None
+
+    async def _command_frame(self, frame: bytes) -> None:
+        stt = self.cmd_stt
+        if not stt or not stt.alive:
+            return
+        try:
+            await stt.send(frame)
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - commands are optional
+            log(f"command stream send failed: {type(e).__name__}: {e}")
+            self.cmd_stt = None
 
     # ---- clip: the last minute from the glasses' rolling buffer ----
 
@@ -332,6 +370,10 @@ class RelaySession:
             await self.draft()
 
     async def audio(self, frame: bytes) -> None:
+        clip_upload = self.mode == "clip" and self.voice == "processing"
+        if self.cmd_stt and not clip_upload:
+            await self._command_frame(frame)
+            return
         if self.mode == "clip":
             room = len(self.clip) < MAX_CLIP_FRAMES * FRAME_BYTES
             if len(frame) == FRAME_BYTES and self.voice == "processing" and room:
@@ -360,6 +402,10 @@ class RelaySession:
             await self._offline(f"stt send: {type(e).__name__}: {e}")
 
     async def capture_stop(self, capture_id: str) -> None:
+        if capture_id == self.cmd_capture_id and self.cmd_stt:
+            stt, self.cmd_stt = self.cmd_stt, None
+            await stt.close()
+            return
         if capture_id != self.capture_id:
             return
         if self.mode == "clip":
@@ -429,7 +475,7 @@ class RelaySession:
         kind = msg.get("type") if isinstance(msg, dict) else None
         if kind == "capture.start" and isinstance(msg.get("captureId"), str):
             table = msg.get("table") if isinstance(msg.get("table"), str) else None
-            mode = msg.get("mode") if msg.get("mode") in ("stream", "clip") else None
+            mode = msg.get("mode") if msg.get("mode") in ("stream", "clip", "command") else None
             await self.capture_start(msg["captureId"], table, mode)
         elif kind == "capture.stop" and isinstance(msg.get("captureId"), str):
             await self.capture_stop(msg["captureId"])
@@ -440,6 +486,8 @@ class RelaySession:
 
     async def close(self) -> None:
         await self._close_stt()
+        if self.cmd_stt:
+            await self.cmd_stt.close()
         if self.agent:
             await self.agent.close()
         for task in list(self.tasks):

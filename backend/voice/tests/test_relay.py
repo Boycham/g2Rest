@@ -397,3 +397,28 @@ def test_speaker_turns_split_on_speaker_and_on_pauses():
         ("speaker_1", "Halibut please."),
         ("speaker_1", "Salmon for me."),
     ]
+
+
+@run
+async def test_command_stream_sends_only_matched_intents_and_pauses_for_a_clip():
+    session, sent, made = clip_relay()
+    streams: list[FakeStt] = []
+
+    def make_stt(p, c):
+        streams.append(FakeStt(p, c))
+        return streams[-1]
+
+    session.make_stt = make_stt
+    await session.handle_text('{"type": "capture.start", "captureId": "cmd-1", "mode": "command"}')
+    await session.audio(b"\x02" * FRAME_BYTES)
+    assert streams[0].frames == [b"\x02" * FRAME_BYTES]
+    streams[0].on_committed("We're done here. Verity accept.", 0.0)
+    await settle()
+    assert sent[-1] == {"type": "voice.command", "intent": "accept"}
+    assert all("done" not in json.dumps(m) for m in sent)
+
+    await send_clip(session, frames=2)  # clip frames go to the clip, not the command stream
+    assert made["clips"] == [b"\x01" * FRAME_BYTES * 2] and len(streams[0].frames) == 1
+    await session.audio(b"\x03" * FRAME_BYTES)  # after the clip: back to commands
+    assert len(streams[0].frames) == 2
+    await session.close()
