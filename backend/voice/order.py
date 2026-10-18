@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-MENU_PATH = Path(__file__).with_name("menu.json")
+MENU_PATH = Path(__file__).resolve().parents[2] / "data" / "menu.json"  # one menu for both lanes
 COURSES = ("appetizer", "main", "dessert")
 MAX_QTY = 20
 
