@@ -260,3 +260,16 @@ HW-PENDING (conversational capture):
   foreground exit), and the battery cost of always-on capture on the G2 and the phone.
 - Clip upload time over phone Bluetooth/LTE (600 frames, 1.9 MB) and the real-mic transcript quality in a
   noisy room with real, different guest voices.
+
+## Voice commands, checked in the simulator 0.9.5 against the real backend
+
+`?debugPcm=conv_notable&say=verity_accept,verity_decline,verity_done` plays TTS command fixtures into
+the command stream (4 s apart) as if the server said them. `src/voice.ts` maps intents to the gesture
+frames (`task.accept` / `task.bounce` / `task.done`; the hub checks the socket's staff); confirm taps
+the draft; up / down / back / clip act like the gesture at once. accept / decline / done / confirm wait
+3 s behind `Heard: <command>`; a tap or "verity back" in that window shows `Undone: <command>` instead.
+Decline on an accepted task shows `Can't decline: already accepted`.
+
+- End of command → `Heard:` on the glasses: median 0.61 s of 5 (see backend/voice/NOTES.md).
+- No `task.command` frame: the gesture frames already cover the task intents, and navigation is local.
+- HW-PENDING: the command stream with the phone locked/backgrounded, and battery of streaming the mic.

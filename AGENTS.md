@@ -17,7 +17,10 @@ Floor Sense puts the floor of a high-end restaurant on Even Realities G2 smart g
 - **Mic rule.** While the Server role is on, the glasses mic records constantly into a rolling 60-second
   buffer that lives only in the WebView's memory. Anything older than 60 s is discarded continuously. Only a
   clipped minute ever leaves the device, and only on a swipe down. Nothing is written to disk, and the backend
-  keeps nothing of the audio or transcript after processing it (the order it extracts is kept).
+  keeps nothing of the audio or transcript after processing it (the order it extracts is kept). For voice
+  commands the same live frames also stream to the backend's voice relay: realtime Scribe (English)
+  transcribes them only to spot "verity <command>"; the relay acts on the matched command word and never
+  logs, stores or forwards the transcript.
 - **Manager HUD.** Exceptions only by default ("T4 waiting 14 min on mains", "task unacknowledged 60 s").
   Swipe for a floor minimap: tables as boxes with a status glyph and a timer, brightness for urgency. The G2
   has no camera, so this is a minimap, not AR.
@@ -128,7 +131,9 @@ before any work in `glasses/` or `backend/voice/`. The short version:
   on the event-capture container, with no source, so ring and temple can't be told apart. Only one container
   per page captures input.
 - **Our gestures:** tap = accept, then tap again = done. Swipe down = send the last minute as an order. Swipe up = queue.
-  Double tap = exit.
+  Double tap = exit. Every gesture also has a voice command: "verity" + up / down / back / confirm / clip /
+  accept / decline / done (fixed word list in `backend/voice/commands.py`, no LLM). accept / decline / done /
+  confirm show `Heard: <command>` and wait 3 s, so a tap or "verity back" undoes them.
 - **Double tap on the root page must call `shutDownPageContainer(1)`.** Anything else gets the app auto-rejected
   by Even Hub review. Never reuse double tap for anything else.
 - **Rendering:** update cards in place with `textContainerUpgrade` (no flicker). Use `rebuildPageContainer`

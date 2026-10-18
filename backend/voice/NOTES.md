@@ -197,3 +197,54 @@ After the fixture was re-spoken with more small talk, haiku put both mains on se
 in the prompt fixed seats (5/5) but the allergy still goes to s1 instead of s2 in 4/5. Next to try: distinct
 guest voices (diarization), or an allergy `?` line when the speaker is ambiguous. CREAO is not used here (runs
 take minutes); a CREAO end-of-shift digest could come later.
+
+## Voice commands (`commands.py`, relay command stream)
+
+"verity" + one of up / down / back / confirm / clip / accept / decline / done. A fixed word list, no
+LLM: an intent only counts when it directly follows the wake word, so "we're done here" or "I accept"
+in conversation never fires. While the Server role is on, the glasses stream the live mic to the relay
+as `capture.start {mode: "command"}`; the relay runs realtime Scribe (English, VAD commit 0.8 s) and
+sends back only `voice.command {intent}`. The transcript is never logged, stored or forwarded. While a
+clip uploads, frames go to the clip; after it, back to the command stream (the hub keeps a separate
+per-socket command capture with no table).
+
+### Noise test (`noise_test.py`, Scribe batch, TTS "Verity, <command>." in the server voice)
+
+Babble = the 59 s table conversation fixture mixed under the command; white noise added with
+`make_fixtures.add_noise`.
+
+| Condition | Recognised |
+|---|---|
+| clean | 7/8 |
+| babble -12 dB | 6/8 |
+| babble -12 dB + white noise 10 dB SNR | 6/8 |
+| babble -6 dB | 7/8 |
+| **overall** | **26/32 (81%)** |
+
+- Misses were the babble's words landing first (transcript starts "Hmm", "doing", "take"), not
+  misspellings of the wake word. Scribe wrote "verity" correctly every time it heard it (22/22 first
+  words); no "verita" / "very tea" variants were needed.
+- Inflections Scribe produced in a first run ("Verity accepts", "Verity clipped", "Verity confirmed")
+  are matched; "upped"/"downs" are not.
+- An earlier run with babble at 0 dB (as loud as the command) got 1/8: a guest talking over the server
+  at the same level wins. Real speech at the glasses mic should be much closer than the table.
+- **False triggers: 0** on the 59 s conversation with no commands, 0 on the same with 5 dB white noise,
+  0 on near misses ("very tasty", "verify the bill", "Verity is my sister's name", "we're done, I accept,
+  let's go back up").
+
+### Realtime Scribe (the path the relay uses), same fixtures, clean
+
+15/16 before, 16/16 after: realtime wrote "Verity, done." as "Verity Dunn." both times (a surname after
+a first name), so `dunn`/`dun` map to done. Everything else came back verbatim.
+
+### Simulator against the real backend (`?say=` debug path)
+
+End of the spoken command → `voice.command` on the glasses: 0.92, 0.62, 0.61, 0.61, 0.61 s, **median
+0.61 s** (Scribe's 0.8 s VAD silence is most of it). accept → `Heard: accept` → task accepted 3 s later;
+decline on the accepted task → `Can't decline: already accepted`; done → task done.
+
+### HW-PENDING
+- Recognition with a real voice at the glasses mic in a loud room, and false triggers over a real shift.
+- Phone-link bandwidth/battery of streaming the mic continuously (on top of the rolling buffer).
+- Scribe realtime session limits for an always-open stream (reconnects are handled; long-session
+  behaviour not measured).
