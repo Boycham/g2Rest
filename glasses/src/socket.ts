@@ -1,5 +1,6 @@
 import type { BackendMessage, GlassesJsonMessage } from './contract'
 import { parseBackendMessage } from './parse'
+import { redactToken } from './backend-url'
 import { log } from './log'
 
 export type SocketStatus = 'connecting' | 'online' | 'offline'
@@ -27,7 +28,7 @@ export class BackendSocket {
   private outbox: GlassesJsonMessage[] = []
 
   constructor(
-    private readonly url: string,
+    private url: string,
     private readonly handlers: SocketHandlers,
   ) {}
 
@@ -39,7 +40,7 @@ export class BackendSocket {
     this.clearTimers()
     this.teardown()
     this.setStatus('connecting')
-    log('ws connecting', this.url)
+    log('ws connecting', redactToken(this.url))
     let ws: WebSocket
     try {
       ws = new WebSocket(this.url)
@@ -81,6 +82,11 @@ export class BackendSocket {
       this.scheduleRetry()
     }
     ws.onerror = () => log('ws error')
+  }
+
+  /** Dial a different URL (role switch); takes effect on the next connect. */
+  setUrl(url: string): void {
+    this.url = url
   }
 
   /** Drop the current socket and dial again now (e.g. on the foreground event). */

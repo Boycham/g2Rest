@@ -41,6 +41,14 @@ curl -s 'localhost:8787/events?type=task.' | python3 -m json.tool | grep '"to"'
 With `FS_TOKEN=dev` set, use `VITE_BACKEND_URL="ws://localhost:8787/ws?token=dev"` (the token ends up
 in the WebView bundle either way; see the G2 skill, 04-ARCHITECTURE).
 
+Since Sync 1 the glasses build the query themselves: `VITE_FS_TOKEN` (= `FS_TOKEN`) and the role picker give
+`?token=&role=&staff=`. **Voice:** `app/voice_bridge.py` dials `VOICE_RELAY_URL` (default
+`ws://localhost:8790/ws`, i.e. `backend/voice/relay.py`) on the first `capture.start` of a glasses socket and
+forwards capture.* JSON, audio frames and taps on relay orders; a relay draft marked `sent` is written into
+`store.orders` with `tool_add_item` / `tool_set_allergy`, fired through `hub.after_fire` (organizer, kitchen)
+and answered with `order.closed`. No relay: VOICE OFFLINE on the glasses within 3 s. Tasks queued for an
+offline server escalate after `FS_OFFLINE_ESCALATION_SEC` (default 120).
+
 The mock server (step 0) is still there for contract-only work:
 `.venv/bin/python mock/mock_server.py` replays `mock/script.json` on the same port.
 

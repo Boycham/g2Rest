@@ -4,10 +4,20 @@ import {
   TextContainerUpgrade,
   type EvenAppBridge,
 } from '@evenrealities/even_hub_sdk'
-import type { OrderDraft, VoiceState } from './contract'
+import type { OrderClosed, OrderDraft, VoiceState } from './contract'
 import { CARD_PADDING, DISPLAY_WIDTH } from './card'
 import { debugFixtures, streamFixture, type DebugStream } from './debug-pcm'
-import { BAR_HEIGHT, BRIGHT, DIM, DRAFT_HEIGHT, draftGesture, formatDraft, type DraftState, type Gesture } from './draft'
+import {
+  BAR_HEIGHT,
+  BRIGHT,
+  DIM,
+  DRAFT_HEIGHT,
+  closesDraft,
+  draftGesture,
+  formatDraft,
+  type DraftState,
+  type Gesture,
+} from './draft'
 import { FrameChunker, Mic, toBytes } from './mic'
 import { MAIN_ID, MAIN_NAME } from './render'
 import type { BackendSocket } from './socket'
@@ -170,6 +180,15 @@ export class CaptureScreen {
     }
     if (voice === 'offline') this.offline(msg.notice ?? 'relay reported offline')
     else this.changed()
+  }
+
+  /** The send / cancel tap landed: mic off, draft dropped. True if it was the draft on screen. */
+  onClosed(msg: OrderClosed): boolean {
+    if (!closesDraft(this.draft, msg.orderId)) return false
+    log('order closed', msg.orderId, msg.status)
+    this.draft = null
+    this.stop()
+    return true
   }
 
   setOnline(online: boolean): void {

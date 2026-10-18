@@ -111,10 +111,17 @@ class Alert:
 
 
 class TaskBook:
-    def __init__(self, floor: Floor, events: EventLog, escalation_sec: float = 30.0) -> None:
+    def __init__(
+        self,
+        floor: Floor,
+        events: EventLog,
+        escalation_sec: float = 30.0,
+        offline_escalation_sec: float = 120.0,
+    ) -> None:
         self.floor = floor
         self.events = events
         self.escalation_sec = escalation_sec
+        self.offline_escalation_sec = offline_escalation_sec
         self.tasks: dict[str, Task] = {}
         self.alerts: dict[str, Alert] = {}
 
@@ -210,17 +217,19 @@ class TaskBook:
         return self._pass_on(task, now, "bounced", "task.bounce")
 
     def tick(self, now: float) -> list[Outbound]:
-        """Escalate every task nobody accepted within `escalation_sec` of being sent.
+        """Escalate every task nobody accepted in time.
 
-        The timer starts at `sent` (the card went down a socket) and stops at `accepted`;
-        a `queued` task whose assignee is offline is not timed (see CONTRACT.md §6).
+        `sent` (the card went down a socket): `escalation_sec` after it was sent. `queued` (the
+        assignee's socket is offline, so it was never sent): `offline_escalation_sec` after it
+        was assigned (CONTRACT.md §8). The timer stops at `accepted`.
         """
         out: list[Outbound] = []
         for task in list(self.tasks.values()):
-            if task.state != "sent" or task.sent_at is None:
-                continue
-            if now - task.sent_at >= self.escalation_sec:
-                out += self._pass_on(task, now, "escalated", "no accept in time")
+            if task.state == "sent" and task.sent_at is not None:
+                if now - task.sent_at >= self.escalation_sec:
+                    out += self._pass_on(task, now, "escalated", "no accept in time")
+            elif task.state == "queued" and now - task.assigned_at >= self.offline_escalation_sec:
+                out += self._pass_on(task, now, "escalated", "assignee offline")
         return out
 
     # ---------- internals ----------

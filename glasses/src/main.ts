@@ -1,4 +1,5 @@
 import { CreateStartUpPageContainer, OsEventTypeList, waitForEvenAppBridge, type EvenHubEvent } from '@evenrealities/even_hub_sdk'
+import { backendUrl, redactToken } from './backend-url'
 import { alertRows } from './exceptions'
 import type { Hud, HudContext, Role } from './hud'
 import { ManagerHud } from './manager'
@@ -11,10 +12,12 @@ import { log } from './log'
 import { mountUi, renderPhone } from './ui'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'ws://localhost:8787/ws'
+// Dev token only: it ships in the WebView bundle (glasses/NOTES.md).
+const urlFor = (r: Role) => backendUrl(BACKEND_URL, r, import.meta.env.VITE_FS_TOKEN, import.meta.env.VITE_FS_STAFF)
 
 let status: SocketStatus = 'connecting'
 
-mountUi(BACKEND_URL, next => void switchRole(next))
+mountUi(redactToken(BACKEND_URL), next => void switchRole(next))
 const bridge = await waitForEvenAppBridge()
 let role: Role = await loadRole(bridge)
 const restoredQueue = await loadQueue(bridge)
@@ -22,7 +25,7 @@ const restoredManager = await loadManager(bridge)
 const restoredDone = await loadDone(bridge)
 log('role', role, 'restored queue', restoredQueue.length, 'alerts', restoredManager.exceptions.open.length)
 
-const socket = new BackendSocket(BACKEND_URL, {
+const socket = new BackendSocket(urlFor(role), {
   onMessage: msg => {
     server.onMessage(msg)
     manager.onMessage(msg)
@@ -69,6 +72,9 @@ async function switchRole(next: Role): Promise<void> {
   role = next
   log('role ->', role)
   await saveRole(bridge, role)
+  // The backend routes by the role/staff on the socket, so a new role is a new connection.
+  socket.setUrl(urlFor(role))
+  socket.reconnectNow()
   await active().enter()
   syncPhone()
 }

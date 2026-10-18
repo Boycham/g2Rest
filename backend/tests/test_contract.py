@@ -177,3 +177,27 @@ def test_audio_format_matches_contract_ts() -> None:
         "channels": 1,
         "frameBytes": 3200,
     }
+
+
+def test_voice_taps_and_relay_drafts_are_on_contract() -> None:
+    reject = parse_glasses('{"type": "order.reject", "orderId": "3f9a", "proposalId": "p1"}')
+    assert reject.type == "order.reject" and reject.proposalId == "p1"
+    tap = parse_glasses('{"type": "order.confirm", "orderId": "3f9a", "proposalId": "p2"}')
+    assert tap.proposalId == "p2"
+    assert parse_glasses('{"type": "order.confirm", "orderId": "3f9a"}').proposalId is None
+    check_backend(
+        {
+            "type": "order.draft",
+            "orderId": "3f9a",
+            "captureId": "cap-1",
+            "table": "T2",
+            "lines": [],
+            "allergies": [],
+            "status": "draft",
+            "pending": [{"id": "p1", "action": "remove", "text": "REMOVE s2 soup?"}],
+            "voice": "listening",
+            "notice": None,
+        }
+    )
+    with pytest.raises(ContractError):
+        check_backend({"type": "order.closed", "orderId": "3f9a", "status": "sent"})

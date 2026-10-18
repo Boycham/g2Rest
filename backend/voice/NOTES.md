@@ -127,6 +127,11 @@ refused call). order.confirm / order.cancel_confirm / order.reject apply the ser
 and tell the agent with a `contextual_update`. A provider failure sets `voice: offline`, which
 the glasses show as VOICE OFFLINE. Tests: `tests/test_relay.py` (fake STT and agent).
 
+Sync 1: the real backend's hub (`backend/app/voice_bridge.py`) is now the relay's client, exactly like the
+fake backend was; when a draft comes back `sent`, the hub writes its lines into its own order store and
+fires it. The relay reads the one menu, `data/menu.json` (13 dishes; `backend/voice/menu.json` is gone), and
+the fixtures speak table two, which is on `data/floor.json`.
+
 ## Latency (end of speech → first tool call)
 
 Measured with `python run_spike.py --repeat 5 fixtures/0*.pcm` (5 fresh sessions × 4 fixtures).

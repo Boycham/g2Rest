@@ -91,3 +91,8 @@ export function draftGesture(g: Gesture, s: DraftState): DraftAction {
   }
   return { send: null, then: 'none' }
 }
+
+/** `order.closed` ends the draft on screen: same order, or no draft yet (the hub's own order id). */
+export function closesDraft(draft: OrderDraft | null, closedOrderId: string): boolean {
+  return draft === null || draft.orderId === '' || draft.orderId === closedOrderId
+}

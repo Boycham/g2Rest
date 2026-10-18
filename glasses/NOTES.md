@@ -130,13 +130,49 @@ resolved; logged as `latency ...` and `window.__fsLatency`), 8 runs over the 4 f
 it is Scribe's VAD silence before a commit; the rest is the agent turn plus relay and proxy hops. The
 upgrade itself takes 0-4 ms in the simulator.
 
+## Sync 1: against the real backend (backend/app), checked in the simulator 0.9.5
+
+```sh
+# root .env (gitignored): FS_TOKEN=dev, VITE_FS_TOKEN=dev (same value), VOICE_RELAY_URL=ws://localhost:8790/ws
+cd backend && .venv/bin/uvicorn app.main:app --port 8787              # real hub + voice bridge
+cd backend/voice && .venv/bin/python relay.py                          # ELEVENLABS_API_KEY in its env only
+cd glasses && npx vite
+node node_modules/@evenrealities/evenhub-simulator/bin/index.js \
+  "http://localhost:5173/?debugPcm=01_order,02_no_soup,03_allergy,04_cancel_dessert" --automation-port 9898
+cd web && python3 -m http.server 8000      # organizer: /index.html?token=dev, kitchen: /kitchen.html?token=dev
+```
+
+- **URL:** `VITE_BACKEND_URL` + `?token=VITE_FS_TOKEN&role=<picker>&staff=<s1 | m1>` (`src/backend-url.ts`;
+  `VITE_FS_STAFF` picks another server). Switching the role on the phone redials with the new role. **The token
+  is a dev token and ships in the WebView bundle**: anyone with the `.ehpk` can read it. Fine for the demo,
+  not for a real restaurant (that needs per-device credentials). Logs and the phone page show it as `token=…`.
+- **Fallback:** `npx tsx dev/fake-backend.ts` still works unchanged; it ignores the query string.
+- **Tasks:** a RUN dispatched from `web/index.html` (T1-T4, Ava = s1) shows on the card; tap -> `accepted` and
+  tap -> `done` show on the organizer's dispatch board live.
+- **Voice through the hub:** one glasses socket; the hub's `app/voice_bridge.py` forwards to `relay.py`. All
+  four fixtures (now spoken for **table two**, T2: `floor.json` has no T12) build `T2 · s1 halibut –no butter ·
+  s1 chocolate torte · s2 salmon –no dill · s2 soup`; `REMOVE s2 soup?` and `CANCEL T2 dessert?` are tapped;
+  the final tap fires it, the glasses get `order.closed` and rebuild the card, and `web/kitchen.html` shows the
+  T2 ticket (`ALLERGY SHELLFISH s3`, S1 Pan-Roasted Halibut no butter, S2 Cedar Plank Salmon no dill). Twice.
+- **Manager:** a CLEAR for T3 with s1 offline escalated s1 -> s2 after 2 min, s2 -> m1 after 2 min, then 30 s
+  unaccepted -> `alert unacked-…`; the glasses showed `! T3 clear task unacknowledged 4m`.
+
+**Organizer dispatch -> card on the glasses** (Dispatch click in `web/index.html` -> card `textContainerUpgrade`
+in the simulator console, same clock), 5 runs: 54, 34, 50, 47, 28 ms. **Median 47 ms.**
+
+**End of speech -> draft on the glasses through the real hub** (same measurement as above, now glasses -> hub ->
+relay -> hub -> glasses), 8 runs over the 4 fixtures: 2973, 1821, 2331, 1978, 2705, 1619, 2904, 2063 ms.
+**Median of the first 5: 2.33 s** (all 8: 2.20 s). Through the fake backend it was 2.0 s; the extra hop costs
+little next to Scribe's 0.8 s VAD and the agent turn, and the spread run to run is larger than the difference.
+
 ## Not done here
 
 - `order.readback` is parsed but not drawn; `task.bounce` is typed but no gesture sends it yet.
 - The relay's order lives per glasses connection: a WebView reload starts a new draft.
 - **Manager tap only dismisses locally.** The contract has no alert acknowledgement, so the dismissed alert
   stays open on the backend and comes back if the backend re-sends it. Proposed `alert.ack` in the PR.
-- No Organizer role on the phone yet (AGENTS.md lists one); the select has Server and Manager only.
+- No Organizer role on the phone yet (AGENTS.md lists one); the select has Server and Manager only. The
+  organizer is `web/index.html`, which connects with `role=organizer`.
 - The minimap draws at most 8 tables (one text container each); more are dropped after natural sort.
 - `app.json` whitelists only `ws://localhost:8787` and `http://localhost:8787`. Add the real `wss://`/`https://`
   host before packing for the phone.
@@ -173,3 +209,5 @@ upgrade itself takes 0-4 ms in the simulator.
 - Manager: tap and swipes reach the app on the minimap page, where only box 1 captures input.
 - Role switch from the phone select while the glasses show a card, and the role surviving a background
   reload (SDK storage).
+- Sync 1 on hardware: the packed build against the real backend over the LAN/Tailscale host (whitelist it in
+  `app.json`), dispatch -> card latency on the lens, and a real-mic order through the hub and relay.

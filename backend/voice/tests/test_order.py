@@ -14,7 +14,7 @@ def call(book: OrderBook, tool: str, **params):
 
 def test_menu_has_required_dishes():
     menu = Menu.load()
-    assert len(menu.dishes) == 8
+    assert len(menu.dishes) >= 8  # data/menu.json: the voice spike's 8 dishes plus the backend's
     courses = {d.course for d in menu.dishes.values()}
     assert courses == {"appetizer", "main", "dessert"}
     for word in ("halibut", "salmon", "soup", "torte"):

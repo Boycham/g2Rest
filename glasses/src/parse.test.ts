@@ -20,6 +20,15 @@ describe('parseBackendMessage', () => {
   })
 })
 
+describe('order.closed', () => {
+  it('accepts fired and cancelled, rejects anything else', () => {
+    expect(parseBackendMessage(JSON.stringify({ type: 'order.closed', orderId: 'o1', status: 'fired' }))?.type).toBe('order.closed')
+    expect(parseBackendMessage(JSON.stringify({ type: 'order.closed', orderId: 'o1', status: 'cancelled' }))).not.toBeNull()
+    expect(parseBackendMessage(JSON.stringify({ type: 'order.closed', orderId: 'o1', status: 'sent' }))).toBeNull()
+    expect(parseBackendMessage(JSON.stringify({ type: 'order.closed', status: 'fired' }))).toBeNull()
+  })
+})
+
 describe('parseTaskList', () => {
   it('round-trips a saved queue and rejects junk', () => {
     const q = [makeTask(), makeTask({ id: 't2', state: 'accepted' })]
