@@ -86,6 +86,9 @@ upgrade itself takes 0-4 ms in the simulator.
 - The relay's order lives per glasses connection: a WebView reload starts a new draft.
 - `app.json` whitelists only `ws://localhost:8787` and `http://localhost:8787`. Add the real `wss://`/`https://`
   host before packing for the phone.
+- **QR dev mode doesn't seem to enforce the whitelist** (hand test, reported by Boyuan): the server HUD on a
+  real G2 in QR dev mode reached the fake backend over a Tailscale IP that isn't in `app.json`. Don't take
+  that as proof the host is allowed: packed `.ehpk` builds still need the real host listed.
 
 ## HW-PENDING (real G2 + phone)
 
