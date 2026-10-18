@@ -80,7 +80,12 @@ function startScript(): void {
   if (scriptStarted) return
   scriptStarted = true
   log('script started')
-  timers = SCRIPT.map(({ delayMs, task }) => setTimeout(() => assign({ ...task, state: 'assigned' }), delayMs))
+  // Tasks due now are created synchronously, before this connection's first message
+  // (e.g. a flushed offline task.accept) is handled.
+  for (const { delayMs, task } of SCRIPT) {
+    if (delayMs <= 0) assign({ ...task, state: 'assigned' })
+    else timers.push(setTimeout(() => assign({ ...task, state: 'assigned' }), delayMs))
+  }
 }
 
 function reset(): void {

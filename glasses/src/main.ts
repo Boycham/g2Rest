@@ -11,7 +11,8 @@ import type { BackendMessage } from './contract'
 import { CARD_PADDING, DISPLAY_HEIGHT, DISPLAY_WIDTH, formatCard, formatQueue } from './card'
 import { BackendSocket, type SocketStatus } from './socket'
 import { loadQueue, saveQueue } from './storage'
-import { tap, upsertTask, type Queue } from './tasks'
+import { tap, type Queue } from './tasks'
+import { applyBackendTask, loadDone, markDone, saveDone, type DoneIds } from './reconcile'
 import { log } from './log'
 import { mountUi, renderPhone } from './ui'
 
@@ -24,6 +25,7 @@ const MAIN_NAME = 'main'
 const LISTENING_TEXT = 'Listening… (swipe down to stop)'
 
 let queue: Queue = []
+let done: DoneIds = []
 let screen: Screen = 'card'
 let status: SocketStatus = 'connecting'
 let captureId: string | null = null
@@ -31,6 +33,7 @@ let captureId: string | null = null
 mountUi(BACKEND_URL)
 const bridge = await waitForEvenAppBridge()
 queue = await loadQueue(bridge)
+done = await loadDone(bridge)
 log('restored queue', queue.length)
 
 // ---------- glasses rendering ----------
@@ -116,6 +119,7 @@ function syncPhone(): void {
 
 function changed(): void {
   void saveQueue(bridge, queue)
+  void saveDone(bridge, done)
   void renderCard()
   syncPhone()
 }
@@ -127,7 +131,13 @@ function onBackend(msg: BackendMessage): void {
     case 'task.assigned':
     case 'task.updated':
       log('<-', msg.type, msg.task.id, msg.task.state)
-      queue = upsertTask(queue, msg.task)
+      {
+        const r = applyBackendTask(queue, done, msg.task)
+        queue = r.queue
+        done = r.done
+        for (const m of r.resend) socket.send(m)
+        if (r.resend.length) log('re-sent after replay', r.resend.map(m => m.type).join(' '))
+      }
       changed()
       return
     default:
@@ -171,6 +181,7 @@ function onTap(): void {
   const r = tap(queue)
   queue = r.queue
   if (r.send) socket.send(r.send)
+  if (r.send?.type === 'task.done') done = markDone(done, r.send.taskId)
   changed()
 }
 
