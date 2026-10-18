@@ -9,6 +9,11 @@
 - **Devin (Cognition)** wrote the voice spike in `backend/voice/`: it read the ElevenLabs docs,
   wrote the menu, the order model and guards, the tests, the ElevenLabs session code and the CLI
   scripts, and ran them live against ElevenLabs. A human briefed and reviewed the work.
+- **Claude Code (Anthropic, Claude Opus 5.5)** wrote the organizer and kitchen web pages in `web/`:
+  it read the backend-core branch and the glasses contract, wrote the pages, the state reducer and
+  its tests, checked the pages in headless Chrome (two tabs, timed), and found and reported a hub
+  bug and a missing allergy warning on kitchen tickets. It also coordinated the backend-core Devin
+  session over the Devin API. A human directed and reviewed the work.
 
 ## How ElevenLabs is used in the product
 

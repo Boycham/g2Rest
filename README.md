@@ -23,3 +23,9 @@ Restaurant floor on Even Realities G2 glasses. See `AGENTS.md` for the brief.
 - [ruff](https://pypi.org/project/ruff/): lint and format
 - ElevenLabs APIs: Scribe realtime STT (`scribe_v2_realtime`), Agents (text-only mode, client
   tools), and text to speech for test fixtures
+
+### Web pages (`web/`)
+- Plain HTML, CSS and JavaScript ES modules, no framework or build step
+- Node's built-in test runner (`node --test`): tests for the page state
+- [playwright-core](https://www.npmjs.com/package/playwright-core) with the local Chrome: used
+  during development to check the pages in two tabs; not a dependency of the repo
