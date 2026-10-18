@@ -23,6 +23,8 @@ export interface DraftState {
   hint?: string | null
   /** Page of the draft on screen (swipe fwd turns it when the table's talk overflows). */
   page?: number
+  /** The animated `Verity: processing...` / `summary...` line, alone in the bar container. */
+  busy?: string | null
 }
 
 export interface DraftView {
@@ -86,6 +88,7 @@ export function formatDraft(s: DraftState, width = DRAFT_TEXT_WIDTH, maxLines = 
   } else if (pages.length > 1) {
     bar = fit(page < pages.length - 1 ? `swipe fwd = more ${page + 1}/${pages.length}` : `${page + 1}/${pages.length} swipe fwd = done`, width)
   }
+  if (s.busy) bar = bar ? spread(bar, s.busy, width) : fit(s.busy, width)
   return { main: body.join('\n'), bar, highlight: pending.length > 0, pages: pages.length }
 }
 

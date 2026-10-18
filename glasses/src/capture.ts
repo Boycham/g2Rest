@@ -18,6 +18,7 @@ import {
   type Gesture,
 } from './draft'
 import { MAIN_ID, MAIN_NAME } from './render'
+import { PROCESSING, SUMMARY, Ticker, dots } from './busy'
 import type { BackendSocket } from './socket'
 import { log } from './log'
 
@@ -28,6 +29,8 @@ import { log } from './log'
 const BAR_ID = 2
 /** No draft out of `processing` for this clip within this time means VOICE OFFLINE. */
 const CLIP_TIMEOUT_MS = 30_000
+/** After the order card, `summary...` waits this long for the talk agent, then just goes. */
+const TALK_WAIT_MS = 15_000
 
 declare global {
   interface Window {
@@ -68,6 +71,9 @@ export class CaptureScreen {
   private shown = ''
   private writing = false
   private dirty = false
+  private talkUntil: number | null = null
+  private mapping = false
+  private readonly ticker = new Ticker(() => this.tick())
 
   constructor(
     private readonly bridge: EvenAppBridge,
@@ -80,12 +86,45 @@ export class CaptureScreen {
   }
 
   private state(): DraftState {
-    return { draft: this.draft, voice: this.voice, online: this.online, hint: this.hint, page: this.page }
+    return { draft: this.draft, voice: this.voice, online: this.online, hint: this.hint, page: this.page, busy: this.busy() }
+  }
+
+  /** What Verity is still working on, or null when nothing is. */
+  private busy(): string | null {
+    if (this.processing || this.mapping) return dots(PROCESSING, this.ticker.tick)
+    return this.talkPending() ? dots(SUMMARY, this.ticker.tick) : null
+  }
+
+  private talkPending(): boolean {
+    const d = this.draft
+    if (this.talkUntil === null || this.voice === 'offline' || !d || d.captureId !== this.clipId) return false
+    if (d.summary || d.answers?.length || (d.status ?? 'draft') !== 'draft') return false
+    return performance.now() < this.talkUntil
+  }
+
+  /** One beat: only the bar's text changes, so render() upgrades that one container. */
+  private tick(): void {
+    this.syncTicker()
+    void this.render()
+  }
+
+  private syncTicker(): boolean {
+    const on = this.active && this.busy() !== null
+    this.ticker.set(on)
+    return on
+  }
+
+  /** Gemini is mapping unknown "verity" words (voice.mapping until voice.command / voice.unknown). */
+  setMapping(on: boolean): void {
+    if (this.mapping === on) return
+    this.mapping = on
+    this.changed()
   }
 
   /** Switch to this screen (one rebuild), then every later change is an in-place upgrade. */
   async enter(): Promise<void> {
     this.active = true
+    this.syncTicker()
     const v = formatDraft(this.state())
     this.shown = JSON.stringify(v)
     const page = new RebuildPageContainer({
@@ -103,6 +142,7 @@ export class CaptureScreen {
   /** Leaving the screen keeps the draft; the backend may still answer the last clip. */
   leave(): void {
     this.active = false
+    this.ticker.set(false)
   }
 
   /**
@@ -124,6 +164,7 @@ export class CaptureScreen {
     this.clipId = id
     this.clipAt = performance.now()
     this.talkAt = this.clipAt
+    this.talkUntil = null
     this.page = 0
     this.voice = 'processing'
     this.hint = null
@@ -154,6 +195,7 @@ export class CaptureScreen {
       clearTimeout(this.timer)
       this.timer = null
     }
+    if (msg.captureId === this.clipId && !this.processing && this.talkUntil === null) this.talkUntil = performance.now() + TALK_WAIT_MS
     this.changed()
   }
 
@@ -196,6 +238,7 @@ export class CaptureScreen {
 
   private changed(): void {
     this.onChange()
+    this.syncTicker()
     void this.render()
   }
 
@@ -232,7 +275,8 @@ export class CaptureScreen {
         }
         this.shown = key
         const t1 = performance.now()
-        log('draft upgrade', `${(t1 - t0).toFixed(1)} ms`, JSON.stringify(v.main), JSON.stringify(v.bar))
+        if (prev.main === v.main && this.ticker.running) log('busy upgrade', `${(t1 - t0).toFixed(1)} ms`, JSON.stringify(v.bar))
+        else log('draft upgrade', `${(t1 - t0).toFixed(1)} ms`, JSON.stringify(v.main), JSON.stringify(v.bar))
         if (this.clipAt !== null && !this.processing && this.draft?.captureId === this.clipId) {
           const ms = Math.round(t1 - this.clipAt)
           ;(window.__fsLatency ??= []).push(ms)
