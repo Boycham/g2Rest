@@ -111,12 +111,12 @@ describe('draftGesture', () => {
 })
 
 describe('closesDraft', () => {
-  const d = { type: 'order.draft', orderId: 'o1', captureId: 'c', table: 'T2', lines: [], allergies: [] } as const
+  const d: OrderDraft = { type: 'order.draft', orderId: 'o1', captureId: 'c', table: 'T2', lines: [], allergies: [] }
   it('closes the matching draft, or when there is none', () => {
-    expect(closesDraft({ ...d, lines: [] }, 'o1')).toBe(true)
+    expect(closesDraft(d, 'o1')).toBe(true)
     expect(closesDraft(null, 'o1')).toBe(true)
   })
   it('ignores another order closing', () => {
-    expect(closesDraft({ ...d, lines: [] }, 'o2')).toBe(false)
+    expect(closesDraft(d, 'o2')).toBe(false)
   })
 })
