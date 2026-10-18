@@ -1,161 +1,274 @@
 import {
-  waitForEvenAppBridge,
-  TextContainerProperty,
   CreateStartUpPageContainer,
-  TextContainerUpgrade,
+  ListContainerProperty,
+  ListItemContainerProperty,
   OsEventTypeList,
+  RebuildPageContainer,
+  TextContainerProperty,
+  TextContainerUpgrade,
+  waitForEvenAppBridge,
+  type EvenHubEvent,
 } from '@evenrealities/even_hub_sdk'
-import { startSttStream } from './asr/stt'
-import { mountUi, setStatus, setTranscript } from './ui'
+import type { BackendMessage } from './contract'
+import { CARD_PADDING, CARD_TEXT_WIDTH, DISPLAY_HEIGHT, DISPLAY_WIDTH, formatCard, queueRow } from './card'
+import { BackendSocket, type SocketStatus } from './socket'
+import { loadQueue, saveQueue } from './storage'
+import { tap, upsertTask, type Queue } from './tasks'
+import { log } from './log'
+import { mountUi, renderPhone } from './ui'
 
-mountUi()
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'ws://localhost:8787/ws'
 
-const API_KEY = import.meta.env.VITE_STT_API_KEY as string
-if (!API_KEY) {
-  setStatus('error', 'VITE_STT_API_KEY not set — copy .env.example to .env.local')
-  console.warn('VITE_STT_API_KEY is not set.')
+type Screen = 'card' | 'queue' | 'listening'
+
+const MAIN_ID = 1
+const MAIN_NAME = 'main'
+const LIST_MAX_ITEMS = 20
+const LISTENING_TEXT = 'Listening… (swipe down to stop)'
+
+let queue: Queue = []
+let screen: Screen = 'card'
+let status: SocketStatus = 'connecting'
+let captureId: string | null = null
+
+mountUi(BACKEND_URL)
+const bridge = await waitForEvenAppBridge()
+queue = await loadQueue(bridge)
+log('restored queue', queue.length)
+
+// ---------- glasses rendering ----------
+
+function textPage(content: string, brightness = 4): TextContainerProperty {
+  return new TextContainerProperty({
+    xPosition: 0,
+    yPosition: 0,
+    width: DISPLAY_WIDTH,
+    height: DISPLAY_HEIGHT,
+    borderWidth: 0,
+    paddingLength: CARD_PADDING,
+    containerID: MAIN_ID,
+    containerName: MAIN_NAME,
+    // An empty string may be rejected by the host; a space renders as blank.
+    content: content || ' ',
+    textColor: brightness,
+    isEventCapture: 1,
+  })
 }
 
-const bridge = await waitForEvenAppBridge()
+function currentCard() {
+  return formatCard(queue, { offline: status !== 'online' })
+}
 
-const transcript = new TextContainerProperty({
-  xPosition: 0,
-  yPosition: 0,
-  width: 576,
-  height: 288,
-  borderWidth: 0,
-  borderColor: 5,
-  paddingLength: 4,
-  containerID: 1,
-  containerName: 'transcript',
-  content: 'Listening…',
-  isEventCapture: 1,
-})
+let shownCard = ''
 
 const created = await bridge.createStartUpPageContainer(
-  new CreateStartUpPageContainer({ containerTotalNum: 1, textObject: [transcript] }),
+  new CreateStartUpPageContainer({ containerTotalNum: 1, textObject: [textPage(currentCard().text, currentCard().brightness)] }),
 )
-if (created !== 0) {
-  setStatus('error', `createStartUpPageContainer failed: ${created}`)
-  console.error('Failed to create startup page')
+shownCard = JSON.stringify(currentCard())
+log('createStartUpPageContainer', created)
+
+// Card writes are serialized and coalesced so a burst of messages ends on the latest card.
+let writing = false
+let dirty = false
+async function renderCard(): Promise<void> {
+  if (screen !== 'card') return
+  if (writing) {
+    dirty = true
+    return
+  }
+  writing = true
+  try {
+    do {
+      dirty = false
+      const view = currentCard()
+      const key = JSON.stringify(view)
+      if (key === shownCard) continue
+      const t0 = performance.now()
+      const ok = await bridge.textContainerUpgrade(
+        new TextContainerUpgrade({
+          containerID: MAIN_ID,
+          containerName: MAIN_NAME,
+          content: view.text || ' ',
+          textColor: view.brightness,
+        }),
+      )
+      shownCard = key
+      log('card upgrade', ok, `${(performance.now() - t0).toFixed(1)} ms`, JSON.stringify(view.text))
+    } while (dirty && screen === 'card')
+  } finally {
+    writing = false
+  }
 }
 
-let lastRender = ''
-let renderTimer: number | null = null
-let currentContent = 'Listening…'
-
-function scheduleGlassesRender() {
-  if (renderTimer !== null) return
-  renderTimer = window.setTimeout(async () => {
-    renderTimer = null
-    if (currentContent === lastRender) return
-    lastRender = currentContent
-    await bridge.textContainerUpgrade(
-      new TextContainerUpgrade({
-        containerID: 1,
-        containerName: 'transcript',
-        content: currentContent,
-      }),
-    )
-  }, 120) // debounce display writes — BLE render queue is slow
+async function showScreen(next: Screen): Promise<void> {
+  screen = next
+  let page: RebuildPageContainer
+  if (next === 'queue' && queue.length) {
+    const rows = queue.slice(0, LIST_MAX_ITEMS).map(t => queueRow(t, CARD_TEXT_WIDTH - 2 * CARD_PADDING))
+    page = new RebuildPageContainer({
+      containerTotalNum: 1,
+      listObject: [
+        new ListContainerProperty({
+          xPosition: 0,
+          yPosition: 0,
+          width: DISPLAY_WIDTH,
+          height: DISPLAY_HEIGHT,
+          borderWidth: 0,
+          paddingLength: CARD_PADDING,
+          containerID: MAIN_ID,
+          containerName: MAIN_NAME,
+          itemContainer: new ListItemContainerProperty({
+            itemCount: rows.length,
+            itemWidth: DISPLAY_WIDTH - 2 * CARD_PADDING,
+            isItemSelectBorderEn: 1,
+            itemName: rows,
+          }),
+          isEventCapture: 1,
+        }),
+      ],
+    })
+  } else {
+    const text = next === 'listening' ? LISTENING_TEXT : next === 'queue' ? 'Queue empty' : currentCard().text
+    const brightness = next === 'card' ? currentCard().brightness : 4
+    page = new RebuildPageContainer({ containerTotalNum: 1, textObject: [textPage(text, brightness)] })
+    if (next === 'card') shownCard = JSON.stringify(currentCard())
+  }
+  const t0 = performance.now()
+  const ok = await bridge.rebuildPageContainer(page)
+  log('rebuild', next, ok, `${(performance.now() - t0).toFixed(1)} ms`)
+  syncPhone()
 }
 
-// The default stt.ts is a blank stub that throws. Catch the throw so the UI
-// surfaces the "configure stt.ts" error chip instead of hanging on "Connecting…".
-let stt: ReturnType<typeof startSttStream> | null = null
-try {
-  stt = startSttStream(
-    API_KEY,
-    ({ finalText, interimText }) => {
-      const combined = (finalText + interimText).trim()
-      // 240 chars is a rough fit for the 576x288 text container at default font.
-      currentContent = combined ? combined.slice(-240) : 'Listening…'
-      setTranscript(finalText, interimText)
-      scheduleGlassesRender()
-    },
-    err => {
-      setStatus('error', `STT error: ${(err as Error)?.message ?? err}`)
-      console.error('STT error:', err)
-    },
-  )
-} catch (err) {
-  setStatus('error', (err as Error)?.message ?? 'STT startup failed')
-  console.error('STT startup failed:', err)
+function syncPhone(): void {
+  renderPhone({ status, screen, queue, capturing: captureId !== null })
 }
 
-let micOn = false
-if (stt) {
-  await bridge.audioControl(true)
-  micOn = true
-  setStatus('listening', 'Microphone live · tap to pause · double-tap to exit')
+function changed(): void {
+  void saveQueue(bridge, queue)
+  void renderCard()
+  syncPhone()
 }
 
-// Tap toggles capture. `audioControl(false)` stops the host pushing PCM, so no
-// further frames reach `sendPcm`; the STT client itself is left open. If your
-// provider closes an idle stream, tear it down here and reopen it on resume.
-// No-ops until stt.ts is wired up — there is no capture to pause.
-function toggleMic() {
-  if (!stt) return
-  micOn = !micOn
-  bridge.audioControl(micOn)
-  currentContent = micOn ? 'Listening…' : 'Paused'
-  scheduleGlassesRender()
-  setStatus(
-    micOn ? 'listening' : 'paused',
-    micOn ? 'Microphone live · tap to pause · double-tap to exit' : 'Paused · tap to resume · double-tap to exit',
-  )
+// ---------- backend ----------
+
+function onBackend(msg: BackendMessage): void {
+  switch (msg.type) {
+    case 'task.assigned':
+    case 'task.updated':
+      log('<-', msg.type, msg.task.id, msg.task.state)
+      queue = upsertTask(queue, msg.task)
+      changed()
+      return
+    default:
+      log('<- unhandled on server HUD', msg.type)
+  }
 }
 
-let cleanedUp = false
-function cleanup() {
-  if (cleanedUp) return
-  cleanedUp = true
-  bridge.audioControl(false)
-  stt?.close()
-  unsubscribe()
+const socket = new BackendSocket(BACKEND_URL, {
+  onMessage: onBackend,
+  onStatus: s => {
+    status = s
+    log('status', s)
+    void renderCard()
+    syncPhone()
+  },
+})
+
+// ---------- gestures ----------
+
+function newCaptureId(): string {
+  return `cap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-// Reads the event type out of one envelope.
-//
-// CLICK_EVENT is 0, and protobuf omits zero-value fields on the wire, so a
-// single tap arrives as an envelope whose `eventType` is `undefined`. The
-// default has to be resolved INSIDE the envelope check. Writing
-// `event.sysEvent?.eventType ?? OsEventTypeList.CLICK_EVENT` instead would
-// read CLICK on events that carry no `sysEvent` at all — and in this template
-// that means every incoming audio frame would fire the tap handler.
-function eventTypeOf(envelope?: { eventType?: OsEventTypeList }): OsEventTypeList | null {
+function startCapture(): void {
+  captureId = newCaptureId()
+  socket.send({ type: 'capture.start', captureId })
+  void showScreen('listening')
+}
+
+function stopCapture(): void {
+  if (captureId) socket.send({ type: 'capture.stop', captureId })
+  captureId = null
+}
+
+function onTap(): void {
+  if (screen === 'queue') {
+    void showScreen('card')
+    return
+  }
+  if (screen !== 'card') return
+  const r = tap(queue)
+  queue = r.queue
+  if (r.send) socket.send(r.send)
+  changed()
+}
+
+function onSwipeUp(): void {
+  if (screen === 'card') void showScreen('queue')
+  else if (screen === 'queue') void showScreen('card')
+}
+
+function onSwipeDown(): void {
+  if (screen === 'card') startCapture()
+  else if (screen === 'listening') {
+    stopCapture()
+    void showScreen('card')
+  }
+}
+
+// CLICK_EVENT is 0 and protobuf omits zero values, so a tap arrives as an envelope whose
+// eventType is undefined. Resolve that default only inside an envelope that exists, or
+// every audio frame would read as a tap.
+function eventTypeOf(event: EvenHubEvent): OsEventTypeList | null {
+  const envelope = event.sysEvent ?? event.textEvent ?? event.listEvent
   if (!envelope) return null
   return envelope.eventType ?? OsEventTypeList.CLICK_EVENT
 }
 
-// Event routing, critical details:
-//   • Taps/double-taps/lifecycle come through `event.sysEvent`.
-//     Audio PCM frames come through `event.audioEvent` — separate branch.
-//   • Double-tap → `shutDownPageContainer(1)` is a root-level check: it
-//     must fire no matter which envelope the event arrives in, so users
-//     can always exit the app. System exit confirmation dialog appears;
-//     SYSTEM_EXIT_EVENT fires on confirm and we clean up there.
-//   • Check DOUBLE_CLICK_EVENT before CLICK_EVENT.
-const unsubscribe = bridge.onEvenHubEvent(event => {
-  const pcm = event.audioEvent?.audioPcm
-  if (pcm) stt?.sendPcm(pcm)
+let cleanedUp = false
+function cleanup(): void {
+  if (cleanedUp) return
+  cleanedUp = true
+  stopCapture()
+  void saveQueue(bridge, queue)
+}
 
-  const sysType = eventTypeOf(event.sysEvent)
-  const textType = eventTypeOf(event.textEvent)
-
-  if (sysType === OsEventTypeList.DOUBLE_CLICK_EVENT || textType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
-    bridge.shutDownPageContainer(1)
-    return
-  }
-
-  if (sysType === OsEventTypeList.CLICK_EVENT || textType === OsEventTypeList.CLICK_EVENT) {
-    toggleMic()
-    return
-  }
-
-  if (sysType === OsEventTypeList.SYSTEM_EXIT_EVENT || sysType === OsEventTypeList.ABNORMAL_EXIT_EVENT) {
-    cleanup()
+bridge.onEvenHubEvent(event => {
+  const type = eventTypeOf(event)
+  if (type === null) return
+  switch (type) {
+    case OsEventTypeList.DOUBLE_CLICK_EVENT:
+      // Even Hub review rule: double tap exits through the system dialog, nothing else.
+      log('double tap -> shutDownPageContainer(1)')
+      void bridge.shutDownPageContainer(1)
+      return
+    case OsEventTypeList.CLICK_EVENT:
+      log('tap on', screen)
+      return onTap()
+    case OsEventTypeList.SCROLL_TOP_EVENT:
+      log('swipe up on', screen)
+      return onSwipeUp()
+    case OsEventTypeList.SCROLL_BOTTOM_EVENT:
+      log('swipe down on', screen)
+      return onSwipeDown()
+    case OsEventTypeList.FOREGROUND_ENTER_EVENT:
+      log('foreground enter: reconnecting')
+      socket.reconnectNow()
+      return
+    case OsEventTypeList.FOREGROUND_EXIT_EVENT:
+      log('foreground exit: saving queue')
+      void saveQueue(bridge, queue)
+      return
+    case OsEventTypeList.SYSTEM_EXIT_EVENT:
+    case OsEventTypeList.ABNORMAL_EXIT_EVENT:
+      log('exit event', type)
+      cleanup()
+      return
+    default:
+      return
   }
 })
 
 window.addEventListener('beforeunload', cleanup)
+socket.connect()
+syncPhone()
