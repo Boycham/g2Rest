@@ -34,7 +34,7 @@
 
 - **Task routing.** When a task is created without a named server, `backend/app/router.py` sends Gemini
   the task, its table and every server's open tasks, and Gemini answers with one server id (the
-  answer is constrained to the real ids). If Gemini errors, takes longer than 1.5 s or has no key,
+  answer is constrained to the real ids). If Gemini errors, takes longer than 3 s or has no key,
   the fixed rules pick the table's section server. Every pick is logged as `router.pick`.
 
 ## How ElevenLabs is used in the product

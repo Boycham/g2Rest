@@ -27,7 +27,10 @@ log as `router.pick {assignee, rule, how: gemini|rules, ms}`; `ms` is the number
 Escalation, bounces and RUN tasks from the pass stay on the rules.
 
 Measured Oct 18 from the dev Mac, `gemini-3.1-flash-lite`, six picks: 1043 ms (first, cold), then
-506-715 ms. The key goes in `?key=`: AI Studio's `AQ.` keys get a 404 with the `x-goog-api-key` header.
+506-715 ms. Twenty more with a 5 s cap and the fuller context: median 826 ms, p90 2206 ms, max
+3149 ms, hence the 3 s default. Then the free-tier key hit `429 RESOURCE_EXHAUSTED` after about 50
+calls and every pick fell back to the rules: the demo needs a billed key or few test calls before it.
+The key goes in `?key=`: AI Studio's `AQ.` keys get a 404 with the `x-goog-api-key` header.
 
 ## Sync 1 check: the real glasses app against this server (for Coder B)
 
