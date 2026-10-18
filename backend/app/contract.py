@@ -142,6 +142,15 @@ class PendingProposal(Strict):
     text: str
 
 
+class Answer(Strict):
+    """A suggested reply to a guest's question, display only (never sent to the kitchen)."""
+
+    seat: int | None = None
+    q: str
+    a: str
+    known: bool = True
+
+
 class OrderDraft(Strict):
     type: Literal["order.draft"]
     orderId: str
@@ -155,6 +164,8 @@ class OrderDraft(Strict):
     notice: str | None = None
     notes: list[str] | None = None
     uncertain: list[str] | None = None
+    summary: str | None = None
+    answers: list[Answer] | None = None
 
 
 class OrderReadback(Strict):

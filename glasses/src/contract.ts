@@ -201,6 +201,17 @@ export interface PendingProposal {
 export type VoiceState = 'idle' | 'connecting' | 'listening' | 'processing' | 'offline'
 
 /** Full replacement of the order being taken, sent after every change. */
+/** A suggested reply for the server to say; display only, never sent to the kitchen. */
+export interface Answer {
+  seat?: number
+  /** The guest's question or comment in a few words, e.g. "risotto vegetarian?". */
+  q: string
+  /** Written from data/menu.json, or "not in menu data" when `known` is false. */
+  a: string
+  /** false: the menu can't answer it; shown as a `?` line. */
+  known?: boolean
+}
+
 export interface OrderDraft {
   type: 'order.draft'
   orderId: string
@@ -220,6 +231,10 @@ export interface OrderDraft {
   notes?: string[]
   /** Anything unclear, one line each, ready to show, e.g. "? s2 'the fish': halibut or salmon". */
   uncertain?: string[]
+  /** Clip only: 1-2 lines on what the table said (mood, pacing, occasion). Display only. */
+  summary?: string
+  /** Clip only: suggested replies to the guests' questions and comments. Display only. */
+  answers?: Answer[]
 }
 
 /** The agent proposes sending or cancelling; only a tap on the glasses does it. */

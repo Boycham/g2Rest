@@ -297,6 +297,13 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
      fast as possible, then `capture.stop`; the relay transcribes it in one batch and extracts the order.
    - `VoiceState` + `processing` (the clip is being transcribed and read), and `order.draft` +
      `notes?: string[]` (occasion, pacing) and `uncertain?: string[]` (`? s2 'the fish': halibut or salmon`).
+   - **Clip summary and answers (branch `devin/clip-summary`):** `order.draft` + `summary?: string`
+     (1-2 lines: what the table said, mood, pacing, occasion) and
+     `answers?: {seat?: number, q: string, a: string, known?: boolean}[]` (a suggested reply per guest
+     question or comment, e.g. `{seat: 2, q: "risotto nuts?", a: "no tree nuts listed for risotto"}`).
+     Code writes every food answer from `data/menu.json`; `known: false` means the menu can't answer it
+     (`a` is `not in menu data`, shown as a `?` line). Both are display only: they are never part of the
+     `Order`, never fired to the kitchen, and a clip with no dishes still carries them.
    - Organizer sockets get `{"type": "order.draft", ...Order}` (the `GET /state` order shape) while a voice
      draft builds, so the kitchen sees it forming before the fire.
 10. **Handoff and revert** (Coder A, for voice "handoff" / "revert" and the long-hold handoff):
