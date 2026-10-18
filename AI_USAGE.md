@@ -16,8 +16,8 @@ Devin built every lane it worked on, each from a prompt, with its own tests, sim
 
 - **Glasses app** (`glasses/`): the server HUD (#2), the manager HUD with role picker, exceptions and floor
   minimap (#3), the real-backend wiring (#8), the Vultr build target (#14), the three stacked Controls / Queue /
-  Card tabs (#18), the 2-minute clip and the Verity processing animation (#22), ramp mode and head-nod accept
-  (#30, nod HW-PENDING), blanking when idle (#32), the mic, draft screen and debug PCM path, and Sentry on the
+  Card tabs (#18), the 2-minute clip and the Verity processing animation (#22), ramp mode (#30; its head-nod
+  accept was later removed, head gestures are out of scope), blanking when idle (#32), the mic, draft screen and debug PCM path, and Sentry on the
   glasses (#20). It read the Even Hub SDK and simulator docs, proposed the glasses <-> backend message
   contract, and checked its work by driving the Even Hub simulator.
 - **Voice relay** (`backend/voice/`): the ElevenLabs Scribe + agent spike (#1), live capture (#4), the
