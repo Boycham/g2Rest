@@ -1,0 +1,22 @@
+{
+  "restaurant": "Floor Sense demo kitchen (fictional)",
+  "sections": [
+    { "id": "A", "name": "Window", "server": "s1" },
+    { "id": "B", "name": "Garden", "server": "s2" }
+  ],
+  "servers": [
+    { "id": "s1", "name": "Ava", "sections": ["A"] },
+    { "id": "s2", "name": "Ben", "sections": ["B"] }
+  ],
+  "manager": { "id": "m1", "name": "Dana" },
+  "tables": [
+    { "id": "T1", "section": "A", "seats": 2, "x": 0, "y": 0 },
+    { "id": "T2", "section": "A", "seats": 4, "x": 3, "y": 0 },
+    { "id": "T3", "section": "A", "seats": 4, "x": 6, "y": 0 },
+    { "id": "T4", "section": "A", "seats": 6, "x": 9, "y": 0 },
+    { "id": "T5", "section": "B", "seats": 2, "x": 0, "y": 4 },
+    { "id": "T6", "section": "B", "seats": 4, "x": 3, "y": 4 },
+    { "id": "T7", "section": "B", "seats": 4, "x": 6, "y": 4 },
+    { "id": "T8", "section": "B", "seats": 6, "x": 9, "y": 4 }
+  ]
+}
