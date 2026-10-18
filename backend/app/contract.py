@@ -259,13 +259,6 @@ class VoiceUnknown(Strict):
     reason: str | None = None
 
 
-class TaskUnaccept(Strict):
-    """New: "verity revert" right after an accept puts the task back to unaccepted."""
-
-    type: Literal["task.unaccept"]
-    taskId: str
-
-
 class CaptureStartExt(CaptureStart):
     """+ optional table, when the glasses know which card the server was looking at."""
 
@@ -289,7 +282,6 @@ GlassesJsonMessageExt = Annotated[
     TaskAccept
     | TaskDone
     | TaskBounce
-    | TaskUnaccept
     | CaptureStartExt
     | CaptureStop
     | OrderConfirm
