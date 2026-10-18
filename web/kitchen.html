@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Floor Sense · Kitchen</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <span class="brand">Floor Sense</span>
+      <nav>
+        <a href="index.html">Organizer</a>
+        <a href="kitchen.html" aria-current="page">Kitchen</a>
+      </nav>
+      <span class="spacer"></span>
+      <span id="conn">connecting…</span>
+    </header>
+
+    <main class="kitchen">
+      <div id="mode">Checking the pass…</div>
+
+      <section class="panel">
+        <h2>Taking order</h2>
+        <div id="drafts" class="tickets"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Tickets</h2>
+        <div id="tickets" class="tickets"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Pass</h2>
+        <div id="holds"></div>
+        <div id="plates"></div>
+        <h2 class="sub">Runs</h2>
+        <div id="runs"></div>
+      </section>
+    </main>
+
+    <div id="toast" hidden></div>
+    <script type="module" src="kitchen.js"></script>
+  </body>
+</html>
