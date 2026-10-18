@@ -236,3 +236,97 @@ def test_speech_end_offset_finds_last_voiced_frame():
     loud = array.array("h", [8000, -8000] * (FRAME_BYTES // 4)).tobytes()
     pcm = bytes(FRAME_BYTES) + loud * 3 + bytes(FRAME_BYTES) * 5
     assert speech_end_offset(pcm) == pytest.approx(0.4)
+
+
+# ---- set_order: the whole order from one clip ----
+
+
+def clip_order(**extra):
+    return {
+        "items": [
+            {"guest": 1, "dish": "halibut", "alterations": ["no butter"]},
+            {"guest": 2, "dish": "Cedar Plank Salmon", "alterations": ["no dill", "extra cheese"]},
+        ],
+        "allergies": [{"guest": 2, "allergen": "Shellfish"}],
+        "unclear": [{"guest": 3, "text": "'the fish': halibut or salmon"}],
+        "notes": ["anniversary"],
+        **extra,
+    }
+
+
+def seats(book, t=0):
+    return {n: [(i.dish, i.alterations, i.flagged_alterations) for i in s.items]
+            for n, s in book.tables[t].seats.items()}  # fmt: skip
+
+
+def test_set_order_numbers_seats_in_order_of_ordering_and_stays_tableless(book):
+    result, err = book.dispatch("set_order", clip_order())
+    assert not err and result["table"] is None and "table_unknown" in result
+    assert seats(book) == {
+        1: [("Pan-Roasted Halibut", ["no butter"], [])],
+        2: [("Cedar Plank Salmon", ["no dill"], ["extra cheese"])],
+    }
+    assert book.tables[0].seats[2].allergies == ["shellfish"]
+    assert book.tables[0].uncertain == ["? s3 'the fish': halibut or salmon"]
+    assert book.tables[0].notes == ["anniversary"]
+    assert result["flagged_not_applied"] == ["s2 Cedar Plank Salmon: extra cheese"]
+
+
+def test_spoken_seat_wins_and_auto_seats_skip_it(book):
+    book.dispatch(
+        "set_order",
+        {"items": [{"guest": 1, "dish": "soup"}, {"guest": 2, "seat": 1, "dish": "duck"}]},
+    )
+    assert seats(book) == {2: [("Roasted Tomato Soup", [], [])], 1: [("Duck Breast", [], [])]}
+
+
+def test_question_lines_are_dropped_in_code(book):
+    result, _ = book.dispatch(
+        "set_order",
+        {"unclear": [{"text": "Which fish did seat 3 want?"}, {"text": "could you confirm"}]},
+    )
+    assert book.tables[0].uncertain == []
+    assert len(result["rejected_unclear"]) == 2
+
+
+def test_unknown_dish_becomes_a_code_written_unclear_line(book):
+    book.dispatch("set_order", {"items": [{"guest": 1, "dish": "branzino"}]})
+    line = book.tables[0].uncertain[0]
+    assert line.startswith("? s1 'branzino' not on menu:") and "?" not in line[1:]
+
+
+def test_spoken_table_binds_a_tableless_draft_and_fire_needs_it(book):
+    book.dispatch("set_order", clip_order())
+    with pytest.raises(ToolError, match="TABLE"):
+        book.fire(book.draft_table)
+    book.dispatch("set_order", clip_order(table=2))
+    assert book.current_table == 2 and 0 not in book.tables
+    assert seats(book, 2)[1] == [("Pan-Roasted Halibut", ["no butter"], [])]
+
+
+def test_order_task_table_is_not_overridden_by_a_spoken_one(book):
+    book.bind_table(3, "task")
+    result, _ = book.dispatch("set_order", clip_order(table=5))
+    assert book.current_table == 3 and "kept table 3" in result["table_notice"]
+
+
+def test_a_later_clip_can_only_propose_removals(book):
+    book.bind_table(3, "task")
+    book.dispatch("set_order", clip_order())
+    later = clip_order()
+    later["items"] = later["items"][1:] + [{"guest": 1, "dish": "risotto"}]
+    result, _ = book.dispatch("set_order", later)
+    assert result["pending_removals"] == ["s1 Pan-Roasted Halibut"]
+    assert [i.dish for i in book.tables[3].seats[1].items] == [
+        "Pan-Roasted Halibut",
+        "Wild Mushroom Risotto",
+    ]
+    book.accept(book.tables[3].proposals[0]["id"])
+    assert [i.dish for i in book.tables[3].seats[1].items] == ["Wild Mushroom Risotto"]
+    assert book.tables[3].seats[2].allergies == ["shellfish"]  # never dropped
+
+
+def test_set_order_bad_shapes_are_errors_not_crashes(book):
+    for params in ({"items": "halibut"}, {"items": [{"guest": "x", "dish": "soup"}]}):
+        result, err = book.dispatch("set_order", params)
+        assert err and "error" in result

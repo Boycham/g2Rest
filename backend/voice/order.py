@@ -15,6 +15,16 @@ from typing import Any
 MENU_PATH = Path(__file__).resolve().parents[2] / "data" / "menu.json"  # one menu for both lanes
 COURSES = ("appetizer", "main", "dessert")
 MAX_QTY = 20
+UNKNOWN_TABLE = 0  # the draft's key until a table is known (ORDER task or spoken)
+MAX_UNCERTAIN = 3
+MAX_NOTES = 3
+MAX_LINE_CHARS = 48
+# The G2 has no speaker and the agent's replies are never shown: anything shown must be a
+# statement for the server to glance at, never a question to answer.
+QUESTION_STARTS = (
+    "what", "which", "who", "how", "can", "could", "would", "should", "do ", "does", "did",
+    "is ", "are ", "will", "please", "ask", "confirm", "clarify", "check with",
+)  # fmt: skip
 
 
 class ToolError(Exception):
@@ -111,6 +121,8 @@ class Table:
     seats: dict[int, Seat] = field(default_factory=dict)
     proposals: list[dict[str, Any]] = field(default_factory=list)
     status: str = "draft"  # draft -> sent | cancelled, only through a tap (accept/confirm)
+    notes: list[str] = field(default_factory=list)
+    uncertain: list[str] = field(default_factory=list)
 
     def seat(self, n: int) -> Seat:
         return self.seats.setdefault(n, Seat())
@@ -140,6 +152,27 @@ def _str_arg(params: dict[str, Any], name: str) -> str:
     return value.strip()
 
 
+def is_question(text: str) -> bool:
+    t = _norm(text).lstrip("?'\" ")
+    return text.rstrip().endswith("?") or t.startswith(QUESTION_STARTS)
+
+
+def _short(text: str) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= MAX_LINE_CHARS else text[: MAX_LINE_CHARS - 1] + "…"
+
+
+def _list_of_objects(params: dict[str, Any], name: str) -> list[dict[str, Any]]:
+    value = params.get(name)
+    if value is None or value == "":
+        return []
+    if isinstance(value, dict):
+        value = [value]
+    if not isinstance(value, list) or not all(isinstance(v, dict) for v in value):
+        raise ToolError(f"'{name}' must be a list of objects, got {value!r}")
+    return value
+
+
 def _str_list_arg(params: dict[str, Any], name: str) -> list[str]:
     value = params.get(name)
     if value is None or value == "":
@@ -159,7 +192,29 @@ class OrderBook:
         self.menu = menu
         self.tables: dict[int, Table] = {}
         self.current_table: int | None = None
+        self.table_source: str | None = None  # "task" (ORDER task) or "spoken"; task wins
         self._next_proposal = 1
+
+    @property
+    def draft_table(self) -> int:
+        return self.current_table if self.current_table is not None else UNKNOWN_TABLE
+
+    def bind_table(self, n: int, source: str) -> None:
+        """Give the draft its table. An ORDER task's table is final; a spoken one can't
+        override it (a bystander may name another table). Raises ToolError if refused."""
+        if not 1 <= n <= 999:
+            raise ToolError(f"table must be 1 to 999, got {n}")
+        cur = self.draft_table
+        if self.table_source == "task" and source == "spoken" and n != cur:
+            raise ToolError(f"heard table {n}, kept table {cur} from the ORDER task")
+        existing = self.tables.get(n)
+        if n != cur and existing is not None and existing.status != "draft":
+            raise ToolError(f"table {n}'s order was already {existing.status}")
+        if n != cur and cur in self.tables:
+            self.tables[n] = self.tables.pop(cur)
+        self.current_table = n
+        if self.table_source != "task":
+            self.table_source = source
 
     def dispatch(self, tool: str, params: Any) -> tuple[dict[str, Any], bool]:
         """Run one tool call. Returns (result, is_error); never raises."""
@@ -329,6 +384,141 @@ class OrderBook:
             "note": "the server must tap on the glasses to cancel; nothing is cancelled yet",
         }
 
+    # ---- conversational capture: the whole order from one clip ----
+
+    def tool_set_order(self, p: dict[str, Any]) -> dict[str, Any]:
+        """The complete order heard in a clip. Code numbers the seats, checks every dish and
+        alteration, and turns anything already on the draft that the clip drops into a
+        removal proposal (a tap applies it), so the agent can only ever add live."""
+        notices: list[str] = []
+        if p.get("table") not in (None, "", 0):
+            try:
+                self.bind_table(_int_arg(p, "table", 1, 999), "spoken")
+            except ToolError as e:
+                notices.append(str(e))
+        t = self.draft_table
+        table = self.tables.setdefault(t, Table())
+        if table.status != "draft":
+            raise ToolError(f"table {t}'s order was already {table.status}; it can't change")
+
+        items = _list_of_objects(p, "items")
+        allergies = _list_of_objects(p, "allergies")
+        unclear = _list_of_objects(p, "unclear")
+        seat_of = self._seat_numbers([*items, *allergies, *unclear])
+
+        uncertain: list[str] = []
+        flagged: list[str] = []
+        wanted: dict[tuple[int, str], Item] = {}
+        for raw in items:
+            seat = seat_of(raw)
+            name = str(raw.get("dish", "")).strip()
+            if not name:
+                continue
+            try:
+                dish = self.menu.resolve(name)
+            except ToolError:
+                close = [self._label(d) for d in self.menu.closest(name, 2)]
+                uncertain.append(f"? s{seat} '{name}' not on menu: {' or '.join(close)}")
+                continue
+            qty = _int_arg(raw, "qty", 1, MAX_QTY, default=1)
+            ok, bad = self._split_alterations(dish, _str_list_arg(raw, "alterations"))
+            flagged += [f"s{seat} {dish.name}: {b}" for b in bad]
+            item = wanted.setdefault((seat, dish.name), Item(dish.name, 0))
+            item.qty = min(MAX_QTY, item.qty + qty)
+            item.alterations += [a for a in ok if a not in item.alterations]
+            item.flagged_alterations += [a for a in bad if a not in item.flagged_alterations]
+
+        removals = []
+        for n, seat in list(table.seats.items()):
+            for old in seat.items:
+                new = wanted.pop((n, old.dish), None)
+                if new is None:
+                    proposal = {"action": "remove", "table": t, "seat": n, "dish": old.dish}
+                    removals.append(self._propose(table, proposal))
+                    continue
+                old.qty = new.qty
+                old.alterations += [a for a in new.alterations if a not in old.alterations]
+                old.flagged_alterations += [
+                    a for a in new.flagged_alterations if a not in old.flagged_alterations
+                ]
+        for (n, _), item in wanted.items():
+            table.seat(n).items.append(item)
+
+        for raw in allergies:
+            allergen = _norm(str(raw.get("allergen", "")))
+            if allergen:
+                seat = table.seat(seat_of(raw))
+                if allergen not in seat.allergies:
+                    seat.allergies.append(allergen)
+
+        rejected = []
+        for raw in unclear:
+            text = str(raw.get("text", "")).strip().lstrip("?").strip()
+            if not text:
+                continue
+            if is_question(text):
+                rejected.append(text)
+                continue
+            seat = f"s{seat_of(raw)} " if raw.get("guest") or raw.get("seat") else ""
+            uncertain.append(f"? {seat}{text}")
+        table.uncertain = [_short(u) for u in uncertain[:MAX_UNCERTAIN]]
+        notes = [n for n in _str_list_arg(p, "notes") if not is_question(n)]
+        table.notes = [_short(n) for n in notes[:MAX_NOTES]]
+
+        result: dict[str, Any] = {
+            "status": "ok",
+            "table": t or None,
+            "seats": {
+                str(n): [f"{i.qty}x {i.dish}" for i in s.items]
+                + [f"allergy {a}" for a in s.allergies]
+                for n, s in sorted(table.seats.items())
+            },
+        }
+        if not t:
+            result["table_unknown"] = "the server will say the table or an ORDER task sets it"
+        if removals:
+            result["pending_removals"] = [f"s{r['seat']} {r['dish']}" for r in removals]
+            result["note"] = "dropped dishes are NOT removed until the server taps"
+        if flagged:
+            result["flagged_not_applied"] = flagged
+        if rejected:
+            result["rejected_unclear"] = rejected
+            result["warning"] = "unclear lines must be statements, never questions"
+        if notices:
+            result["table_notice"] = notices[0]
+        if conflicts := [c for s in table.seats.values() for c in self._allergy_conflicts(s)]:
+            result["allergy_conflicts"] = conflicts
+        return result
+
+    def _label(self, name: str) -> str:
+        dish = self.menu.dishes[name]
+        return dish.aliases[0] if dish.aliases else name.lower()
+
+    def _seat_numbers(self, entries: list[dict[str, Any]]) -> Any:
+        """Guests are numbered by the agent in the order they first order; code turns them
+        into seats: a spoken seat wins, the rest count up from 1 skipping spoken seats."""
+
+        def spoken_seat(e: dict[str, Any]) -> int | None:
+            return None if e.get("seat") in (None, "", 0) else _int_arg(e, "seat", 1, 50)
+
+        def guest(e: dict[str, Any]) -> int:
+            return _int_arg(e, "guest", 1, 50, default=1)
+
+        spoken = {s for e in entries if (s := spoken_seat(e)) is not None}
+        guest_seat: dict[int, int] = {}
+        nxt = 1
+        for g in sorted({guest(e) for e in entries if spoken_seat(e) is None}):
+            while nxt in spoken:
+                nxt += 1
+            guest_seat[g] = nxt
+            nxt += 1
+
+        def seat_of(e: dict[str, Any]) -> int:
+            s = spoken_seat(e)
+            return s if s is not None else guest_seat[guest(e)]
+
+        return seat_of
+
     # ---- the server's gestures (never reachable from the agent) ----
 
     def _pending(self, proposal_id: str) -> tuple[Table, dict[str, Any]]:
@@ -372,6 +562,8 @@ class OrderBook:
 
     def fire(self, t: int) -> None:
         """Send the table's order (the server tapped with nothing pending)."""
+        if t == UNKNOWN_TABLE:
+            raise ToolError("say the table first (TABLE?)")
         table = self.tables.get(t)
         if table is None or not any(seat.items for seat in table.seats.values()):
             raise ToolError(f"table {t} has no dishes to send")
@@ -398,6 +590,7 @@ class OrderBook:
 
 
 TOOL_NAMES = (
+    "set_order",
     "add_item",
     "remove_item",
     "modify_item",
