@@ -63,9 +63,10 @@ class Hub:
 
     # ---------- outbound ----------
 
-    async def _send(self, conn: Conn, message: dict[str, Any]) -> bool:
+    async def _send(self, conn: Conn, message: dict[str, Any], check: bool = True) -> bool:
         try:
-            check_backend(message)
+            if check:
+                check_backend(message)
         except ContractError as e:
             log.error(
                 "[fs] not sending off-contract %s to %s: %s", message.get("type"), conn.staff, e
@@ -100,6 +101,21 @@ class Hub:
 
     async def push_floor(self) -> None:
         await self.broadcast(self.store.floor_state(), ("manager", "organizer"))
+
+    async def to_organizers(self, message: dict[str, Any]) -> None:
+        """Web-page-only messages (pass.state, order.fired): not part of the glasses contract."""
+        for conn in list(self.conns.values()):
+            if conn.role == "organizer":
+                await self._send(conn, message, check=False)
+
+    async def push_pass(self) -> None:
+        await self.to_organizers(self.store.pass_.state(self.store.now()))
+
+    async def after_fire(self, order: Any) -> None:
+        self.store.on_fired(order)
+        await self.push_floor()
+        await self.to_organizers({"type": "order.fired", "order": order.to_dict()})
+        await self.push_pass()
 
     # ---------- inbound ----------
 
@@ -163,8 +179,7 @@ class Hub:
             lines=[ln.wire() for ln in order.lines],
         )
         if fire:
-            self.store.set_table_status(order.table, "ordered")
-            await self.push_floor()
+            await self.after_fire(order)
         await self.send_staff(
             conn.staff, {"type": "order.closed", "orderId": order.id, "status": order.status}
         )

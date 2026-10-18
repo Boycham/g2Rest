@@ -9,7 +9,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +19,7 @@ from app.config import Settings
 from app.data import DataError
 from app.hub import DEFAULT_STAFF, ROLES, Hub
 from app.orders import TOOL_NAMES, ToolError
+from app.runs import PassError
 from app.state import Store
 from app.tasks import TaskError, TaskKind
 
@@ -38,6 +39,15 @@ class TaskIn(BaseModel):
 
 class StatusIn(BaseModel):
     status: str
+
+
+class PlateUp(BaseModel):
+    orderId: str
+    line: int = Field(ge=0)
+
+
+class PlannerIn(BaseModel):
+    planner: Literal["priority", "fifo"]
 
 
 def create_app(settings: Settings | None = None, store: Store | None = None) -> FastAPI:
@@ -231,9 +241,33 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
             raise HTTPException(409, str(e)) from None
         store.events.append("order." + order.status, orderId=order.id, table=order.table)
         if fire:
-            store.set_table_status(order.table, "ordered")
-            await hub.push_floor()
+            await hub.after_fire(order)
         return order.to_dict()
+
+    # ---------- the pass (kitchen page) ----------
+
+    @app.get("/pass", dependencies=auth)
+    async def pass_state() -> dict[str, Any]:
+        return store.pass_.state(store.now())
+
+    @app.post("/pass/up", dependencies=auth)
+    async def plate_up(body: PlateUp) -> dict[str, Any]:
+        """Food up: mark the plate, run the priority engine, dispatch RUN tasks, return the pass."""
+        try:
+            out = store.plate_up(body.orderId, body.line)
+        except PassError as e:
+            raise HTTPException(409, str(e)) from None
+        await hub.deliver(out)
+        await hub.push_pass()
+        return store.pass_.state(store.now())
+
+    @app.post("/pass/planner", dependencies=auth)
+    async def set_planner(body: PlannerIn) -> dict[str, Any]:
+        """Simulator switch: 'priority' (default) or 'fifo' for the baseline."""
+        store.pass_.planner = body.planner
+        store.events.append("pass.planner", planner=body.planner)
+        await hub.push_pass()
+        return {"planner": body.planner, "weights": store.pass_.weights.to_dict()}
 
     return app
 
