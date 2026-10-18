@@ -175,7 +175,7 @@ export class CaptureScreen {
     else this.changed()
   }
 
-  /** 'clip': the caller sends a new last 2 minutes; 'back': return to the card. */
+  /** 'clip': the caller sends a new last minute; 'back': return to the card. */
   gesture(g: Gesture): 'back' | 'clip' | 'none' {
     const a = draftGesture(g, this.state())
     if (a.send) this.socket.send(a.send)

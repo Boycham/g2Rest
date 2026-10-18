@@ -23,7 +23,7 @@ describe('Controls menu', () => {
     const last = formatControls(CONTROLS.length - 1).split('\n')
     expect(last).toHaveLength(CARD_MAX_LINES)
     expect(last.at(-1)).toMatch(/^> Close/)
-    expect(formatControls(0).split('\n')[0]).toMatch(/^> Clip last 2 min \(swipe down\)/)
+    expect(formatControls(0).split('\n')[0]).toMatch(/^> Clip last minute \(swipe down\)/)
   })
 
   it('stops at the ends: only verity back or Close closes it', () => {

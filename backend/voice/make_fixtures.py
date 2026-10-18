@@ -2,7 +2,7 @@
 
 Usage: python make_fixtures.py [--snr-db 5]
 Writes fixtures/*.pcm (gitignored; never commit audio). --snr-db also writes noisy copies.
-The conv_* fixtures are table conversations of about a minute (conv_2min: 120 s) in two voices (the server and the
+The conv_* fixtures are minute-long table conversations in two voices (the server and the
 guests) for the clip path: small talk, one off-topic bystander line, and an ambiguous dish.
 """
 

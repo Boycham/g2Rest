@@ -39,7 +39,7 @@ function gestureFor(action: MainAction): string {
 
 /** The Controls menu: every gesture and its "verity" command; a tap picks the selected row. */
 export const CONTROLS: readonly ControlItem[] = [
-  { label: 'Clip last 2 min', gesture: gestureFor('clip'), voice: 'verity clip', action: 'clip' },
+  { label: 'Clip last minute', gesture: gestureFor('clip'), voice: 'verity clip', action: 'clip' },
   { label: 'Queue', gesture: gestureFor('queue'), voice: 'verity queue', action: 'queue' },
   { label: 'Accept / done', gesture: gestureFor('task'), voice: 'verity accept/done', action: 'task' },
   { label: 'Hand off', gesture: gestureFor('handoff'), voice: 'verity handoff', action: 'handoff' },

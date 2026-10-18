@@ -76,7 +76,7 @@ describe('formatDraft', () => {
 describe('draftGesture', () => {
   const pending = (action: 'remove' | 'cancel' | 'confirm') => state({ draft: draft({ pending: [{ id: 'p7', action, text: 'x' }] }) })
 
-  it('swipe down sends the last 2 minutes again', () => {
+  it('swipe down sends the last minute again', () => {
     expect(draftGesture('down', state())).toEqual({ send: null, then: 'clip' })
   })
 
@@ -113,10 +113,10 @@ describe('draftGesture', () => {
 })
 
 describe('formatDraft for a clip', () => {
-  it('shows Reading last 2 min… while the clip is processed', () => {
+  it('shows Reading last min… while the clip is processed', () => {
     const lines = formatDraft(state({ draft: null, voice: 'processing' })).main.split('\n')
-    expect(lines[0].startsWith('Last 2 min')).toBe(true)
-    expect(lines[0].endsWith('Reading last 2 min…')).toBe(true)
+    expect(lines[0].startsWith('Last minute')).toBe(true)
+    expect(lines[0].endsWith('Reading last min…')).toBe(true)
   })
 
   it('shows TABLE? and how to give it when the draft has no table', () => {
