@@ -71,7 +71,7 @@ export default function Story() {
   const scrollToProgress = useCallback(
     (g: number) => {
       const y = g * maxScroll()
-      if (lenisRef.current) lenisRef.current.scrollTo(y, { duration: 1.4 })
+      if (lenisRef.current) lenisRef.current.scrollTo(y, { duration: 0.9 })
       else scrollTo({ top: y, behavior: reduced ? 'auto' : 'smooth' })
     },
     [reduced],
@@ -101,12 +101,12 @@ export default function Story() {
     let snap: Snap | null = null
     const raf = (time: number) => lenis?.raf(time * 1000)
     if (!reduced) {
-      // lerp 0.12 is the handoff's smoothing: value += (target - value) * 0.12 per frame.
-      lenis = new Lenis({ lerp: 0.12, autoRaf: false, anchors: false })
+      // Faster than the handoff (lerp 0.12, 1x wheel): the owner found the story too slow to scroll.
+      lenis = new Lenis({ lerp: 0.2, wheelMultiplier: 2, touchMultiplier: 2, autoRaf: false, anchors: false })
       lenis.on('scroll', ScrollTrigger.update)
       gsap.ticker.add(raf)
       gsap.ticker.lagSmoothing(0)
-      snap = new Snap(lenis, { type: 'proximity', duration: 0.9, debounce: 220, velocityThreshold: 1.2 })
+      snap = new Snap(lenis, { type: 'proximity', duration: 0.6, debounce: 150, velocityThreshold: 1.2 })
     }
     lenisRef.current = lenis
 
