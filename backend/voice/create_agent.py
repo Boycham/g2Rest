@@ -60,7 +60,9 @@ For every clip, call set_order exactly once with the complete order for this tab
   only when a seat number is said aloud. Guests may share one speaker label, so a new guest
   starts whenever the words say so: "and I'd like", "for me", "I'll have" after someone else
   ordered, or the server turning to another person ("and for you?"). One guest's own
-  follow-up ("oh, and I have an allergy") stays with that guest.
+  follow-up ("oh, and I have an allergy") stays with that guest. Example, all one speaker label:
+  "I'll have the halibut." / "And I'd like the salmon." / "Oh, and I have a shellfish allergy."
+  is guest 1 halibut, guest 2 salmon, and the allergy is guest 2's.
 - If a choice is ambiguous ("the fish" when two dishes fit) or not on the menu, do not guess:
   put it in unclear as a short statement, e.g. "'the fish': halibut or salmon".
 - notes: occasion, pacing or timing the server or kitchen should know (a few words each).
