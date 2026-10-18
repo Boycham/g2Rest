@@ -10,7 +10,7 @@ from app.config import Settings
 from app.data import TABLE_STATUSES, DataError, Floor, Menu
 from app.events import EventLog
 from app.orders import Order, OrderBook
-from app.runs import Pass, Run
+from app.runs import Pass, Plate, Run
 from app.tasks import Outbound, TaskBook
 
 URGENCY_BY_STATUS = {"empty": 0, "seated": 0, "ordered": 0, "waiting": 1, "eating": 0, "check": 1}
@@ -108,18 +108,35 @@ class Store:
             "pass.ticket", orderId=order.id, table=order.table, plates=[p.id for p in plates]
         )
 
-    def plate_up(self, order_id: str, line: int) -> list[Outbound]:
-        """Mark a plate up, re-plan the pass and create one RUN task per runner of each run."""
-        now = self.now()
-        plate = self.pass_.mark_up(order_id, line, now)
+    def plate_up(self, order_id: str, line: int) -> Plate:
+        """Mark a plate up at the pass. Call `dispatch()` afterwards to hand out runs."""
+        plate = self.pass_.mark_up(order_id, line, self.now())
         self.events.append("pass.up", plateId=plate.id, table=plate.table, dish=plate.dish)
+        return plate
+
+    def free_runners(self) -> dict[str, str]:
+        """Servers with no open RUN task, mapped to the section they run by default."""
+        free: dict[str, str] = {}
+        for server in self.floor.servers.values():
+            if any(t.kind == "RUN" for t in self.book.open_for(server.id)):
+                continue
+            home = [sec for sec, srv in self.floor.sections.items() if srv == server.id]
+            free[server.id] = home[0] if home else (server.sections[0] if server.sections else "")
+        return free
+
+    def dispatch(self) -> list[Outbound]:
+        """Re-plan the pass: the best run goes to the next free server, the rest keep waiting.
+
+        Called after food up, after every task state change and on the ticker (so the
+        5-minute ceiling fires without anyone pressing a button).
+        """
+        now = self.now()
         out: list[Outbound] = []
-        for run in self.pass_.dispatch(now):
+        for run in self.pass_.dispatch(now, self.free_runners()):
             out += self._run_tasks(run, now)
         return out
 
     def _run_tasks(self, run: Run, now: float) -> list[Outbound]:
-        chain = self.floor.escalation_chain(run.table)
         per_runner = self.pass_.weights.max_plates_per_runner
         out: list[Outbound] = []
         for i in range(run.runners):
@@ -140,11 +157,15 @@ class Store:
                     for p in plates
                 ],
                 notes=notes,
-                assignee=chain[min(i, len(chain) - 1)],
+                assignee=run.assignees[i],
                 priority=run.score,
             )
             self.events.append(
-                "pass.run", runId=run.id, taskId=task.id, plates=[p.id for p in plates]
+                "pass.run",
+                runId=run.id,
+                taskId=task.id,
+                assignee=task.assignee,
+                plates=[p.id for p in plates],
             )
             out += outbound
         return out
