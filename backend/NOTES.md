@@ -22,8 +22,10 @@ Environment: `FS_TOKEN` (shared HTTP + WebSocket token; empty = no auth, for loc
 table's section and every server's open tasks, answer constrained to the server ids. Any error, a
 timeout or no key falls back to the rule pick (the section's server). Each pick lands in the event
 log as `router.pick {assignee, rule, how: gemini|rules, ms}`; `ms` is the number to watch on stage.
-Escalation, bounces and RUN tasks from the pass stay on the rules. Not timed against the real API
-yet: the Gemini key on the dev Mac was rejected (401).
+Escalation, bounces and RUN tasks from the pass stay on the rules.
+
+Measured Oct 18 from the dev Mac, `gemini-3.1-flash-lite`, six picks: 1043 ms (first, cold), then
+506-715 ms. The key goes in `?key=`: AI Studio's `AQ.` keys get a 404 with the `x-goog-api-key` header.
 
 ## Sync 1 check: the real glasses app against this server (for Coder B)
 

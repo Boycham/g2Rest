@@ -19,6 +19,8 @@ import httpx
 from app.state import Store
 
 log = logging.getLogger("fs")
+# httpx logs every request URL at INFO, and the key rides in the URL: keep those lines out.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 INSTRUCTIONS = (
     "You route tasks to servers in a restaurant. Pick the one server who should do this task. "
@@ -81,7 +83,8 @@ async def pick(
         r = await client.post(
             URL.format(model=settings.gemini_model),
             json=body,
-            headers={"x-goog-api-key": settings.gemini_api_key},
+            # ?key=, not the x-goog-api-key header: AI Studio's AQ. keys get a 404 with the header
+            params={"key": settings.gemini_api_key},
             timeout=settings.router_timeout_sec,
         )
         r.raise_for_status()
