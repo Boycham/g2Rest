@@ -65,6 +65,10 @@ test('clocks', () => {
   assert.equal(hms(9672), '02:41:12')
   assert.equal(shiftLeft(new Date(2026, 9, 18, 22, 0, 0).getTime(), '23:00'), 3600)
   assert.equal(shiftLeft(new Date(2026, 9, 18, 23, 30, 0).getTime(), '23:00'), 23.5 * 3600)
+  // No ?shiftEnd: the next service end, lunch 15:00 or dinner 22:00.
+  assert.equal(shiftLeft(new Date(2026, 9, 18, 13, 0, 0).getTime()), 2 * 3600)
+  assert.equal(shiftLeft(new Date(2026, 9, 18, 16, 0, 0).getTime()), 6 * 3600)
+  assert.equal(shiftLeft(new Date(2026, 9, 18, 23, 0, 0).getTime()), 16 * 3600)
 })
 
 test('a task through its life: waiting with a ring, accepted, done', () => {

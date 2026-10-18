@@ -10,16 +10,14 @@ import Lenis from 'lenis'
 import Snap from 'lenis/snap'
 import Magnet from '../components/reactbits/Magnet'
 import { links } from '../shared/links'
-import { SCENES, STAGE, local, sceneIndex, snapPoints, step } from './keyframes.js'
+import { SCENES, STAGE, builtAt, local, sceneIndex, snapPoints, step } from './keyframes.js'
 import { Ctx, asset, type Frame } from './frame'
 import { Counter, Doors, Floor, Voice, Welcome } from './scenes'
 
 gsap.registerPlugin(ScrollTrigger)
 
-// Reduced motion: no smoothing, no snap, no crossfade; each scene holds one keyframe
-// (KF50 per the handoff; the doors and the floor hold KF100, where their copy and the
-// dashboard sign are visible).
-const REST = [0.5, 0.5, 0.5, 1, 1]
+// Reduced motion: no smoothing, no snap, no crossfade; each scene holds the keyframe where
+// it is fully built (builtAt), the same place the scene dots land.
 
 function useReducedMotion() {
   const query = '(prefers-reduced-motion: reduce)'
@@ -83,7 +81,7 @@ export default function Story() {
       let g = raw
       if (reduced) {
         const i = sceneIndex(raw)
-        g = SCENES[i].start + REST[i] * (SCENES[i].end - SCENES[i].start)
+        g = builtAt(i)
       }
       for (const fn of frames.current) fn(g)
       if (progressRef.current) progressRef.current.style.transform = `scaleX(${raw})`
@@ -138,7 +136,7 @@ export default function Story() {
       if (!down && !up) return
       e.preventDefault()
       const g = st.progress
-      const points = reduced ? SCENES.map((s, i) => s.start + REST[i] * (s.end - s.start)) : snapPoints()
+      const points = reduced ? SCENES.map((_, i) => builtAt(i)) : snapPoints()
       const target = down ? points.find((p) => p > g + 0.002) : [...points].reverse().find((p) => p < g - 0.002)
       if (target !== undefined) scrollToProgress(target)
     }
@@ -188,7 +186,7 @@ export default function Story() {
               type="button"
               className="dot"
               aria-current={scene === i ? 'step' : undefined}
-              onClick={() => scrollToProgress(s.start + (reduced ? REST[i] : 0) * (s.end - s.start))}
+              onClick={() => scrollToProgress(builtAt(i))}
             >
               <span className="dot__label">{s.label}</span>
               <span className="dot__mark" />
