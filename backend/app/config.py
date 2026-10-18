@@ -31,6 +31,7 @@ class Settings:
     port: int = 8787
     data_dir: Path = field(default=DATA_DIR)
     cors_origins: tuple[str, ...] = ("*",)
+    voice_relay_url: str = ""  # empty: no voice bridge, audio frames are only counted
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -41,4 +42,5 @@ class Settings:
             offline_escalation_sec=float(os.environ.get("FS_OFFLINE_ESCALATION_SEC", "120")),
             port=int(os.environ.get("FS_PORT", "8787")),
             data_dir=Path(os.environ.get("FS_DATA_DIR", str(DATA_DIR))),
+            voice_relay_url=os.environ.get("VOICE_RELAY_URL") or "ws://localhost:8790/ws",
         )

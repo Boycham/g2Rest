@@ -13,6 +13,7 @@ from app.contract import ContractError, check_backend, parse_glasses
 from app.orders import ToolError
 from app.state import Store
 from app.tasks import Outbound, TaskError
+from app.voice_bridge import VoiceBridge
 
 log = logging.getLogger("fs.hub")
 ROLES = ("server", "manager", "organizer")
@@ -28,10 +29,13 @@ class Conn:
 
 
 class Hub:
-    def __init__(self, store: Store) -> None:
+    def __init__(self, store: Store, voice_relay_url: str = "") -> None:
         self.store = store
         self.conns: dict[WebSocket, Conn] = {}
         self.last_capture: dict[WebSocket, str] = {}
+        self.voice = (
+            VoiceBridge(voice_relay_url, store, self.after_fire) if voice_relay_url else None
+        )
 
     # ---------- connections ----------
 
@@ -46,6 +50,8 @@ class Hub:
     def leave(self, ws: WebSocket) -> None:
         conn = self.conns.pop(ws, None)
         self.last_capture.pop(ws, None)
+        if self.voice:
+            self.voice.drop(ws)
         if conn:
             self.store.events.append("ws.close", role=conn.role, staff=conn.staff)
             log.info("[fs] ws close staff=%s (%d left)", conn.staff, len(self.conns))
@@ -139,6 +145,8 @@ class Hub:
             return
         cap.frames += 1
         cap.bytes += len(data)
+        if self.voice:
+            await self.voice.audio(ws, data)
         if cap.frames % AUDIO_LOG_EVERY == 0:
             log.info("[fs] audio frames: %d", cap.frames)
 
@@ -174,14 +182,25 @@ class Hub:
             case "capture.start":
                 cap = self.store.start_capture(msg.captureId, conn.staff, msg.table)
                 self.last_capture[conn.ws] = cap.id
+                await self.to_voice(conn, msg)
             case "capture.stop":
                 cap = self.store.stop_capture(msg.captureId)
                 if cap is not None:
                     log.info("[fs] audio frames: %d (capture %s closed)", cap.frames, cap.id)
+                await self.to_voice(conn, msg)
+            case "order.confirm" | "order.cancel_confirm" | "order.reject" if (
+                self.voice and self.voice.owns(conn.ws, msg.orderId)
+            ):
+                await self.to_voice(conn, msg)
             case "order.confirm":
                 await self.close_order(conn, msg.orderId, fire=True)
             case "order.cancel_confirm":
                 await self.close_order(conn, msg.orderId, fire=False)
+
+    async def to_voice(self, conn: Conn, msg: Any) -> None:
+        if self.voice:
+            send = lambda m: self._send(conn, m)  # noqa: E731
+            await self.voice.text(conn.ws, conn.staff, send, msg.model_dump(exclude_none=True))
 
     async def close_order(self, conn: Conn, order_id: str, *, fire: bool) -> None:
         order = self.store.orders.fire(order_id) if fire else self.store.orders.cancel(order_id)

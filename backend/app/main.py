@@ -53,7 +53,7 @@ class PlannerIn(BaseModel):
 def create_app(settings: Settings | None = None, store: Store | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = store or Store.from_settings(settings)
-    hub = Hub(store)
+    hub = Hub(store, settings.voice_relay_url)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
