@@ -16,6 +16,7 @@ import {
   watchLens,
 } from './telemetry'
 import type { EvenAppBridge } from '@evenrealities/even_hub_sdk'
+import { version as APP_VERSION } from '../app.json'
 
 const TOKEN = 'dev-token-123'
 
@@ -111,7 +112,7 @@ describe('startTelemetry', () => {
     if (process.env.SHOW_SENTRY_PAYLOAD) console.log(all)
     expect(all).toContain('swipe back')
     expect(all).toContain('"role":"server"')
-    expect(all).toContain('"app_version":"0.1.6"')
+    expect(all).toContain(`"app_version":"${APP_VERSION}"`)
     expect(all).toContain('"even_hub_sdk":"0.0.16"')
     expect(all).not.toContain(TOKEN)
     expect(all).not.toContain('SHELLFISH')
