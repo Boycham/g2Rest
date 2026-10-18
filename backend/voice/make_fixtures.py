@@ -62,7 +62,12 @@ CONVERSATIONS |= {
     "conv_questions": [
         (S, "Good evening, welcome in. How is everyone doing tonight?"),
         (G, "Great, thanks. It's my sister's birthday, so we're celebrating."),
-        (S, "Oh, happy birthday! Have you had a chance to look at the menu?"),
+        (S, "Oh, happy birthday! How old, if you don't mind me asking?"),
+        (G, "Thirty, but don't tell anyone. We drove in from Pasadena for this."),
+        (S, "Well, we're honored. The traffic must have been terrible tonight."),
+        (G, "It was awful, the freeway was a parking lot the whole way."),
+        (G, "Your patio looks lovely, by the way. Is it open in the winter?"),
+        (S, "It is, we have heaters out there. Have you had a chance to look at the menu?"),
         (G, "We have, but we're in a bit of a rush, we have a show at eight."),
         (S, "No problem at all, I'll keep things moving."),
         (G, "Is the mushroom risotto vegetarian?"),
