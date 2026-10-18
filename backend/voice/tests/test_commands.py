@@ -1,4 +1,4 @@
-from commands import Command, parse_commands, find_commands
+from commands import Command, find_commands, parse_commands
 
 
 def test_command_only_counts_right_after_the_wake_word():
@@ -46,5 +46,9 @@ def test_long_talk_after_the_wake_word_is_not_a_command():
 
 
 def test_menu_controls_and_queue():
-    assert find_commands("Verity menu. Verity controls. Verity, queue.") == ["menu", "menu", "queue"]
+    assert find_commands("Verity menu. Verity controls. Verity, queue.") == [
+        "menu",
+        "menu",
+        "queue",
+    ]
     assert find_commands("Is there a queue for the menu?") == []
