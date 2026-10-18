@@ -13,7 +13,7 @@ import { tap, type Queue } from './tasks'
 import { log } from './log'
 import { CARD_GESTURES, CARD_HINT, formatControls, nextControlsPage, tabAfter, type CardAction, type Tab } from './controls'
 import { handoffFrame, handoffPrompt } from './handoff'
-import { didntGet, voiceAction, type VoiceGesture } from './voice'
+import { didntGet, rejectionLine, voiceAction, type VoiceGesture } from './voice'
 
 /** How long `Heard: <command>` and refusal lines stay on the card. */
 const FLASH_MS = 3000
@@ -203,7 +203,7 @@ export class ServerHud implements Hud {
     if (msg.type === 'task.rejected') {
       if (msg.action === 'revert') this.revertSent = false
       log('<- task.rejected', msg.action, msg.taskId ?? '', msg.reason)
-      return this.flash(msg.reason)
+      return this.flash(rejectionLine(msg, this.queue.find(t => t.id === msg.taskId)))
     }
     if (msg.type === 'order.draft') {
       log('<-', msg.type, msg.orderId, msg.voice ?? '', `${msg.lines.length} lines`, `${msg.pending?.length ?? 0} pending`)
