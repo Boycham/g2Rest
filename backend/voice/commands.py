@@ -28,7 +28,9 @@ def words(text: str) -> list[str]:
 
 # Scribe inflects a clipped command ("Verity accepts", "Verity clipped", "Verity confirmed").
 SUFFIXES = ("", "s", "ed", "d")
-INFLECTED = {"clipped": "clip"}
+# Realtime Scribe hears "Verity, done." as "Verity Dunn." (a surname after a first name), 2/2
+# times in the noise test; nothing else needed a variant.
+INFLECTED = {"clipped": "clip", "dunn": "done", "dun": "done"}
 
 
 def command_of(word: str) -> str | None:

@@ -16,3 +16,7 @@ def test_inflections_scribe_produces_still_match():
         "confirm",
     ]
     assert find_commands("verity upped downs") == []
+
+
+def test_realtime_spelling_of_done():
+    assert find_commands("Verity Dunn.") == ["done"]
