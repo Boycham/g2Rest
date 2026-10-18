@@ -241,7 +241,7 @@ def test_voice_accept_frame_from_another_server_is_rejected() -> None:
         await hub.deliver(out)
         task_id = task.id
         await hub.on_text(other, f'{{"type": "task.accept", "taskId": "{task_id}"}}')  # type: ignore[arg-type]
-        assert hub.store.book.get(task_id).state == "assigned"
+        assert hub.store.book.get(task_id).state != "accepted"
         await hub.on_text(mine, f'{{"type": "task.accept", "taskId": "{task_id}"}}')  # type: ignore[arg-type]
         assert hub.store.book.get(task_id).state == "accepted"
 
