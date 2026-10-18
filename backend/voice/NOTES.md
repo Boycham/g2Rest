@@ -355,6 +355,24 @@ early reflections), level is babble vs command. Each column is 2 runs (28 comman
 - **False triggers: 0** in every run, before and after: 59 s conversation, near misses, babble alone at
   -12/-6/-3/0/+3 dB. With the gate, realtime committed "Verity is my sister's name" as its own segment,
   which went to Gemini as an unknown; `ABOUT_VERITY` ("is", "was", "said", ...) now drops it.
+**Repeated, current defaults** (3 full runs of `noise_test.py`, 28 commands per level each; the babble
+mix uses fixed seeds, so the spread is Scribe's run-to-run variation on the same audio):
+
+| Babble level | run 1 | run 2 | run 3 | all runs |
+|---|---|---|---|---|
+| clean | 28/28 | 28/28 | 28/28 | 84/84 (100%) |
+| -12 dB | 28/28 | 28/28 | 28/28 | 84/84 (100%) |
+| -6 dB | 28/28 | 28/28 | 28/28 | 84/84 (100%) |
+| -3 dB | 21/28 | 21/28 | 22/28 | 64/84 (76%, 75-79% per run) |
+| 0 dB | 2/28 | 2/28 | 2/28 | 6/84 (7%) |
+| +3 dB | 0/28 | 0/28 | 0/28 | 0/84 |
+| false triggers (conversation, near misses, babble at every level) | 0 | 0 | 0 | 0 |
+| end of command → Heard, clean, median of 5 | 1.02 s | 1.03 s | 1.03 s | 1.02-1.03 s |
+| same, babble -12 dB | 1.10 s | 1.05 s | 1.14 s | 1.05-1.14 s |
+
+A separate re-run on main (Boyuan, Oct 18) got 28/28/27/26/9/1 of 28 at clean/-12/-6/-3/0/+3 dB, 0 false
+triggers, about 1.05 s: same picture, and -3 dB and 0 dB vary the most between days.
+
 - 0 dB and louder still fail: when a talker a metre away is as loud at the mic as the wearer, a level
   gate can't separate them. HW-PENDING: the -22 dBFS gate is relative to our TTS level; it needs
   checking against real G2 mic levels (wearer vs a guest at 1 m) in a loud room.
@@ -385,8 +403,42 @@ second loudest if the loudest (the wearer, at the mic) is 6+ dB above it. Speake
 `VOICE_CLIP_QUIET_DB` (6) below it, or 3+ dB below with under 20% of the top speaker's words, are dropped
 as another table. Test: `tests/test_relay.py` two-table fixture (no network).
 
+Each kept line is also measured: one more than `VOICE_CLIP_QUIET_LINE_DB` (4) below the reference goes to
+the agent as `speaker_N (quiet): ...`, and the clip message says a (quiet) line is almost always another
+table, so add nothing from it unless an unmarked line orders the same dish (`off` disables). It's a hint,
+not a drop: our dish lines measured up to 3.5 dB below the reference, the neighbours' from about 4 dB.
+
 Live (`clip_test.py`, 20 s clip: wearer + 4 guests ordering 5 dishes, a second table 10 dB quieter and
-"far" ordering duck/ribeye/risotto/pork belly), 5 runs each:
+"far" ordering duck/ribeye/risotto/pork belly). **20 fresh takes per condition** (`--takes 20 --runs 1`:
+every take is its own TTS rendering with the neighbours shifted -0.5 to +0.5 s, then its own Scribe and
+agent call). Re-scoring one cached clip 20 times is not a spread: Scribe diarizes the same audio the same
+way, which is how one clip gave 0/5 in the first table below and a re-run gave 2/5. Rates with a Wilson
+95% interval:
+
+| Oct 18, 20 takes each | leak runs | our dishes kept | batch Scribe median [range] | clip stop → draft median [range] |
+|---|---|---|---|---|
+| main, wearer = guests | 3/20 (5-36%) | 60/60 | 1.27 s [0.98-1.63] | 3.12 s [2.76-3.64] |
+| main, wearer +12 dB | 5/20 (11-47%) | 60/60 | 1.33 s [1.01-2.02] | 3.24 s [2.84-4.05] |
+| main, both | **8/40 (10-35%)** | **120/120** | | |
+| (quiet) lines, wearer = guests | 2/20 (3-30%) | 59/60 | 1.26 s [0.90-2.28] | 3.07 s [2.64-4.26] |
+| (quiet) lines, wearer +12 dB | 2/20 (3-30%) | 60/60 | 1.37 s [0.94-1.67] | 3.20 s [2.73-3.64] |
+| (quiet) lines, both | **4/40 (4-23%)** | **119/120** | | |
+
+- Every leak on main was a neighbour sentence Scribe gave a kept label: either a guest's label, or a
+  neighbour speaker only 4-6 dB down (speaker margins in leaking runs: 0-5.9 dB, so under the 6 dB
+  rule). Tightening the speaker rule doesn't fix it: in offline re-scoring of the 40 takes, 5 dB went
+  6 → 4 transcript leaks but lost an own dish mention, 4 dB 6 → 3 and lost two.
+- With the (quiet) hint the agent ordered from none of the (quiet) lines (an earlier, softer note still let
+  "mushroom risotto for the table" through: 4/40 too, with 2 leaks from tagged lines). The 4 leaks left
+  are untagged: the neighbour line overlapped our guests (so it measured loud) or sat 2-4 dB down.
+- The one lost dish (take 19, wearer = guests, both (quiet) runs) is the unchanged speaker rule, not the
+  hint (which never removes a line): Scribe put the halibut guest's line, itself only 2.0 dB below the
+  reference, under a quieter neighbour label, and `other_tables()` dropped that speaker. 10 more Scribe
+  calls on that take kept the line in only 4/10, so main loses it too (main's one call on take 19 got a
+  good labelling). Keeping loud lines of dropped speakers would save it, but in the same 80 runs it
+  would bring back 7 neighbour lines (overlaps that measure loud), so it's left as is. HW-PENDING: how
+  often real diarization merges a guest into the next table's label.
+- Old single clips (Oct 17, one cached clip re-scored 5 times, kept for history):
 
 | | leaks (runs with a neighbour dish) | our dishes kept | batch Scribe median | clip stop → draft median |
 |---|---|---|---|---|

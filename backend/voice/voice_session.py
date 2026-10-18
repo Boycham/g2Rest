@@ -456,7 +456,14 @@ def speaker_turns(words: list[dict[str, Any]]) -> list[tuple[str, str]]:
     """Scribe batch words -> [(speaker, text)]: a new line at every change of speaker label
     and at every pause of TURN_GAP_SECS. Guests who sound alike share a label, so the pauses
     are what keeps one guest's order apart from the next one's."""
-    turns: list[tuple[str, str]] = []
+    return [(s, text) for s, text, _ in speaker_turn_spans(words)]
+
+
+def speaker_turn_spans(
+    words: list[dict[str, Any]],
+) -> list[tuple[str, str, list[tuple[float, float]]]]:
+    """speaker_turns() with each line's word spans in seconds."""
+    turns: list[tuple[str, str, list[tuple[float, float]]]] = []
     last_end: float | None = None
     for w in words:
         if w.get("type") == "audio_event":
@@ -470,13 +477,15 @@ def speaker_turns(words: list[dict[str, Any]]) -> list[tuple[str, str]]:
             and last_end is not None
             and start - last_end >= TURN_GAP_SECS
         )
-        if w.get("type") == "word" and isinstance(w.get("end"), int | float):
+        timed = w.get("type") == "word" and isinstance(w.get("end"), int | float)
+        if timed:
             last_end = float(w["end"])
+        span = [(float(start), float(w["end"]))] if timed and isinstance(start, int | float) else []
         if turns and turns[-1][0] == speaker and not paused:
-            turns[-1] = (speaker, turns[-1][1] + text)
+            turns[-1] = (speaker, turns[-1][1] + text, turns[-1][2] + span)
         elif text.strip():
-            turns.append((speaker, text.strip()))
-    return [(s, " ".join(t.split())) for s, t in turns if t.strip()]
+            turns.append((speaker, text.strip(), span))
+    return [(s, " ".join(t.split()), sp) for s, t, sp in turns if t.strip()]
 
 
 # Neighbouring tables: Scribe's diarization labels them as their own speakers, and they are
@@ -489,6 +498,16 @@ def speaker_turns(words: list[dict[str, Any]]) -> list[tuple[str, str]]:
 _quiet = os.environ.get("VOICE_CLIP_QUIET_DB", "6").strip().lower()
 CLIP_QUIET_DB: float | None = None if _quiet in ("off", "none", "") else float(_quiet)
 CLIP_FEW_WORDS = 0.2
+# Diarization sometimes gives a neighbour's sentence a kept speaker's label, so each kept line is
+# also measured: one CLIP_QUIET_LINE_DB below the reference goes to the agent as
+# "speaker_N (quiet)", for it to drop unless the table's own talk refers to it. A hint, not a
+# drop: in clip_test.py our own dish lines measured up to 3.5 dB below and the neighbours'
+# from about 4 dB, too close to cut. VOICE_CLIP_QUIET_LINE_DB=off turns the hint off.
+_quiet_line = os.environ.get("VOICE_CLIP_QUIET_LINE_DB", "4").strip().lower()
+CLIP_QUIET_LINE_DB: float | None = (
+    None if _quiet_line in ("off", "none", "") else float(_quiet_line)
+)
+QUIET_TAG = " (quiet)"
 CLIP_WEARER_GAP_DB = 6.0
 LEVEL_FRAME = 800  # 50 ms
 
@@ -523,6 +542,15 @@ def speaker_levels(words: list[dict[str, Any]], pcm: bytes) -> dict[str, tuple[i
     return {s: (len(sp), span_dbfs(pcm, sp)) for s, sp in spans.items()}
 
 
+def reference_db(
+    levels: dict[str, tuple[int, float]], wearer_gap: float = CLIP_WEARER_GAP_DB
+) -> float:
+    """The table's level: the loudest speaker, or the second loudest when the loudest (the
+    wearer) stands out by wearer_gap."""
+    loud = sorted((db for _, db in levels.values()), reverse=True)
+    return loud[1] if len(loud) >= 3 and loud[0] - loud[1] >= wearer_gap else loud[0]
+
+
 def other_tables(
     levels: dict[str, tuple[int, float]],
     quiet_db: float | None = None,
@@ -533,8 +561,7 @@ def other_tables(
     quiet_db = CLIP_QUIET_DB if quiet_db is None else quiet_db
     if quiet_db is None or len(levels) < 2:
         return set()
-    loud = sorted((db for _, db in levels.values()), reverse=True)
-    ref = loud[1] if len(loud) >= 3 and loud[0] - loud[1] >= wearer_gap else loud[0]
+    ref = reference_db(levels, wearer_gap)
     most = max(n for n, _ in levels.values())
     return {
         s
@@ -548,9 +575,15 @@ def clip_turns(
 ) -> tuple[list[tuple[str, str]], set[str]]:
     """A batch Scribe response -> (speaker turns for the clip agent, dropped speakers)."""
     words = body.get("words") or []
-    dropped = other_tables(speaker_levels(words, pcm)) if drop_other_tables else set()
+    levels = speaker_levels(words, pcm)
+    dropped = other_tables(levels) if drop_other_tables else set()
     kept = [w for w in words if str(w.get("speaker_id") or "speaker") not in dropped]
-    turns = speaker_turns(kept)
+    hint = CLIP_QUIET_LINE_DB if drop_other_tables and levels else None
+    ref = reference_db(levels) if hint is not None else 0.0
+    turns = [
+        (s + QUIET_TAG if hint is not None and sp and span_dbfs(pcm, sp) < ref - hint else s, t)
+        for s, t, sp in speaker_turn_spans(kept)
+    ]
     if not turns and not words and body.get("text", "").strip():
         turns = [("speaker", body["text"].strip())]
     return turns, dropped

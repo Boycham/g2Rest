@@ -28,6 +28,7 @@ from gemini_intent import IntentUnavailable, map_words
 from order import UNKNOWN_TABLE, Menu, OrderBook, ToolError, floor_tables
 from voice_session import (
     FRAME_BYTES,
+    QUIET_TAG,
     AgentSession,
     ScribeStream,
     frame_dbfs,
@@ -128,7 +129,14 @@ def clip_message(turns: list[tuple[str, str]], book: OrderBook) -> str:
         f"table {t} ({whence[book.table_source]})" if t and book.table_source else "not known yet"
     )
     lines = "\n".join(f"{speaker}: {text}" for speaker, text in turns)
-    return f"CLIP, last 2 minutes at the table, oldest first. Table: {where}.\n{lines}"
+    quiet = (
+        " A line marked (quiet) was much quieter at the glasses than this table: it is"
+        " almost always a guest at another table, even when it says 'for the table'. Add"
+        " nothing from a (quiet) line unless an unmarked line orders the same dish."
+        if any(speaker.endswith(QUIET_TAG) for speaker, _ in turns)
+        else ""
+    )
+    return f"CLIP, last 2 minutes at the table, oldest first. Table: {where}.{quiet}\n{lines}"
 
 
 def proposal_text(book: OrderBook, p: dict[str, Any]) -> str:

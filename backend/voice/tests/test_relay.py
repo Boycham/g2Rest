@@ -733,6 +733,25 @@ async def test_the_speaker_labels_are_what_keeps_the_other_table_out():
     assert "ribeye" in dishes
 
 
+@run
+async def test_a_quiet_line_under_a_table_label_is_marked_for_the_agent():
+    _, heard = await two_table_draft(same_label=True)  # diarization merged both tables
+    assert "speaker_0 (quiet): And the duck breast." in heard  # its own line, after a pause
+    assert "speaker_0: I'll have the halibut" in heard  # the loud line isn't marked
+    assert "marked (quiet)" in heard.splitlines()[0]
+    _, heard = await two_table_draft()  # the quiet speaker dropped: nothing left to mark
+    assert "(quiet)" not in heard
+
+
+def test_quiet_line_hint_can_be_turned_off(monkeypatch):
+    import voice_session
+    from voice_session import clip_turns
+
+    body, pcm = two_table_clip(same_label=True)
+    monkeypatch.setattr(voice_session, "CLIP_QUIET_LINE_DB", None)
+    assert all(s == "speaker_0" for s, _ in clip_turns(body, pcm)[0])
+
+
 def test_other_tables_rule():
     from voice_session import other_tables
 
