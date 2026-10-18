@@ -58,6 +58,7 @@ CMD_VAD_THRESHOLD = env_float("VOICE_CMD_VAD_THRESHOLD", 0.6)
 CMD_GATE_DBFS = env_float("VOICE_CMD_GATE_DBFS", -22.0)
 CMD_GATE_HOLD = int(env_float("VOICE_CMD_GATE_HOLD", 3) or 0)
 CMD_KEYTERMS = os.environ.get("VOICE_CMD_KEYTERMS", "on").strip().lower() != "off"
+CMD_FILTER_BG = os.environ.get("VOICE_CMD_FILTER_BG", "on").strip().lower() != "off"
 
 
 class LoudnessGate:
@@ -681,6 +682,7 @@ def live_cmd_stt(
         on_partial,
         on_committed,
         vad_threshold=CMD_VAD_THRESHOLD,
+        filter_background=CMD_FILTER_BG,
         keyterms=keyterms() if CMD_KEYTERMS else (),
     )
 
