@@ -14,16 +14,19 @@ import { tap, type Queue } from './tasks'
 import { log } from './log'
 import { CONTROLS, CONTROLS_HINT, MAIN_GESTURES, formatControls, moveSelection, type ControlAction } from './controls'
 import { handoffFrame, handoffPrompt } from './handoff'
+import { PROCESSING, Ticker, dots } from './busy'
 import { didntGet, tableLine, voiceAction, type VoiceGesture } from './voice'
 
 /** How long `Heard: <command>` and refusal lines stay on the card. */
 const FLASH_MS = 3000
+/** Gemini's own timeout is 2 s; past this the relay is gone and the words show as not got. */
+const MAPPING_TIMEOUT_MS = 5000
 
 type Screen = 'card' | 'queue' | 'draft' | 'controls'
 
 /**
  * The server HUD: one task card, the queue, and the order draft. While the server role is on
- * the glasses the mic runs into a rolling buffer of the last 60 s (memory only); swipe back
+ * the glasses the mic runs into a rolling buffer of the last 120 s (memory only); swipe back
  * sends that minute as a clip and opens the draft the backend makes of it.
  */
 export class ServerHud implements Hud {
@@ -40,6 +43,10 @@ export class ServerHud implements Hud {
   private nextFixture = 0
   private commandId: string | null = null
   private heard: { text: string; timer: ReturnType<typeof setTimeout> } | null = null
+  private mapping: { words: string; timer: ReturnType<typeof setTimeout> } | null = null
+  private readonly mappingTicker = new Ticker(() => {
+    if (this.current !== 'draft') void this.card.render()
+  })
   private popup: { taskId: string; name?: string } | null = null
   private selected = 0
   /** task.revert is in flight: the next task update is its answer. */
@@ -61,7 +68,7 @@ export class ServerHud implements Hud {
     if (this.fixtures.length) log('DEBUG PCM path on:', this.fixtures.join(','))
   }
 
-  /** True while the last minute is being kept (mic on, or a debug fixture loaded). */
+  /** True while the last 2 minutes are being kept (mic on, or a debug fixture loaded). */
   get recording(): boolean {
     return this.mic.isOpen || (this.fixtures.length > 0 && this.buffer.frames > 0)
   }
@@ -79,7 +86,7 @@ export class ServerHud implements Hud {
       return
     }
     const ok = await this.mic.set(true)
-    log('rolling buffer', ok ? 'recording (last 60 s, memory only)' : 'mic did not open')
+    log('rolling buffer', ok ? 'recording (last 120 s, memory only)' : 'mic did not open')
     this.openCommandStream()
     this.ctx.syncPhone()
   }
@@ -136,6 +143,7 @@ export class ServerHud implements Hud {
 
   private banner(): string | undefined {
     if (this.popup && this.queue[0]?.id === this.popup.taskId) return handoffPrompt(this.popup.name)
+    if (this.mapping) return dots(PROCESSING, this.mappingTicker.tick)
     return this.heard?.text
   }
 
@@ -195,6 +203,8 @@ export class ServerHud implements Hud {
   }
 
   onMessage(msg: BackendMessage): void {
+    if (msg.type === 'voice.mapping') return this.setMapping(msg.words)
+    if (msg.type === 'voice.command' || msg.type === 'voice.unknown') this.setMapping(null)
     if (msg.type === 'voice.command') return this.onVoiceCommand(msg)
     if (msg.type === 'alert') {
       if (this.out86.apply(msg)) void this.card.render()
@@ -255,7 +265,7 @@ export class ServerHud implements Hud {
     return head?.kind === 'ORDER' && head.state === 'accepted' ? head.table : undefined
   }
 
-  /** Swipe back: clip the last minute, send it, show the draft. */
+  /** Swipe back: clip the last 2 minutes, send it, show the draft. */
   private async sendClip(): Promise<void> {
     const frames = this.buffer.clip()
     if (this.current !== 'draft') await this.showScreen('draft')
@@ -365,6 +375,23 @@ export class ServerHud implements Hud {
     if (action === 'queue') return void this.showScreen('queue')
     if (action === 'clip') return void this.sendClip()
     this.openHandoff()
+  }
+
+  /** `Verity: processing...` in the banner (card) or the bar (draft) while Gemini maps `words`. */
+  private setMapping(words: string | null): void {
+    if (this.mapping) clearTimeout(this.mapping.timer)
+    this.mapping = null
+    if (words !== null) {
+      log('<- voice.mapping')
+      const timer = setTimeout(() => {
+        this.setMapping(null)
+        this.flash(didntGet(words, 'timeout'))
+      }, MAPPING_TIMEOUT_MS)
+      this.mapping = { words, timer }
+    }
+    this.mappingTicker.set(this.mapping !== null)
+    this.capture.setMapping(this.mapping !== null)
+    if (this.current !== 'draft') void this.card.render()
   }
 
   private flash(text: string): void {

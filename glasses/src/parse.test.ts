@@ -11,6 +11,11 @@ describe('parseBackendMessage', () => {
     expect(parseBackendMessage(JSON.stringify({ ...ok, table: 4 }))).toBeNull()
   })
 
+  it('accepts voice.mapping with its words only', () => {
+    expect(parseBackendMessage(JSON.stringify({ type: 'voice.mapping', words: 'sing' }))).toEqual({ type: 'voice.mapping', words: 'sing' })
+    expect(parseBackendMessage(JSON.stringify({ type: 'voice.mapping' }))).toBeNull()
+  })
+
   it('accepts a valid task.assigned', () => {
     const msg = { type: 'task.assigned', task: makeTask() }
     expect(parseBackendMessage(JSON.stringify(msg))).toEqual(msg)

@@ -116,7 +116,7 @@ export interface CaptureStart {
   /** Table of the card on screen, when known; otherwise the backend uses the server's current card. */
   table?: string
   /**
-   * `clip`: the frames that follow are the last minute from the glasses' rolling buffer, sent
+   * `clip`: the frames that follow are the last 2 minutes from the glasses' rolling buffer, sent
    * as fast as possible; `capture.stop` ends the clip and the backend transcribes and extracts
    * it in one go. Absent or `stream`: live mic frames (the earlier capture path).
    */
@@ -341,6 +341,12 @@ export interface VoiceUnknown {
   reason?: string
 }
 
+/** Gemini is mapping these words after "verity"; a voice.command or voice.unknown follows. */
+export interface VoiceMapping {
+  type: 'voice.mapping'
+  words: string
+}
+
 /** A full snapshot of every table (not a diff); sent on connect and on every change. */
 export interface FloorState {
   type: 'floor.state'
@@ -356,5 +362,6 @@ export type BackendMessage =
   | FloorState
   | OrderClosed
   | VoiceCommand
+  | VoiceMapping
   | VoiceUnknown
   | TaskRejected

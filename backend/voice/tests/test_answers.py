@@ -132,4 +132,16 @@ def test_set_talk_keeps_set_orders_guest_numbers_and_a_new_clip_clears_it():
     book.dispatch(
         "set_order", {"items": [{"guest": 1, "dish": "halibut"}, {"guest": 2, "dish": "salmon"}]}
     )
+    assert t.summary == "Quick lunch"
+    book.hear("halibut salmon")
     assert (t.summary, t.answers) == ("", [])
+
+
+def test_set_talk_landing_before_set_order_survives_it_and_its_table_bind():
+    book = OrderBook(Menu.load())
+    book.hear("table four halibut we're celebrating")
+    book.dispatch("set_talk", {"summary": "Celebrating tonight.", "questions": []})
+    assert book.tables[0].summary == "Celebrating tonight"
+    book.dispatch("set_order", {"table": 4, "items": [{"guest": 1, "dish": "halibut"}]})
+    assert book.tables[4].summary == "Celebrating tonight"
+    assert 0 not in book.tables

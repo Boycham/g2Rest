@@ -1,7 +1,7 @@
 """Create the text-only order agent and its client tools via the ElevenLabs API.
 
 Usage: python create_agent.py [--mode clip|talk|stream] [--llm gemini-2.5-flash] [--dry-run]
-`clip` (default): the conversational-capture agent, one set_order call per minute-long clip.
+`clip` (default): the conversational-capture agent, one set_order call per 2-minute clip.
 `talk`: the clip's second agent, run in parallel: one set_talk call (summary and the guests'
 questions) per clip. Writes .talk_agent_id.
 `stream`: the earlier per-segment agent used by run_spike.py.
@@ -56,7 +56,7 @@ Rules:
   table or seat is genuinely unknown."""
 
 
-CLIP_PROMPT = """You read the transcript of the last minute at one restaurant table, picked up
+CLIP_PROMPT = """You read the transcript of the last two minutes at one restaurant table, picked up
 by the server's smart glasses: the server, the guests, and sometimes people at nearby tables.
 Speaker labels come from voice diarization and may be wrong. Speech-to-text may mishear words.
 
@@ -85,7 +85,7 @@ For every clip, call set_order exactly once with the complete order for this tab
   tool call, reply with "ok" only."""
 
 
-TALK_PROMPT = """You read the transcript of the last minute at one restaurant table, picked up
+TALK_PROMPT = """You read the transcript of the last two minutes at one restaurant table, picked up
 by the server's smart glasses: the server, the guests, and sometimes people at nearby tables.
 Speaker labels come from voice diarization and may be wrong. Speech-to-text may mishear words.
 Another agent takes the order; you only report what the table said, for the server to glance at.

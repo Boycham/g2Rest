@@ -38,7 +38,7 @@
 - **Root-page double tap must call `shutDownPageContainer(1)`.** `0` or a custom exit screen gets the app
   auto-rejected.
 - IMU gives raw x/y/z only. A head-nod confirm would need our own detection, active only while a task waits.
-- Floor Sense mapping (`glasses/src/controls.ts`): tap = accept, tap again = done; swipe back = clip the last minute
+- Floor Sense mapping (`glasses/src/controls.ts`): tap = accept, tap again = done; swipe back = clip the last 2 minutes
   as an order; swipe fwd = Controls menu (queue inside); long press = handoff popup; double tap = exit.
 
 ## Rendering

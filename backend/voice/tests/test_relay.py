@@ -242,7 +242,7 @@ async def test_new_order_after_send(relay):
     await session.close()
 
 
-# ---- clip mode: the last minute from the glasses' rolling buffer ----
+# ---- clip mode: the last 2 minutes from the glasses' rolling buffer ----
 
 
 class ClipAgent(FakeAgent):
@@ -351,7 +351,7 @@ async def test_small_talk_clip_adds_nothing_and_says_so():
     session, sent, _ = clip_relay(order=None, turns=(("speaker_0", "How was the theater?"),))
     await send_clip(session)
     assert sent[-1]["lines"] == [] and sent[-1]["voice"] == "idle"
-    assert sent[-1]["notice"] == "no order heard in the last minute"
+    assert sent[-1]["notice"] == "no order heard in the last 2 min"
     await session.close()
 
 
@@ -454,7 +454,10 @@ async def test_unknown_words_after_the_wake_word_go_to_gemini_or_show_didnt_get(
         assert sent[-1] == {"type": "voice.command", "intent": "handoff", "name": "Ben"}
         streams[0].on_committed("Verity, sing.", 0.0)
         await settle()
-        assert sent[-1] == {"type": "voice.unknown", "words": "sing"}
+        assert sent[-2:] == [
+            {"type": "voice.mapping", "words": "sing"},
+            {"type": "voice.unknown", "words": "sing"},
+        ]
         streams[0].on_committed("Verity, sing louder.", 0.0)
         await settle()
         assert sent[-1] == {"type": "voice.unknown", "words": "sing louder", "reason": "timeout"}

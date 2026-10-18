@@ -270,6 +270,13 @@ class VoiceCommand(Strict):
     reason: str | None = None
 
 
+class VoiceMapping(Strict):
+    """New: Gemini is mapping these words after "verity"; voice.command or voice.unknown follows."""
+
+    type: Literal["voice.mapping"]
+    words: str
+
+
 class VoiceUnknown(Strict):
     """New: words after "verity" that neither the word list nor Gemini could map."""
 
@@ -339,6 +346,7 @@ BackendMessageExt = Annotated[
     | FloorStateExt
     | OrderClosed
     | VoiceCommand
+    | VoiceMapping
     | VoiceUnknown
     | TaskRejected,
     Field(discriminator="type"),

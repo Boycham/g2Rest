@@ -179,7 +179,7 @@ mono, `language_code`, `diarize`, `tag_audio_events`), and the realtime referenc
 
 - **English is pinned** in both Scribe paths (`language_code=en`): a real-G2 test transcribed bystanders and
   once switched to Turkish.
-- `relay.py`: `capture.start{mode:"clip", table?}` buffers frames in memory (max 62 s), `capture.stop` runs
+- `relay.py`: `capture.start{mode:"clip", table?}` buffers frames in memory (max 122 s), `capture.stop` runs
   `transcribe_clip` (one batch call, diarized; lines split at speaker changes and 0.6 s pauses), then one
   agent turn. The clip bytes are dropped once sent to Scribe; nothing is written to disk.
 - Clip agent (`create_agent.py`, default): one client tool, `set_order(table?, items[{guest, seat?, dish, qty,
@@ -228,9 +228,7 @@ of 5; same relay, same agents):
 | 60 s (`conv_questions`) | 1.69 s | 3.83 s | 4.62 s |
 | **120 s (`conv_2min`)** | **2.51 s** | **4.13 s** | **5.05 s** |
 
-### 2-minute clip (owner, 2026-10-18): measured, held back on `devin/clip-2min`
-
-Not in this branch: the clip stays 60 s until the owner accepts the latency below.
+### 2-minute clip (owner, 2026-10-18; branch `devin/clip-2min`)
 
 
 - `conv_2min` (120.0 s, 3.84 MB): 17.8 s of small talk from `conv_task`, then `conv_answers_only`,
@@ -272,7 +270,8 @@ Unknown words right after "verity" (at most 5; longer is ordinary speech and ign
 `FS_INTENT_TIMEOUT_SEC` timeout, default 2 s, structured JSON)
 with only that short phrase. Code checks the answer is one of the fixed intents and a handoff name is
 one plain word; anything else, a timeout or no key becomes `voice.unknown {words, reason?}` and the
-glasses show `Didn't get: <words>`. Realtime Scribe wrote the TTS "verity queue" as "Verity Q" (2/2 in
+glasses show `Didn't get: <words>`. Before the Gemini call the relay sends `voice.mapping {words}`, so the
+glasses show `Verity: processing...` while it waits. Realtime Scribe wrote the TTS "verity queue" as "Verity Q" (2/2 in
 the simulator run), so `q`/`cue` count as queue after the wake word.
 
 ### Gemini intent call: why it was slow, and what changed

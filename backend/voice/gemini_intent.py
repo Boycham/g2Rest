@@ -27,7 +27,7 @@ INSTRUCTIONS = """A restaurant server wearing smart glasses said "verity" (the w
 words in the user turn. Pick the one glasses action they meant, or "none" if it is not a request to
 the glasses. Actions: up (swipe up), down (swipe down), menu (open the controls menu), queue (show the task
 queue), back (previous screen / close the menu), confirm (yes / send it / pick), clip (clip the
-last minute of the order), accept (take the task), decline (refuse the task), done (finished the
+last 2 minutes of the order), accept (take the task), decline (refuse the task), done (finished the
 task), handoff (give the task to someone else; set name if they said who), nevermind (cancel
 what is pending), revert (undo the last action)."""
 
