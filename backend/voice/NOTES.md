@@ -489,5 +489,14 @@ confirm it with a tap, so a misheard clip never creates a task.
   clear it). Both clip prompts now say: call the tool with empty lists, never write text.
 - Keyterms: + check, bill, bread, water, refill, seated, free, paid = 49 of the 50 realtime terms (every dish
   still fits).
+- Simulator run (2026-10-18, real backend + relay + Scribe, TTS fixtures): clip "table 2 wants the
+  check" -> `Request: CHECK T2? tap` -> tap -> CHECK T2 routed to Ava (s1), on the Organizer dispatch
+  board. By verity: "table two wants the check" (CHECK T2 routed), "T4, seated, four" (T4 seated),
+  "table five is free", "table two paid" (T2 -> empty); every status change is in `/events` with
+  `by: s1` and the floor tile updated live.
+- Surprise: the ElevenLabs TTS fixtures sit at -22 to -30 dBFS, right at the relay's -22 dBFS command
+  gate, so Scribe committed "Verity, table two wants..." and "Verity, T4, C4." (quiet words gated to
+  silence). That cut-off used to set the draft's table; now any words after "verity table N" in the
+  same clause skip set-table. With +10 dB fixtures (a close-talk mic level) all four came through.
 - HW-PENDING: Scribe on a real G2 for "wants the check" in restaurant noise; the agents' new prompts
   only take effect after `create_agent.py --update` for the clip and talk agents.
