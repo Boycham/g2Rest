@@ -167,9 +167,26 @@ alteration -> `flagged`, never applied; allergy conflicts reported; confirm/canc
 - `main` merged the voice spike while this branch was open; `data/menu.json` is a superset of
   `backend/voice/menu.json` (same 8 dishes + 5 more), so Coder B can switch the path without data changes.
 
+## Hosted on Vultr (Oct 18)
+
+`backend/deploy/` (see its README) runs the backend, the voice relay and `web/` on one Vultr server
+in Los Angeles behind Caddy, at `https://<ip-with-dashes>.sslip.io` with a Let's Encrypt
+certificate. Checked from a laptop on the venue network after the first deploy:
+
+- `GET /health` open; `GET /state` without the token -> 401, with it -> 200; `/ws` with a wrong
+  token is closed with 4401. Backend (8787) and relay (8790) listen on localhost only; `ufw` allows
+  22, 80 and 443.
+- `POST /tasks` -> `task.assigned` on an organizer socket over wss: median 20 ms over 5 (35 ms first).
+- Organizer and Kitchen pages from `https://<host>/app/...?token=` in headless Chrome: all three
+  tabs live, dispatch in one organizer tab -> row in the other 145 ms, no console errors.
+- The relay started and listens; a clip through it on the server is not tested yet (needs the
+  glasses or the simulator pointed at the server).
+
 ## HW-PENDING
 
 - The glasses app on real G2 against this server (only the simulator path is documented above).
+- The real G2 against the Vultr host: needs `VITE_BACKEND_URL`, `VITE_FS_TOKEN` and the host in
+  `glasses/app.json` (Coder B), then a new `.ehpk`.
 - 3200-byte audio frames from the real mic: only counted today (`[fs] audio frames: N`), relay is B's 7b.
 - WebSocket reconnect after the Even Hub background reload: the backend re-sends open tasks on connect
   (`send_current_state`), not tested from a real phone.
