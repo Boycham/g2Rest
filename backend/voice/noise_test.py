@@ -297,6 +297,46 @@ def false_triggers(commits, soundalikes: bool):
     ]
 
 
+async def heard_latency(fx: Fixtures, cfg: Config, level_db: float | None, n: int = 5):
+    """End of command -> voice.command sent, through RelaySession like the glasses' stream."""
+    import relay as relay_mod
+    from relay import RelaySession
+
+    relay_mod.CMD_GATE_DBFS, relay_mod.CMD_GATE_HOLD = cfg.gate, cfg.hold
+    pcm, expected = command_run(fx, level_db, seed=7)
+    expected = expected[:n]
+    pcm = pcm[: int((expected[-1][3] + WINDOW + 0.5) * SR) * 2]
+    heard: list[tuple[float, Command]] = []
+
+    async def send(msg: dict) -> None:
+        if msg.get("type") == "voice.command":
+            table = int(str(msg["table"])[1:]) if msg.get("table") else None
+            heard.append((time.monotonic(), Command(msg["intent"], msg.get("name"), table)))
+
+    def make_cmd_stt(p, c):
+        return ScribeStream(p, c, vad_threshold=cfg.vad,
+                            keyterms=keyterms() if cfg.keyterms else (), filter_background=cfg.fbg)  # fmt: skip
+
+    async def no_clip(clip: bytes) -> list[tuple[str, str]]:
+        return []
+
+    session = RelaySession(
+        send, make_cmd_stt, lambda b, t: None, no_clip, make_cmd_stt=make_cmd_stt
+    )  # type: ignore[arg-type,return-value]
+    await session.handle_text('{"type": "capture.start", "captureId": "lat", "mode": "command"}')
+    start = time.monotonic()
+    for k in range(0, len(pcm), FRAME_BYTES):
+        await asyncio.sleep(max(0.0, start + k / 2 / SR - time.monotonic()))
+        await session.audio(pcm[k : k + FRAME_BYTES])
+    await asyncio.sleep(1.0)
+    await session.close()
+    lats = []
+    for word, match, t0, end in expected:
+        hit = next((t - start - end for t, c in heard if match(c) and t0 <= t - start), None)
+        lats.append(round(hit, 2) if hit is not None else None)
+    return lats
+
+
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--keyterms", action="store_true")
@@ -307,10 +347,18 @@ async def main() -> None:
     ap.add_argument("--repeat", type=int, default=2)
     ap.add_argument("--concurrency", type=int, default=8)
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--latency", action="store_true", help="only end of command -> Heard")
     ap.add_argument("--dump", type=Path, help="write every committed transcript here (JSON)")
     args = ap.parse_args()
     cfg = Config(args.keyterms, args.vad, args.gate, args.hold, args.fbg)
     fx = load_fixtures()
+    if args.latency:
+        for lv in (None, -12.0):
+            lats = await heard_latency(fx, cfg, lv)
+            got = [x for x in lats if x is not None]
+            med = statistics.median(got) if got else float("nan")
+            print(f"[latency] {lv or 'clean'}: end of command -> Heard {lats}, median {med:.2f} s")
+        return
     sem = asyncio.Semaphore(args.concurrency)
     levels: list[float | None] = [None, *LEVELS]
     runs = [(lv, r, *command_run(fx, lv, seed=r)) for lv in levels for r in range(args.repeat)]
