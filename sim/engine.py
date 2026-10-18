@@ -421,8 +421,8 @@ async def run_offline(
     def observe() -> None:
         """Free servers held back because the best ready run needs more hands than are free.
 
-        `free` is the pass's own view (no open RUN). `busy` marks the ones whose hands are full
-        with accepted floor work (an order, a check), which the pass can't see.
+        `free` is the pass's own view (`Store.free_runners`). `busy` marks free ones still holding
+        accepted floor work; it stays empty now that the pass counts accepted tasks as busy.
         """
         nonlocal reserved
         free = store.free_runners()

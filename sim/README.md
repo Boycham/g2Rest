@@ -50,7 +50,7 @@ gitignored.
 | hot course whole at table | per course with a hot plate: last plate up to last plate delivered |
 | over 5 min ceiling | plates with a pass wait above 300 s (`RunWeights.ceiling_min`) |
 | runs pairing 2+ tables | runs whose plates belong to two or more tables |
-| idle while reserved | seconds a server with no open RUN sat free while the best ready run waited for more hands than were free; total, per server, and how much of it the server was empty-handed (not holding accepted floor work) |
+| idle while reserved | seconds a server the pass counted free (no open RUN, no accepted task) sat while the best ready run waited for more hands than were free; total, per server, and how much of it the server was empty-handed (not holding accepted floor work) |
 
 Reservation spans are recorded by the simulator as `sim.reserved {idle, busy, runners, plates}`
 each time the set changes, after every event and tick (the pass re-plans on every event, so a

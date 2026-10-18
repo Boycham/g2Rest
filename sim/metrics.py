@@ -4,8 +4,8 @@ An event is `{"t": seconds since service start, "type": ..., "data": {...}}`: th
 event log (`pass.up`, `pass.run`, `task.*`) stamped with the simulated clock, plus the
 simulator's `sim.reserved {idle: [server], busy: [server], runners, plates}` records, written
 whenever the set of servers held for a bigger run changes (`idle: []` when it ends). `idle` is
-every server the pass counts as free (no open RUN) while the best ready run can't go; `busy` is
-the subset whose hands were full with accepted floor work at the time.
+every server the pass counts as free (`Store.free_runners`) while the best ready run can't go;
+`busy` is the subset whose hands were full with accepted floor work at the time.
 
 Hot-plate wait is `pass.up` to `pass.run` for each plate, split by the dish's temperature: the
 time the plate waits for the pass to hand it to someone. `toTableSec` is `pass.up` to the
