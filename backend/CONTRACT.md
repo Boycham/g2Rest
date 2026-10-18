@@ -253,7 +253,9 @@ The one menu: the backend and `backend/voice` (order guards, agent prompt) both 
       "course": "main",                     // appetizer | main | dessert
       "temperature": "hot",                 // hot | warm | room | cold
       "allergens": ["fish", "dairy"],       // lowercase
-      "allowed_alterations": ["no butter"]  // anything else is flagged, never applied
+      "allowed_alterations": ["no butter"], // anything else is flagged, never applied
+      "components": ["halibut", "brown butter"], // what's on the plate (glasses ramp view)
+      "pairing": "Sancerre, Loire"          // suggested wine (glasses ramp view)
     }
   ]
 }
