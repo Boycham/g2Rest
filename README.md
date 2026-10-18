@@ -8,6 +8,7 @@ Restaurant floor on Even Realities G2 glasses. See `AGENTS.md` for the brief.
 - Python 3.11
 - [httpx](https://pypi.org/project/httpx/): REST calls to ElevenLabs
 - [websockets](https://pypi.org/project/websockets/): Scribe realtime and agent conversation sockets
+- [python-dotenv](https://pypi.org/project/python-dotenv/): loads the local, gitignored `backend/voice/.env`
 - [pytest](https://pypi.org/project/pytest/): tests
 - [ruff](https://pypi.org/project/ruff/): lint and format
 - ElevenLabs APIs: Scribe realtime STT (`scribe_v2_realtime`), Agents (text-only mode, client

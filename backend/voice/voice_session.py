@@ -14,13 +14,17 @@ import math
 import os
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
+from dotenv import load_dotenv
 from websockets.asyncio.client import ClientConnection, connect
 
 from order import OrderBook
+
+load_dotenv(Path(__file__).with_name(".env"))
 
 API = "https://api.elevenlabs.io"
 WSS = "wss://api.elevenlabs.io"
@@ -135,6 +139,8 @@ def api_key() -> str:
     key = os.environ.get("ELEVENLABS_API_KEY", "")
     if not key:
         raise SystemExit("[fs] ELEVENLABS_API_KEY is not set")
+    if not key.startswith("sk_"):
+        raise SystemExit("[fs] ELEVENLABS_API_KEY does not start with sk_ (is it the key ID?)")
     return key
 
 
