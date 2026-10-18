@@ -1,0 +1,30 @@
+{
+  "name": "floor-sense-glasses",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "fake-backend": "tsx dev/fake-backend.ts",
+    "pack": "npm run build && evenhub pack app.json dist -o floor-sense.ehpk",
+    "simulate": "evenhub-simulator http://localhost:5173"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "0.0.16",
+    "@evenrealities/pretext": "0.1.4"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "0.1.14",
+    "@evenrealities/evenhub-simulator": "0.9.5",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21",
+    "vitest": "^3.2.4",
+    "ws": "^8.18.3"
+  }
+}
