@@ -25,7 +25,7 @@ describe('Controls menu', () => {
     expect(last.at(-2)).toMatch(/^> Close \(hold\)/)
     expect(last.at(-1)?.trim()).toBe(CONTROLS_FOOTER)
     for (const l of last) expect(getTextWidth(l)).toBeLessThanOrEqual(CARD_TEXT_WIDTH)
-    expect(formatControls(0).split('\n')[0]).toMatch(/^> Clip last minute \(swipe back\)/)
+    expect(formatControls(0).split('\n')[0]).toMatch(/^> Clip last 2 min \(swipe back\)/)
   })
 
   it('stops at the ends: only hold, verity back or Close closes it', () => {

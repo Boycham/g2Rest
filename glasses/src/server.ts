@@ -22,7 +22,7 @@ type Screen = 'card' | 'queue' | 'draft' | 'controls'
 
 /**
  * The server HUD: one task card, the queue, and the order draft. While the server role is on
- * the glasses the mic runs into a rolling buffer of the last 60 s (memory only); swipe back
+ * the glasses the mic runs into a rolling buffer of the last 120 s (memory only); swipe back
  * sends that minute as a clip and opens the draft the backend makes of it.
  */
 export class ServerHud implements Hud {
@@ -59,7 +59,7 @@ export class ServerHud implements Hud {
     if (this.fixtures.length) log('DEBUG PCM path on:', this.fixtures.join(','))
   }
 
-  /** True while the last minute is being kept (mic on, or a debug fixture loaded). */
+  /** True while the last 2 minutes are being kept (mic on, or a debug fixture loaded). */
   get recording(): boolean {
     return this.mic.isOpen || (this.fixtures.length > 0 && this.buffer.frames > 0)
   }
@@ -77,7 +77,7 @@ export class ServerHud implements Hud {
       return
     }
     const ok = await this.mic.set(true)
-    log('rolling buffer', ok ? 'recording (last 60 s, memory only)' : 'mic did not open')
+    log('rolling buffer', ok ? 'recording (last 120 s, memory only)' : 'mic did not open')
     this.openCommandStream()
     this.ctx.syncPhone()
   }
@@ -249,7 +249,7 @@ export class ServerHud implements Hud {
     return head?.kind === 'ORDER' && head.state === 'accepted' ? head.table : undefined
   }
 
-  /** Swipe back: clip the last minute, send it, show the draft. */
+  /** Swipe back: clip the last 2 minutes, send it, show the draft. */
   private async sendClip(): Promise<void> {
     const frames = this.buffer.clip()
     if (this.current !== 'draft') await this.showScreen('draft')

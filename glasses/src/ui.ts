@@ -11,7 +11,7 @@ export interface PhoneView {
   status: SocketStatus
   screen: string
   queue: readonly Task[]
-  /** The mic is keeping the last minute (in WebView memory only). */
+  /** The mic is keeping the last 2 minutes (in WebView memory only). */
   recording: boolean
   bufferedSeconds: number
   alerts: readonly string[]
@@ -44,14 +44,14 @@ export function mountUi(backendUrl: string, onRole: (role: Role) => void): void 
         <ul class="help">
           <li><b>Tap</b> accept the task; tap again when it's done</li>
           <li><b>Swipe fwd</b> (toward your eyes) Controls: every gesture, its "verity" command, and the queue</li>
-          <li><b>Swipe back</b> (toward your ear) send the last minute: the order shows as a draft (tap = send)</li>
+          <li><b>Swipe back</b> (toward your ear) send the last 2 minutes: the order shows as a draft (tap = send)</li>
           <li><b>Hold</b> hand the task off (tap to confirm)</li>
           <li><b>Double tap</b> exit</li>
         </ul>
       </section>
       <section data-role="server">
-        <p class="muted">While the Server role is on, the glasses mic keeps only the last 60 s, in this app's memory.
-          Older audio is dropped as it goes. Only a swipe back sends that minute to the backend, which
+        <p class="muted">While the Server role is on, the glasses mic keeps only the last 120 s, in this app's memory.
+          Older audio is dropped as it goes. Only a swipe back sends that clip to the backend, which
           transcribes it, keeps the order and discards the audio.</p>
       </section>
       <section data-role="server">
