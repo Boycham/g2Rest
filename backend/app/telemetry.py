@@ -23,7 +23,9 @@ log = logging.getLogger("fs.telemetry")
 Trace = dict[str, str]
 
 
-def init_sentry(dsn: str, environment: str = "dev", traces_rate: float = 1.0) -> bool:
+def init_sentry(
+    dsn: str, environment: str = "dev", traces_rate: float = 1.0, **options: Any
+) -> bool:
     if not dsn:
         log.info("[fs] Sentry off (no SENTRY_DSN_BACKEND)")
         return False
@@ -40,12 +42,12 @@ def init_sentry(dsn: str, environment: str = "dev", traces_rate: float = 1.0) ->
         environment=environment,
         traces_sampler=sampler,
         enable_logs=True,
-        send_default_pii=False,
         integrations=[
             StarletteIntegration(),
             FastApiIntegration(),
             LoggingIntegration(level=logging.INFO, sentry_logs_level=logging.INFO),
         ],
+        **options,
     )
     logging.getLogger("fs").setLevel(logging.INFO)
     log.info("[fs] Sentry on (%s)", environment)

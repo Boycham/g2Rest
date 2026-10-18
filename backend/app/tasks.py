@@ -163,7 +163,9 @@ class TaskBook:
         }
         task.history.append(entry)
         task.state = to
-        self.events.append("task." + to, taskId=task.id, kind=task.kind, **entry, **timing)
+        self.events.append(
+            "task." + to, taskId=task.id, kind=task.kind, table=task.table, **entry, **timing
+        )
 
     def create(
         self,

@@ -70,12 +70,13 @@ def _text(value: Any) -> str | None:
 
 def row(event: Event, boot: str) -> tuple[Any, ...]:
     d = event.data
+    msg = d.get("message") if isinstance(d.get("message"), dict) else {}
     return (
         datetime.fromisoformat(event.at),
         boot,
         event.seq,
         event.type,
-        _text(d.get("taskId")),
+        _text(d.get("taskId") or msg.get("taskId")),
         _text(d.get("table")),
         _text(d.get("staff") or d.get("assignee")),
         json.dumps(d, default=str),
@@ -91,6 +92,7 @@ class EventDB:
         batch_size: int = 500,
         flush_sec: float = 0.25,
         max_queue: int = 50_000,
+        retry_min_sec: float = 1.0,
         retry_max_sec: float = 30.0,
         timeout_sec: float = 5.0,
         schema: list[str] | None = None,
@@ -100,6 +102,7 @@ class EventDB:
         self.batch_size = batch_size
         self.flush_sec = flush_sec
         self.max_queue = max_queue
+        self.retry_min_sec = retry_min_sec
         self.retry_max_sec = retry_max_sec
         self.timeout_sec = timeout_sec
         self.schema = schema_statements() if schema is None else schema
@@ -127,12 +130,12 @@ class EventDB:
     # ---------- the writer task ----------
 
     async def run(self) -> None:
-        delay = 1.0
+        delay = self.retry_min_sec
         while True:
             try:
                 if self.conn is None:
                     await self._open()
-                    delay = 1.0
+                    delay = self.retry_min_sec
                 if await self.flush() < self.batch_size:
                     self._wake.clear()
                     try:
