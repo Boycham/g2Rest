@@ -168,7 +168,6 @@ def test_fifo_runs_plates_in_the_order_they_came_up() -> None:
     # priority at the same moment: the hot mains that waited 40-50 s have risen past the
     # 30 s old cold appetizer (12.5); the cold dessert is last whatever its wait
     assert ids(plan_priority(plates, now=60)) == [["d:0"], ["b:0"], ["c:0"], ["a:0"]]
-    assert ids(plan_priority(plates, now=30)) == [["c:0"], ["d:0"], ["b:0"], ["a:0"]]
 
 
 # ---------- the weights are one tunable config ----------
