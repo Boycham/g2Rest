@@ -8,9 +8,10 @@ exceptions plus a floor minimap, and a web dashboard runs the floor.
 
 ## Built at LA Hacks (Oct 17-18, 2026)
 
-Everything in this repo (code, fictional menu and floor data, designs) was built during the event by two humans
-directing Devin (Cognition) and Claude Code (Anthropic). Who and what wrote each part is in
-[AI_USAGE.md](AI_USAGE.md).
+The repo started empty at the hackathon. The only thing brought in from before is a Claude skill the owner made
+beforehand for working with the G2 glasses ([`.agents/skills/g2-glasses-integration/`](.agents/skills/g2-glasses-integration/SKILL.md)).
+Everything else (code, fictional menu and floor data, designs) was built during LA Hacks by two humans directing
+Devin (Cognition) and Claude Code (Anthropic). Who and what wrote each part is in [AI_USAGE.md](AI_USAGE.md).
 
 - **Glasses HUD** (`glasses/`): three tabs (Controls, Queue, Card), tap / swipe / long press / double tap
   gestures, "verity" voice commands, the 2-minute order clip, ramp mode for new servers, nod to accept
@@ -168,7 +169,7 @@ cd sim && ../backend/.venv/bin/python -m pytest -q tests    # metrics + a tiny s
 | `web/` | Organizer and Kitchen pages; `web/verity/` scroll story + manager dashboard | [NOTES.md](web/NOTES.md), [verity/README.md](web/verity/README.md) |
 | `sim/` | Dinner-rush simulator, FIFO vs priority | [NOTES.md](sim/NOTES.md) |
 | `data/` | Fictional menu and floor plan shared by all parts | - |
-| `.agents/` | Agent skill for G2 + ElevenLabs integration | [SKILL.md](.agents/skills/g2-glasses-integration/SKILL.md) |
+| `.agents/` | Claude skill for working with the G2 glasses (made before the event, the only pre-existing part) | [SKILL.md](.agents/skills/g2-glasses-integration/SKILL.md) |
 
 Standing brief for AI sessions: [AGENTS.md](AGENTS.md). AI use: [AI_USAGE.md](AI_USAGE.md).
 
