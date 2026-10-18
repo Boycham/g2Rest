@@ -41,6 +41,9 @@ INTENTS = tuple(dict.fromkeys(COMMANDS.values()))
 BIGRAMS = {("hand", "off"): "handoff", ("never", "mind"): "nevermind"}
 # Words after "verity" in the same sentence that are kept for Gemini; longer runs are talk.
 MAX_UNKNOWN_WORDS = 5
+# "Verity is my sister's name": a sentence about someone called Verity, not a command, so it
+# isn't sent to Gemini (realtime Scribe commits it as its own segment once the gate is on).
+ABOUT_VERITY = frozenset({"is", "was", "s", "has", "had", "said", "says", "and", "who", "will"})
 NAME_FILLERS = frozenset({"to"})
 # Table numbers as Scribe writes them: digits, or words (with the homophones "for", "to").
 NUMBER_WORDS = {
@@ -225,6 +228,9 @@ def parse_commands(text: str, soundalikes: bool = True) -> list[Command]:
                     intent = soundalike_of(ws[j], exact)
             if intent is None and not exact:
                 i += 1
+                continue
+            if intent is None and ws[j] in ABOUT_VERITY:
+                i = j
                 continue
             if intent is None:
                 rest = ws[j:]

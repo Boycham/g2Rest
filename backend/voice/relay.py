@@ -54,8 +54,8 @@ def env_float(name: str, default: float | None) -> float | None:
 
 
 # Command-stream crowd defaults, picked from noise_test.py (NOTES.md); "off" disables one.
-CMD_VAD_THRESHOLD = env_float("VOICE_CMD_VAD_THRESHOLD", None)
-CMD_GATE_DBFS = env_float("VOICE_CMD_GATE_DBFS", None)
+CMD_VAD_THRESHOLD = env_float("VOICE_CMD_VAD_THRESHOLD", 0.6)
+CMD_GATE_DBFS = env_float("VOICE_CMD_GATE_DBFS", -22.0)
 CMD_GATE_HOLD = int(env_float("VOICE_CMD_GATE_HOLD", 3) or 0)
 CMD_KEYTERMS = os.environ.get("VOICE_CMD_KEYTERMS", "on").strip().lower() != "off"
 

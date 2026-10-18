@@ -401,7 +401,10 @@ def test_speaker_turns_split_on_speaker_and_on_pauses():
 
 @run
 async def test_command_stream_sends_only_matched_intents_and_pauses_for_a_clip():
+    from relay import LoudnessGate
+
     session, sent, made = clip_relay()
+    session.cmd_gate = LoudnessGate(None)  # the fake frames are below the default gate
     streams: list[FakeStt] = []
 
     def make_stt(p, c):

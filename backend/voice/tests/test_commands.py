@@ -150,3 +150,9 @@ def test_keyterms_fit_the_realtime_limits():
         assert must in rt
     batch = keyterms(realtime=False)
     assert "Pan-Roasted Halibut" in batch and "halibut" in batch and len(batch) < 100
+
+
+def test_a_sentence_about_someone_named_verity_is_not_an_unknown_command():
+    for text in ("Verity is my sister's name.", "Verity was here earlier", "Verity said hi"):
+        assert parse_commands(text) == [], text
+    assert parse_commands("verity get the bill") == [Command("unknown", words="get the bill")]
