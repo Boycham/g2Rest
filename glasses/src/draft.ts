@@ -81,7 +81,8 @@ export function formatDraft(s: DraftState, width = DRAFT_TEXT_WIDTH, maxLines = 
   if (pending.length) {
     bar = fit(`${pending[0].text} tap=yes swipe up=no${pending.length > 1 ? ` +${pending.length - 1}` : ''}`, width)
   } else if (d?.lines.length && !d.table && (d.status ?? 'draft') === 'draft') {
-    bar = fit(`${NO_TABLE} say the table, then swipe down`, width)
+    const of = pages.length > 1 ? ` · fwd ${page + 1}/${pages.length}` : ''
+    bar = fit(`${NO_TABLE} say the table, then swipe down${of}`, width)
   } else if (pages.length > 1) {
     bar = fit(page < pages.length - 1 ? `swipe fwd = more ${page + 1}/${pages.length}` : `${page + 1}/${pages.length} swipe fwd = done`, width)
   }

@@ -199,6 +199,13 @@ describe('formatDraft with the table talk', () => {
     expect(draftGesture('up', state({ draft: d, page: 1 }))).toEqual({ send: null, then: 'back' })
   })
 
+  it('keeps the page count in the TABLE? bar so the rest of the talk is not hidden', () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({ seat: i + 1, qty: 1, dish: 'soup', alterations: [], flagged: [] }))
+    const d = draft({ table: null, lines: many, summary: 'Birthday at seat 3, relaxed', answers })
+    expect(formatDraft(state({ draft: d })).bar).toBe('TABLE? say the table, then swipe down · fwd 1/2')
+    expect(formatDraft(state({ draft: d, page: 1 })).bar).toBe('TABLE? say the table, then swipe down · fwd 2/2')
+  })
+
   it('a tap sends only the order: the summary and answers are not in the message', () => {
     const a = draftGesture('tap', state({ draft: draft({ summary: 'Anniversary', answers }) }))
     expect(a.send).toEqual({ type: 'order.confirm', orderId: 'o1' })
