@@ -372,15 +372,30 @@ async def stream_to_scribe(
     return start + speech_end
 
 
+TURN_GAP_SECS = 0.6  # a pause this long starts a new line even for the same speaker label
+
+
 def speaker_turns(words: list[dict[str, Any]]) -> list[tuple[str, str]]:
-    """Scribe batch words -> [(speaker, text)], one entry per change of speaker."""
+    """Scribe batch words -> [(speaker, text)]: a new line at every change of speaker label
+    and at every pause of TURN_GAP_SECS. Guests who sound alike share a label, so the pauses
+    are what keeps one guest's order apart from the next one's."""
     turns: list[tuple[str, str]] = []
+    last_end: float | None = None
     for w in words:
         if w.get("type") == "audio_event":
             continue
         speaker = str(w.get("speaker_id") or "speaker")
         text = str(w.get("text", ""))
-        if turns and turns[-1][0] == speaker:
+        start = w.get("start")
+        paused = (
+            w.get("type") == "word"
+            and isinstance(start, int | float)
+            and last_end is not None
+            and start - last_end >= TURN_GAP_SECS
+        )
+        if w.get("type") == "word" and isinstance(w.get("end"), int | float):
+            last_end = float(w["end"])
+        if turns and turns[-1][0] == speaker and not paused:
             turns[-1] = (speaker, turns[-1][1] + text)
         elif text.strip():
             turns.append((speaker, text.strip()))

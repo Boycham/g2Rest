@@ -57,7 +57,10 @@ For every clip, call set_order exactly once with the complete order for this tab
   ("no butter"), and allergies. Ignore small talk, the server's own suggestions unless a guest
   takes them, and anything said by or about other tables.
 - guest: number the guests 1, 2, 3 in the order they first order or state an allergy. Use seat
-  only when a seat number is said aloud.
+  only when a seat number is said aloud. Guests may share one speaker label, so a new guest
+  starts whenever the words say so: "and I'd like", "for me", "I'll have" after someone else
+  ordered, or the server turning to another person ("and for you?"). One guest's own
+  follow-up ("oh, and I have an allergy") stays with that guest.
 - If a choice is ambiguous ("the fish" when two dishes fit) or not on the menu, do not guess:
   put it in unclear as a short statement, e.g. "'the fish': halibut or salmon".
 - notes: occasion, pacing or timing the server or kitchen should know (a few words each).

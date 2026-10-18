@@ -367,3 +367,26 @@ def test_table_number_parses_labels():
     assert [table_number(x) for x in ("T3", "12", "t2", "", None, "T0", "bar")] == [
         3, 12, 2, None, None, None, None,
     ]  # fmt: skip
+
+
+def test_speaker_turns_split_on_speaker_and_on_pauses():
+    from voice_session import speaker_turns
+
+    def w(text, start, end, spk="speaker_1"):
+        return {"text": text, "start": start, "end": end, "type": "word", "speaker_id": spk}
+
+    def sp(start, end, spk="speaker_1"):
+        return {"text": " ", "start": start, "end": end, "type": "spacing", "speaker_id": spk}
+
+    words = [
+        w("Welcome.", 0.0, 0.5, "speaker_0"),
+        w("Halibut", 1.0, 1.4), sp(1.4, 1.5), w("please.", 1.5, 1.9),
+        sp(1.9, 2.8), w("Salmon", 2.8, 3.2), sp(3.2, 3.3), w("for", 3.3, 3.4),
+        sp(3.4, 3.45), w("me.", 3.45, 3.6),
+        {"text": "(laughs)", "type": "audio_event"},
+    ]  # fmt: skip
+    assert speaker_turns(words) == [
+        ("speaker_0", "Welcome."),
+        ("speaker_1", "Halibut please."),
+        ("speaker_1", "Salmon for me."),
+    ]
