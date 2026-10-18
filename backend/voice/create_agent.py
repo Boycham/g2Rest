@@ -108,7 +108,9 @@ def build_payloads(llm: str, mode: str = "clip") -> tuple[list[dict], dict]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=("clip", "stream"), default="clip")
-    ap.add_argument("--llm", default="gemini-2.5-flash")
+    # Measured on conv_task (NOTES.md): claude-haiku-4-5 was right 4/5 at ~4.0 s; gemini-2.5-flash
+    # 3/5 at ~6.5 s; gpt-4.1-mini 3/5 at ~2.5 s with a 20 s stall; gemini-2.5-flash-lite 0/5.
+    ap.add_argument("--llm", default="claude-haiku-4-5")
     ap.add_argument("--dry-run", action="store_true", help="print payloads, call nothing")
     args = ap.parse_args()
     tools, agent = build_payloads(args.llm, args.mode)

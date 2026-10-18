@@ -496,6 +496,7 @@ class OrderBook:
         rejected = []
         for raw in unclear:
             text = str(raw.get("text", "")).strip().lstrip("?").strip()
+            text = text.removeprefix("unclear").removeprefix(":").strip()
             if not text:
                 continue
             if is_question(text):

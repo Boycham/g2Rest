@@ -370,3 +370,8 @@ def test_set_order_keeps_only_what_was_said_in_the_clip(book):
     ]
     assert seat1.allergies == ["shellfish"] and 2 not in book.tables[0].seats
     assert "s2 Nicoise Salad" in result["not_in_clip"] and "allergy egg" in result["not_in_clip"]
+
+
+def test_unclear_label_the_agent_repeats_is_stripped(book):
+    book.dispatch("set_order", {"unclear": [{"guest": 1, "text": "unclear 'the fish': halibut"}]})
+    assert book.tables[0].uncertain == ["? s1 'the fish': halibut"]
