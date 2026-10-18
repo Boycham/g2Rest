@@ -69,6 +69,7 @@ class Store:
             self.events,
             self.settings.escalation_sec,
             self.settings.offline_escalation_sec,
+            self.settings.done_sec,
         )
         self.orders = OrderBook(self.menu, set(self.floor.tables))
         self.captures = {}

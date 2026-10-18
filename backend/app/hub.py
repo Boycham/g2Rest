@@ -7,8 +7,10 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 from fastapi import WebSocket
 
+from app import router
 from app.contract import ContractError, check_backend, parse_glasses
 from app.orders import ToolError
 from app.state import Store
@@ -29,8 +31,11 @@ class Conn:
 
 
 class Hub:
-    def __init__(self, store: Store, voice_relay_url: str = "") -> None:
+    def __init__(
+        self, store: Store, voice_relay_url: str = "", http: httpx.AsyncClient | None = None
+    ) -> None:
         self.store = store
+        self.http = http or httpx.AsyncClient()  # the router's Gemini calls
         self.conns: dict[WebSocket, Conn] = {}
         self.last_capture: dict[WebSocket, str] = {}
         self.command_capture: dict[WebSocket, str] = {}
@@ -149,6 +154,23 @@ class Hub:
                 await self.deliver(self.store.book.done(task.id, now, by=staff))
                 self.store.events.append("order.task_done", taskId=task.id, status=status)
 
+    async def reroute_overdue(self) -> None:
+        """Accepted tasks held past `done_sec`: alert the manager and let the router move them."""
+        book = self.store.book
+        for task in book.overdue(self.store.now()):
+            to = await router.pick(
+                self.store,
+                self.http,
+                task.kind,
+                task.table,
+                task.notes,
+                exclude=frozenset({task.assignee}),
+            )
+            out = book.reroute(task.id, self.store.now(), to)
+            if out:
+                await self.deliver(out)
+                await self.replan()
+
     async def replan(self, *, push: bool = False) -> bool:
         """Hand out any run a free server can take now; push pass.state if something moved."""
         out = self.store.dispatch()
@@ -189,7 +211,15 @@ class Hub:
             await self.handle(conn, msg)
         except (TaskError, ToolError) as e:
             log.warning("[fs] %s from %s rejected: %s", msg.type, conn.staff, e)
-            self.store.events.append("ws.rejected", staff=conn.staff, msg=msg.type, error=str(e))
+            self.store.events.append("ws.rejected", staff=conn.staff, frame=msg.type, error=str(e))
+            if msg.type.startswith("task."):
+                rejected = {
+                    "type": "task.rejected",
+                    "taskId": getattr(msg, "taskId", None),
+                    "action": msg.type.removeprefix("task."),
+                    "reason": str(e),
+                }
+                await self._send(conn, rejected)
 
     async def handle(self, conn: Conn, msg: Any) -> None:
         now = self.store.now()
@@ -202,6 +232,21 @@ class Hub:
                 await self.replan()
             case "task.bounce":
                 await self.deliver(book.bounce(msg.taskId, now, by=conn.staff))
+                await self.replan()
+            case "task.handoff":
+                task = book.get(msg.taskId)
+                to = msg.to or await router.pick(
+                    self.store,
+                    self.http,
+                    task.kind,
+                    task.table,
+                    task.notes,
+                    exclude=frozenset({conn.staff}),
+                )
+                await self.deliver(book.handoff(msg.taskId, self.store.now(), conn.staff, to))
+                await self.replan()
+            case "task.revert":
+                await self.deliver(book.revert(now, conn.staff, msg.taskId))
                 await self.replan()
             case "capture.start":
                 command = msg.mode == "command"

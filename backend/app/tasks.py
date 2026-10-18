@@ -48,6 +48,8 @@ class Task:
     created_at: str = ""
     assigned_at: float = 0.0
     sent_at: float | None = None
+    accepted_at: float | None = None  # starts the done timer (CONTRACT.md §6)
+    done_at: float | None = None
     tried: list[str] = field(default_factory=list)
     history: list[dict[str, Any]] = field(default_factory=list)
 
@@ -117,13 +119,17 @@ class TaskBook:
         events: EventLog,
         escalation_sec: float = 30.0,
         offline_escalation_sec: float = 120.0,
+        done_sec: float = 300.0,
     ) -> None:
         self.floor = floor
         self.events = events
         self.escalation_sec = escalation_sec
         self.offline_escalation_sec = offline_escalation_sec
+        self.done_sec = done_sec
         self.tasks: dict[str, Task] = {}
         self.alerts: dict[str, Alert] = {}
+        # staff -> (task id, action, state before it): one level of undo for task.revert
+        self.last_action: dict[str, tuple[str, str, TaskState]] = {}
 
     # ---------- queries ----------
 
@@ -197,6 +203,8 @@ class TaskBook:
         if task.state not in UNACCEPTED:
             raise TaskError(f"{task.id} is {task.state}, cannot accept")
         self._check_owner(task, by)
+        self.last_action[task.assignee] = (task.id, "accept", task.state)
+        task.accepted_at = now
         self._move(task, "accepted", now, "task.accept")
         return [Outbound(task.assignee, {"type": "task.updated", "task": task.wire()})]
 
@@ -205,6 +213,8 @@ class TaskBook:
         if not task.open:
             raise TaskError(f"{task.id} is {task.state}, cannot finish")
         self._check_owner(task, by)
+        self.last_action[task.assignee] = (task.id, "done", task.state)
+        task.done_at = now
         self._move(task, "done", now, "task.done")
         out = [Outbound(task.assignee, {"type": "task.updated", "task": task.wire()})]
         return out + self._clear_unacked_alert(task)
@@ -214,7 +224,130 @@ class TaskBook:
         if task.state not in UNACCEPTED:
             raise TaskError(f"{task.id} is {task.state}, cannot bounce")
         self._check_owner(task, by)
-        return self._pass_on(task, now, "bounced", "task.bounce")
+        return self._hand(task, now, "bounce", None)
+
+    def handoff(self, task_id: str, now: float, by: str | None, to: str) -> list[Outbound]:
+        """Give an open task (accepted or not) to `to`, a staff id or name."""
+        task = self.get(task_id)
+        if not task.open:
+            raise TaskError(f"{task.id} is {task.state}, cannot hand off")
+        self._check_owner(task, by)
+        target = self.staff_id(to)
+        if target == task.assignee:
+            raise TaskError("it's already yours")
+        return self._hand(task, now, "handoff", target)
+
+    def revert(self, now: float, by: str, task_id: str | None = None) -> list[Outbound]:
+        """Undo `by`'s last accept, done, bounce or handoff, if nobody has moved it on since."""
+        last = self.last_action.get(by)
+        if last is None or (task_id is not None and task_id != last[0]):
+            raise TaskError("nothing to revert")
+        tid, action, before = last
+        task = self.get(tid)
+        if action in ("accept", "done"):
+            if task.assignee != by or task.state != ("accepted" if action == "accept" else "done"):
+                raise TaskError(f"can't undo {action}, the task moved on")
+            to: TaskState = "sent" if action == "accept" else before
+            self._move(task, to, now, f"revert {action}")
+            task.done_at = None
+            if to == "sent":
+                task.sent_at, task.accepted_at = now, None  # a fresh escalation timer
+            del self.last_action[by]
+            kind = "task.updated" if action == "accept" else "task.assigned"  # done: card returns
+            return [Outbound(by, {"type": kind, "task": task.wire()})]
+        holder = task.assignee
+        if task.state not in UNACCEPTED:
+            done = "accepted" if task.state == "accepted" else "finished"
+            raise TaskError(f"{self.name(holder)} already {done} it")
+        self._move(task, "bounced", now, f"revert {action} by {by}")
+        out = [Outbound(holder, {"type": "task.updated", "task": task.wire(state="bounced")})]
+        if task.tried and task.tried[-1] == holder:
+            task.tried.pop()
+        task.assignee, task.assigned_at, task.sent_at = by, now, None
+        task.accepted_at = now if before == "accepted" else None
+        self._move(task, "accepted" if before == "accepted" else "queued", now, f"back to {by}")
+        del self.last_action[by]
+        return [*out, Outbound(by, {"type": "task.assigned", "task": task.wire()})]
+
+    # ---------- timing ----------
+
+    def overdue(self, now: float) -> list[Task]:
+        """Accepted tasks not done within `done_sec` that nobody has flagged yet."""
+        return [
+            t
+            for t in self.tasks.values()
+            if t.state == "accepted"
+            and t.accepted_at is not None
+            and now - t.accepted_at >= self.done_sec
+            and f"slow-{t.id}" not in self.alerts
+        ]
+
+    def reroute(self, task_id: str, now: float, to: str | None) -> list[Outbound]:
+        """A task held too long: tell the manager, and give it to `to` unless it's a RUN.
+
+        A RUN's plates are already in the server's hands, so it only raises the alert.
+        Re-checks the task, because the router call before this one awaits.
+        """
+        task = self.get(task_id)
+        if task not in self.overdue(now):
+            return []
+        held, holder = now - (task.accepted_at or now), task.assignee
+        moved = task.kind != "RUN" and to not in (None, holder)
+        tail = f", moved to {self.name(to)}" if moved and to else ""
+        alert = Alert(
+            id=f"slow-{task.id}",
+            level="warn",
+            text=f"{task.table} {task.kind.lower()}: {self.name(holder)} {clock(held)}{tail}",
+            table=task.table,
+            since_sec=int(held),
+        )
+        self.alerts[alert.id] = alert
+        self.events.append("alert.raised", alertId=alert.id, taskId=task.id)
+        out = [Outbound(self.floor.manager.id, alert.wire())]
+        if moved and to:
+            out += self._pass_on(task, now, "escalated", f"not done after {clock(held)}", to)
+        return out
+
+    def stats(self, now: float) -> list[dict[str, Any]]:
+        """Per server: tasks done, average accept-to-done time (all, per kind), open tasks."""
+        rows = []
+        for s in self.floor.servers.values():
+            secs: dict[str, list[float]] = {}
+            for t in self.tasks.values():
+                if t.state == "done" and t.assignee == s.id and t.done_at is not None:
+                    start = t.accepted_at if t.accepted_at is not None else t.assigned_at
+                    secs.setdefault(t.kind, []).append(t.done_at - start)
+            flat = [x for xs in secs.values() for x in xs]
+            rows.append(
+                {
+                    "id": s.id,
+                    "name": s.name,
+                    "done": len(flat),
+                    "avgSec": round(sum(flat) / len(flat)) if flat else None,
+                    "avgSecByKind": {k: round(sum(v) / len(v)) for k, v in secs.items()},
+                    "open": [
+                        {
+                            "taskId": t.id,
+                            "kind": t.kind,
+                            "table": t.table,
+                            "state": t.wire()["state"],
+                            "heldSec": round(now - (t.accepted_at or t.assigned_at)),
+                        }
+                        for t in self.open_for(s.id)
+                    ],
+                }
+            )
+        return rows
+
+    def staff_id(self, who: str) -> str:
+        for s in [*self.floor.servers.values(), self.floor.manager]:
+            if who.strip().lower() in (s.id.lower(), s.name.lower()):
+                return s.id
+        raise TaskError(f"no one called {who}")
+
+    def name(self, staff: str) -> str:
+        s = self.floor.servers.get(staff)
+        return s.name if s else self.floor.manager.name if staff == self.floor.manager.id else staff
 
     def tick(self, now: float) -> list[Outbound]:
         """Escalate every task nobody accepted in time.
@@ -244,16 +377,27 @@ class TaskBook:
                 return who
         return None
 
-    def _pass_on(self, task: Task, now: float, via: TaskState, reason: str) -> list[Outbound]:
+    def _hand(self, task: Task, now: float, action: str, to: str | None) -> list[Outbound]:
+        """Bounce or hand off, remembering it for task.revert if the task really moved."""
+        previous, before = task.assignee, task.state
+        reason = f"task.handoff to {to}" if to else "task.bounce"
+        out = self._pass_on(task, now, "bounced", reason, to)
+        if task.assignee != previous:
+            self.last_action[previous] = (task.id, action, before)
+        return out
+
+    def _pass_on(
+        self, task: Task, now: float, via: TaskState, reason: str, nxt: str | None = None
+    ) -> list[Outbound]:
         previous = task.assignee
-        nxt = self._next_assignee(task)
+        nxt = nxt or self._next_assignee(task)
         if nxt is None:
             return self._raise_unacked_alert(task, now)
         self._move(task, via, now, reason)
         out = [Outbound(previous, {"type": "task.updated", "task": task.wire(state=via)})]
         task.assignee = nxt
         task.assigned_at = now
-        task.sent_at = None
+        task.sent_at = task.accepted_at = None
         task.tried.append(nxt)
         self._move(task, "queued", now, f"after {via} from {previous}")
         out.append(Outbound(nxt, {"type": "task.assigned", "task": task.wire()}))
@@ -275,9 +419,17 @@ class TaskBook:
         return [Outbound(self.floor.manager.id, alert.wire())]
 
     def _clear_unacked_alert(self, task: Task) -> list[Outbound]:
-        alert = self.alerts.pop(f"unacked-{task.id}", None)
-        if alert is None:
-            return []
-        cleared = Alert(alert.id, alert.level, "", alert.table, 0, cleared=True)
-        self.events.append("alert.cleared", alertId=alert.id, taskId=task.id)
-        return [Outbound(self.floor.manager.id, cleared.wire())]
+        """Done clears the task's alerts: unacknowledged, and held too long."""
+        out = []
+        for alert_id in (f"unacked-{task.id}", f"slow-{task.id}"):
+            alert = self.alerts.pop(alert_id, None)
+            if alert is None:
+                continue
+            cleared = Alert(alert.id, alert.level, "", alert.table, 0, cleared=True)
+            self.events.append("alert.cleared", alertId=alert.id, taskId=task.id)
+            out.append(Outbound(self.floor.manager.id, cleared.wire()))
+        return out
+
+
+def clock(sec: float) -> str:
+    return f"{int(sec) // 60}:{int(sec) % 60:02d}"

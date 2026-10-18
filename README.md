@@ -29,7 +29,8 @@ Restaurant floor on Even Realities G2 glasses. See `AGENTS.md` for the brief.
 - [FastAPI](https://fastapi.tiangolo.com/) + [uvicorn](https://www.uvicorn.org/): HTTP API and the WebSocket hub
 - [pydantic](https://docs.pydantic.dev/) v2: Python mirror of `glasses/src/contract.ts`, every frame checked
 - [websockets](https://pypi.org/project/websockets/): the step-0 mock server and the walkthrough client
-- [httpx](https://pypi.org/project/httpx/): the walkthrough script and FastAPI's test client
+- [httpx](https://pypi.org/project/httpx/): the walkthrough script, FastAPI's test client and the Gemini call
+- Gemini API (`generateContent`, Flash-Lite): picks the server for each new task (`backend/app/router.py`)
 - Shared fictional data in `data/menu.json` and `data/floor.json`; message contract in `backend/CONTRACT.md`
 
 ### Web pages (`web/`)

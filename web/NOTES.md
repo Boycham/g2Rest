@@ -29,6 +29,8 @@ Tests: `cd web && node --test` (Node 24, built-in runner; covers `state.js`).
   the web-only `order.fired`, `order.cancelled` and `pass.state`.
 - Food up is `POST /pass/up {orderId, line}`. The backend's planner decides every run; the page
   only shows what it decided.
+- The board only watches tasks. Accept, done and bounce come from the assignee's glasses (or
+  `POST /tasks/{id}/{action}?by=<assignee>` in tests); the organizer can't close a server's task.
 - Every call has a 4 s timeout; failures show as a red toast, the socket pill shows
   "reconnecting…".
 

@@ -266,6 +266,31 @@ class CaptureStartExt(CaptureStart):
     mode: Literal["stream", "clip", "command"] | None = None
 
 
+class TaskHandoff(Strict):
+    """New: give this task to someone else, accepted or not. `to` is a staff id or name
+    ("Ben"); without it the router picks."""
+
+    type: Literal["task.handoff"]
+    taskId: str
+    to: str | None = None
+
+
+class TaskRevert(Strict):
+    """New: undo this staff member's last accept, done, bounce or handoff (`taskId` optional)."""
+
+    type: Literal["task.revert"]
+    taskId: str | None = None
+
+
+class TaskRejected(Strict):
+    """New: a task.* frame from this socket was refused; `reason` is short enough for a card."""
+
+    type: Literal["task.rejected"]
+    taskId: str | None
+    action: Literal["accept", "done", "bounce", "handoff", "revert"]
+    reason: str
+
+
 BackendMessageExt = Annotated[
     TaskAssignedExt
     | TaskUpdatedExt
@@ -275,13 +300,16 @@ BackendMessageExt = Annotated[
     | FloorStateExt
     | OrderClosed
     | VoiceCommand
-    | VoiceUnknown,
+    | VoiceUnknown
+    | TaskRejected,
     Field(discriminator="type"),
 ]
 GlassesJsonMessageExt = Annotated[
     TaskAccept
     | TaskDone
     | TaskBounce
+    | TaskHandoff
+    | TaskRevert
     | CaptureStartExt
     | CaptureStop
     | OrderConfirm

@@ -32,6 +32,10 @@ class Settings:
     data_dir: Path = field(default=DATA_DIR)
     cors_origins: tuple[str, ...] = ("*",)
     voice_relay_url: str = ""  # empty: no voice bridge, audio frames are only counted
+    done_sec: float = 300.0  # accepted but not done this long: alert the manager, reroute
+    gemini_api_key: str = ""  # empty: the router uses the rules only (app/router.py)
+    gemini_model: str = "gemini-3.1-flash-lite"
+    router_timeout_sec: float = 3.0
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -43,4 +47,8 @@ class Settings:
             port=int(os.environ.get("FS_PORT", "8787")),
             data_dir=Path(os.environ.get("FS_DATA_DIR", str(DATA_DIR))),
             voice_relay_url=os.environ.get("VOICE_RELAY_URL") or "ws://localhost:8790/ws",
+            done_sec=float(os.environ.get("FS_DONE_SEC", "300")),
+            gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
+            gemini_model=os.environ.get("FS_GEMINI_MODEL", "gemini-3.1-flash-lite"),
+            router_timeout_sec=float(os.environ.get("FS_ROUTER_TIMEOUT_SEC", "3")),
         )
