@@ -39,6 +39,10 @@
   down sends that minute to the relay, **Scribe batch speech-to-text** (`scribe_v2`, English) transcribes it
   in one call, and the **text-only agent** (LLM `claude-haiku-4-5`, chosen by a measured comparison) returns
   the whole order with one `set_order` tool call, which code validates. Devin built and measured this path.
+- **Voice commands:** while the Server role is on, the live mic also streams to the relay, where **Scribe
+  realtime speech-to-text** (English) is used only to spot "verity" + a fixed command word (accept, done,
+  clip, ...). Plain code matches the word list (no LLM); the transcript is never logged or stored. Devin
+  built this and its noise test (ElevenLabs TTS commands mixed with conversation and noise).
 - **ElevenLabs text to speech** generates test audio for development only. No real audio is
   recorded or stored.
 - The glasses never call ElevenLabs and never hold the key: they stream G2 mic PCM to the voice
