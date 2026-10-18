@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { getTextWidth } from '@evenrealities/pretext'
-import { CARD_MAX_LINES, CARD_TEXT_WIDTH, fitBytes, formatCard, formatQueue, queueRow, taskLine } from './card'
+import { CARD_MAX_LINES, CARD_TEXT_WIDTH, fitBytes, formatCard, formatQueue, queueRow, taskLine, ORDER_HINT } from './card'
 import { makeTask } from './fixtures.test-helpers'
 
 const lines = (text: string) => text.split('\n')
@@ -122,5 +122,14 @@ describe('formatQueue', () => {
     expect(l).toHaveLength(CARD_MAX_LINES)
     expect(l[CARD_MAX_LINES - 1]).toBe(`  +${9 - (CARD_MAX_LINES - 1)} more`)
     for (const line of l) expect(getTextWidth(line)).toBeLessThanOrEqual(CARD_TEXT_WIDTH)
+  })
+})
+
+describe('ORDER task card', () => {
+  it('names the table and, once accepted, says to swipe down after the order', () => {
+    const task = makeTask({ kind: 'ORDER', table: 'T3', items: [], notes: [] })
+    expect(formatCard([task], { offline: false }).text).toBe('ORDER · T3')
+    const accepted = formatCard([{ ...task, state: 'accepted' }], { offline: false }).text.split('\n')
+    expect(accepted).toEqual(['ORDER · T3', ORDER_HINT, 'ACCEPTED'])
   })
 })

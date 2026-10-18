@@ -24,18 +24,17 @@ function draft(over: Partial<OrderDraft> = {}): OrderDraft {
 
 const state = (over: Partial<DraftState> = {}): DraftState => ({
   draft: draft(),
-  capturing: true,
-  voice: 'listening',
+  voice: 'idle',
   online: true,
   ...over,
 })
 
 describe('formatDraft', () => {
-  it('pins allergies on top, then the table and Listening…, then the order by seat', () => {
+  it('pins allergies on top, then the table and tap = send, then the order by seat', () => {
     const lines = formatDraft(state()).main.split('\n')
     expect(lines[0]).toBe('! SHELLFISH s3')
     expect(lines[1].startsWith('T12')).toBe(true)
-    expect(lines[1].endsWith('Listening…')).toBe(true)
+    expect(lines[1].endsWith('tap = send')).toBe(true)
     expect(lines.slice(2)).toEqual(['s1 halibut –no butter', 's2 salmon –no dill'])
   })
 
@@ -77,9 +76,12 @@ describe('formatDraft', () => {
 describe('draftGesture', () => {
   const pending = (action: 'remove' | 'cancel' | 'confirm') => state({ draft: draft({ pending: [{ id: 'p7', action, text: 'x' }] }) })
 
-  it('swipe down stops listening, or listens again when stopped', () => {
-    expect(draftGesture('down', state()).then).toBe('stop')
-    expect(draftGesture('down', state({ capturing: false })).then).toBe('listen')
+  it('swipe down sends the last minute again', () => {
+    expect(draftGesture('down', state())).toEqual({ send: null, then: 'clip' })
+  })
+
+  it('tap does not send a draft whose table is unknown', () => {
+    expect(draftGesture('tap', state({ draft: draft({ table: null }) })).send).toBeNull()
   })
 
   it('tap accepts the pending proposal', () => {
@@ -107,6 +109,38 @@ describe('draftGesture', () => {
       then: 'none',
     })
     expect(draftGesture('up', state())).toEqual({ send: null, then: 'back' })
+  })
+})
+
+describe('formatDraft for a clip', () => {
+  it('shows Reading last min… while the clip is processed', () => {
+    const lines = formatDraft(state({ draft: null, voice: 'processing' })).main.split('\n')
+    expect(lines[0].startsWith('Last minute')).toBe(true)
+    expect(lines[0].endsWith('Reading last min…')).toBe(true)
+  })
+
+  it('shows TABLE? and how to give it when the draft has no table', () => {
+    const v = formatDraft(state({ draft: draft({ table: null }) }))
+    expect(v.main.split('\n')[1].startsWith('TABLE?')).toBe(true)
+    expect(v.bar).toBe('TABLE? say the table, then swipe down')
+    expect(v.highlight).toBe(false)
+  })
+
+  it('keeps ? lines and notes on screen when order lines overflow', () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({ seat: i + 1, qty: 1, dish: 'soup', alterations: [], flagged: [] }))
+    const v = formatDraft(
+      state({ draft: draft({ lines: many, uncertain: ["? s3 'the fish': halibut or salmon"], notes: ['anniversary'] }) }),
+    )
+    const lines = v.main.split('\n')
+    expect(lines.length).toBe(DRAFT_MAX_LINES)
+    expect(lines.at(-2)).toBe("? s3 'the fish': halibut or salmon")
+    expect(lines.at(-1)).toBe('note: anniversary')
+    expect(lines.some(l => /^… \d+ more$/.test(l))).toBe(true)
+  })
+
+  it('shows a glasses-written hint when there is nothing to send', () => {
+    const lines = formatDraft(state({ draft: null, hint: 'mic off: nothing recorded' })).main.split('\n')
+    expect(lines[1]).toBe('? mic off: nothing recorded')
   })
 })
 

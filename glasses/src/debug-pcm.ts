@@ -1,13 +1,13 @@
 import { CAPTURE_AUDIO_FORMAT } from './contract'
 import { log } from './log'
 
-// DEV ONLY: stream a PCM fixture (backend/voice/fixtures, gitignored, served by the Vite
-// dev server at /dev-fixtures/) through the same capture path as the mic, because the
-// simulator mic may not hear anything. Enabled by `?debugPcm=01_order,02_no_soup,...`:
-// each capture plays the next fixture, then sends silence like a quiet mic until stopped.
+// DEV ONLY: a PCM fixture (backend/voice/fixtures, gitignored, served by the Vite dev server at
+// /dev-fixtures/) stands in for the mic's last minute, because the simulator mic may not hear
+// anything. Enabled by `?debugPcm=conv_task,conv_tableless`: the rolling buffer is filled with
+// the first fixture, each swipe down clips it through the same path as mic audio, and the
+// buffer is then refilled with the next fixture.
 
 const FRAME = CAPTURE_AUDIO_FORMAT.frameBytes
-const FRAME_MS = 100
 const VOICED_DBFS = -40
 const FETCH_TIMEOUT_MS = 5000
 
@@ -40,44 +40,16 @@ export function lastVoicedFrame(fs: readonly ArrayBuffer[]): number {
   return last
 }
 
-export interface DebugStream {
-  stop(): void
-}
-
-/** Streams in real time; calls onSpeechEnd(performance.now()) as the last voiced frame goes out. */
-export function streamFixture(
-  name: string,
-  onFrame: (frame: ArrayBuffer) => void,
-  onSpeechEnd: (t: number) => void,
-): DebugStream {
-  let stopped = false
-  let timer: ReturnType<typeof setTimeout> | null = null
-  const stop = () => {
-    stopped = true
-    if (timer) clearTimeout(timer)
+/** The fixture as 100 ms frames, or [] (logged) if it can't be fetched. */
+export async function loadFixture(name: string): Promise<ArrayBuffer[]> {
+  try {
+    const res = await fetch(`/dev-fixtures/${name}.pcm`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const fs = frames(new Uint8Array(await res.arrayBuffer()))
+    log('debug pcm', name, `${fs.length} frames (${(fs.length / 10).toFixed(1)} s), speech ends at frame ${lastVoicedFrame(fs)}`)
+    return fs
+  } catch (err) {
+    log('debug pcm fetch failed', name, String(err))
+    return []
   }
-  void (async () => {
-    let fs: ArrayBuffer[] = []
-    try {
-      const res = await fetch(`/dev-fixtures/${name}.pcm`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      fs = frames(new Uint8Array(await res.arrayBuffer()))
-    } catch (err) {
-      log('debug pcm fetch failed', name, String(err))
-    }
-    const end = lastVoicedFrame(fs)
-    log('debug pcm', name, `${fs.length} frames, speech ends at frame ${end}`)
-    const silence = new ArrayBuffer(FRAME)
-    const t0 = performance.now()
-    let n = 0
-    const tick = () => {
-      if (stopped) return
-      onFrame(n < fs.length ? fs[n] : silence)
-      if (n === end) onSpeechEnd(performance.now())
-      n += 1
-      timer = setTimeout(tick, Math.max(0, t0 + n * FRAME_MS - performance.now()))
-    }
-    tick()
-  })()
-  return { stop }
 }

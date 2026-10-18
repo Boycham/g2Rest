@@ -1,8 +1,9 @@
 import type { GlassesJsonMessage, OrderDraft, OrderLine, VoiceState } from './contract'
 import { allergyLine, CARD_PADDING, DISPLAY_HEIGHT, DISPLAY_WIDTH, fit, spread } from './card'
 
-// The order-draft screen: order by seat with allergies pinned on top, and one highlighted
-// pending line for a change that needs a tap. Pure, so layout and gestures are tested.
+// The order-draft screen: what the backend made of the last minute, by seat, with allergies
+// pinned on top, ? lines for anything unclear, and one highlighted pending line for a change
+// that needs a tap. Pure, so layout and gestures are tested.
 
 export const LINE_PX = 27
 export const BAR_HEIGHT = LINE_PX + 2 * CARD_PADDING + 4
@@ -15,9 +16,10 @@ export const BRIGHT = 4
 
 export interface DraftState {
   draft: OrderDraft | null
-  capturing: boolean
   voice: VoiceState
   online: boolean
+  /** A line written on the glasses (e.g. "mic off: nothing recorded"), shown when the draft has no notice. */
+  hint?: string | null
 }
 
 export interface DraftView {
@@ -26,6 +28,8 @@ export interface DraftView {
   /** True while a pending proposal is shown: main is dimmed, bar is bright. */
   highlight: boolean
 }
+
+export const NO_TABLE = 'TABLE?'
 
 export function orderLineText(l: OrderLine): string {
   const dish = l.qty > 1 ? `${l.qty}× ${l.dish}` : l.dish
@@ -38,45 +42,58 @@ export function statusLabel(s: DraftState): string {
   const status = s.draft?.status
   if (status === 'sent') return 'SENT'
   if (status === 'cancelled') return 'CANCELLED'
-  if (!s.capturing) return 'paused'
-  return s.voice === 'connecting' ? 'Connecting…' : 'Listening…'
+  if (s.voice === 'processing' || s.voice === 'connecting') return 'Reading last min…'
+  return s.draft?.lines.length && s.draft.table ? 'tap = send' : ''
 }
 
+/**
+ * Allergies on top, then the table (TABLE? until it is known) and status, a notice, the order
+ * by seat, then the ? lines and notes. Order lines are the ones folded into "… N more" when
+ * space runs out, so an unclear item is never pushed off the lens.
+ */
 export function formatDraft(s: DraftState, width = DRAFT_TEXT_WIDTH, maxLines = DRAFT_MAX_LINES): DraftView {
   const d = s.draft
   const head: string[] = []
   const allergies = d ? allergyLine(d.allergies) : ''
   if (allergies) head.push(fit(allergies, width))
-  head.push(spread(d?.table ?? 'New order', statusLabel(s), width))
-  if (d?.notice) head.push(fit(`? ${d.notice}`, width))
+  head.push(spread(d ? (d.table ?? NO_TABLE) : 'Last minute', statusLabel(s), width))
+  const notice = d?.notice ?? s.hint
+  if (notice) head.push(fit(`? ${notice}`, width))
+  const tail = (d?.uncertain ?? []).map(u => fit(u, width))
+  if (d?.notes?.length) tail.push(fit(`note: ${d.notes.join(' · ')}`, width))
+  const room = Math.max(1, maxLines - head.length - tail.length)
   let lines = (d?.lines ?? []).map(l => fit(orderLineText(l), width))
-  const room = Math.max(1, maxLines - head.length)
   if (lines.length > room) {
     const hidden = lines.length - room + 1
     lines = [`… ${hidden} more`, ...lines.slice(hidden)]
   }
+  const body = [...head, ...lines, ...tail].slice(0, maxLines)
   const pending = d?.pending ?? []
-  const bar = pending.length
-    ? fit(`${pending[0].text} tap=yes swipe up=no${pending.length > 1 ? ` +${pending.length - 1}` : ''}`, width)
-    : ''
-  return { main: [...head, ...lines].join('\n'), bar, highlight: pending.length > 0 }
+  let bar = ''
+  if (pending.length) {
+    bar = fit(`${pending[0].text} tap=yes swipe up=no${pending.length > 1 ? ` +${pending.length - 1}` : ''}`, width)
+  } else if (d?.lines.length && !d.table && (d.status ?? 'draft') === 'draft') {
+    bar = fit(`${NO_TABLE} say the table, then swipe down`, width)
+  }
+  return { main: body.join('\n'), bar, highlight: pending.length > 0 }
 }
 
 export type Gesture = 'tap' | 'up' | 'down'
 
 export interface DraftAction {
   send: GlassesJsonMessage | null
-  then: 'none' | 'stop' | 'listen' | 'back'
+  then: 'none' | 'clip' | 'back'
 }
 
 /**
- * Swipe down: stop listening (or listen again). Tap: accept the pending proposal, else
- * send the whole order. Swipe up: reject the pending proposal, else back to the card.
+ * Swipe down: send the last minute again (more ordering, or the spoken table). Tap: accept the
+ * pending proposal, else send the whole order, which needs a table. Swipe up: reject the
+ * pending proposal, else back to the card.
  */
 export function draftGesture(g: Gesture, s: DraftState): DraftAction {
   const d = s.draft
   const pending = d?.pending?.[0]
-  if (g === 'down') return { send: null, then: s.capturing ? 'stop' : 'listen' }
+  if (g === 'down') return { send: null, then: 'clip' }
   if (g === 'up') {
     if (d && pending) return { send: { type: 'order.reject', orderId: d.orderId, proposalId: pending.id }, then: 'none' }
     return { send: null, then: 'back' }
@@ -86,7 +103,7 @@ export function draftGesture(g: Gesture, s: DraftState): DraftAction {
     const type = pending.action === 'cancel' ? 'order.cancel_confirm' : 'order.confirm'
     return { send: { type, orderId: d.orderId, proposalId: pending.id }, then: 'none' }
   }
-  if (d.lines.length && (d.status ?? 'draft') === 'draft') {
+  if (d.lines.length && d.table && (d.status ?? 'draft') === 'draft') {
     return { send: { type: 'order.confirm', orderId: d.orderId }, then: 'none' }
   }
   return { send: null, then: 'none' }

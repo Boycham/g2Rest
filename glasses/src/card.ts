@@ -8,6 +8,9 @@ export const CARD_PADDING = 6
 export const CARD_TEXT_WIDTH = DISPLAY_WIDTH - 2 * CARD_PADDING
 export const CARD_MAX_LINES = 5
 
+/** Shown under an accepted ORDER task: the table is bound, the clip does the rest. */
+export const ORDER_HINT = 'swipe down once they have ordered'
+
 export interface CardView {
   text: string
   /** Text brightness 0..4: brightest when the card still needs a tap. */
@@ -75,8 +78,9 @@ export function formatCard(queue: readonly Task[], opts: CardOptions): CardView 
   const queued = queue.length > 1 ? `+${queue.length - 1} queued` : ''
   const footer = status || queued ? spread(status, queued, width) : ''
 
+  const notes = head.kind === 'ORDER' && head.state === 'accepted' ? [...head.notes, ORDER_HINT] : head.notes
   const noteRoom = maxLines - lines.length - (footer ? 1 : 0)
-  for (const note of head.notes.slice(0, Math.max(0, noteRoom))) lines.push(fit(note, width))
+  for (const note of notes.slice(0, Math.max(0, noteRoom))) lines.push(fit(note, width))
   if (footer) lines.push(footer)
 
   return { text: lines.join('\n'), brightness: head.state === 'assigned' ? 4 : 2 }

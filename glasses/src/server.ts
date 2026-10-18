@@ -2,6 +2,9 @@ import { RebuildPageContainer } from '@evenrealities/even_hub_sdk'
 import type { BackendMessage } from './contract'
 import { formatCard, formatQueue } from './card'
 import { CaptureScreen } from './capture'
+import { RollingBuffer } from './clip'
+import { debugFixtures, loadFixture } from './debug-pcm'
+import { FrameChunker, Mic, toBytes } from './mic'
 import type { Hud, HudContext, PageSpec } from './hud'
 import { applyBackendTask, markDone, saveDone, type DoneIds } from './reconcile'
 import { MAIN_ID, MAIN_NAME, TextSlot, fullTextPage } from './render'
@@ -11,7 +14,11 @@ import { log } from './log'
 
 type Screen = 'card' | 'queue' | 'draft'
 
-/** The server HUD: one task card, the queue, and the voice capture / draft screen. */
+/**
+ * The server HUD: one task card, the queue, and the order draft. While the server role is on
+ * the glasses the mic runs into a rolling buffer of the last 60 s (memory only); swipe down
+ * sends that minute as a clip and opens the draft the backend makes of it.
+ */
 export class ServerHud implements Hud {
   readonly role = 'server'
   queue: Queue
@@ -19,6 +26,11 @@ export class ServerHud implements Hud {
   private current: Screen = 'card'
   private readonly card: TextSlot
   private readonly capture: CaptureScreen
+  private readonly mic: Mic
+  private readonly chunker = new FrameChunker()
+  private readonly buffer = new RollingBuffer()
+  private readonly fixtures = debugFixtures()
+  private nextFixture = 0
 
   constructor(
     private readonly ctx: HudContext,
@@ -31,10 +43,42 @@ export class ServerHud implements Hud {
       ctx.active() && this.current === 'card' ? this.currentCard() : null,
     )
     this.capture = new CaptureScreen(ctx.bridge, ctx.socket, () => ctx.syncPhone())
+    this.mic = new Mic(ctx.bridge)
+    if (this.fixtures.length) log('DEBUG PCM path on:', this.fixtures.join(','))
   }
 
-  get capturing(): boolean {
-    return this.capture.capturing
+  /** True while the last minute is being kept (mic on, or a debug fixture loaded). */
+  get recording(): boolean {
+    return this.mic.isOpen || (this.fixtures.length > 0 && this.buffer.frames > 0)
+  }
+
+  get bufferedSeconds(): number {
+    return this.buffer.seconds
+  }
+
+  /** Mic on into the rolling buffer. In the debug path a fixture stands in for the minute. */
+  async startRecording(): Promise<void> {
+    if (this.fixtures.length) return this.loadDebugMinute()
+    const ok = await this.mic.set(true)
+    log('rolling buffer', ok ? 'recording (last 60 s, memory only)' : 'mic did not open')
+    this.ctx.syncPhone()
+  }
+
+  /** Mic off and the minute forgotten (role switch, exit). */
+  stopRecording(): void {
+    void this.mic.set(false)
+    this.buffer.clear()
+    this.chunker.reset()
+    this.ctx.syncPhone()
+  }
+
+  private async loadDebugMinute(): Promise<void> {
+    const name = this.fixtures[this.nextFixture]!
+    this.nextFixture = (this.nextFixture + 1) % this.fixtures.length
+    const frames = await loadFixture(name)
+    this.buffer.clear()
+    for (const f of frames.slice(-this.buffer.capacity)) this.buffer.push(f)
+    this.ctx.syncPhone()
   }
 
   screen(): Screen {
@@ -52,13 +96,15 @@ export class ServerHud implements Hud {
     return { containerTotalNum: 1, textObject: [fullTextPage(card.text, card.brightness)] }
   }
 
-  enter(): Promise<void> {
-    return this.showScreen('card')
+  async enter(): Promise<void> {
+    await this.showScreen('card')
+    await this.startRecording()
   }
 
-  /** Leaving the role always turns the mic off; the draft is kept. */
+  /** Leaving the role turns the mic off and forgets the minute; the draft is kept. */
   leave(): void {
     this.capture.leave()
+    this.stopRecording()
     this.current = 'card'
   }
 
@@ -113,18 +159,32 @@ export class ServerHud implements Hud {
     void this.card.render()
   }
 
-  /** SDK audio event; CaptureScreen forwards it only while capturing from the mic. */
+  /** SDK audio event: mic frames go into the rolling buffer, nowhere else. */
   onAudio(pcm: unknown): void {
-    this.capture.onAudio(pcm)
+    if (!this.mic.isOpen || this.fixtures.length) return
+    const bytes = toBytes(pcm)
+    if (!bytes) return
+    for (const frame of this.chunker.push(bytes)) this.buffer.push(frame)
   }
 
-  private async startCapture(): Promise<void> {
-    await this.showScreen('draft')
-    this.capture.start()
+  /** The accepted ORDER task on top names the table; otherwise the backend or the clip does. */
+  private orderTable(): string | undefined {
+    const head = this.queue[0]
+    return head?.kind === 'ORDER' && head.state === 'accepted' ? head.table : undefined
+  }
+
+  /** Swipe down: clip the last minute, send it, show the draft. */
+  private async sendClip(): Promise<void> {
+    const frames = this.buffer.clip()
+    if (this.current !== 'draft') await this.showScreen('draft')
+    this.capture.sendClip(frames, this.orderTable())
+    if (this.fixtures.length) void this.loadDebugMinute()
   }
 
   private onDraftGesture(g: 'tap' | 'up' | 'down'): void {
-    if (this.capture.gesture(g) === 'back') void this.showScreen('card')
+    const then = this.capture.gesture(g)
+    if (then === 'back') void this.showScreen('card')
+    if (then === 'clip') void this.sendClip()
   }
 
   onTap(): void {
@@ -147,7 +207,7 @@ export class ServerHud implements Hud {
   }
 
   onSwipeDown(): void {
-    if (this.current === 'card') void this.startCapture()
+    if (this.current === 'card') void this.sendClip()
     else if (this.current === 'draft') this.onDraftGesture('down')
   }
 
@@ -156,9 +216,9 @@ export class ServerHud implements Hud {
     void saveDone(this.ctx.bridge, this.done)
   }
 
-  /** Background or exit: mic off, state saved. */
+  /** Exit: mic off, minute forgotten, state saved. */
   cleanup(): void {
-    this.capture.stop()
+    this.stopRecording()
     this.save()
   }
 }

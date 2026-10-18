@@ -6,7 +6,6 @@ import {
 } from '@evenrealities/even_hub_sdk'
 import type { OrderClosed, OrderDraft, VoiceState } from './contract'
 import { CARD_PADDING, DISPLAY_WIDTH } from './card'
-import { debugFixtures, streamFixture, type DebugStream } from './debug-pcm'
 import {
   BAR_HEIGHT,
   BRIGHT,
@@ -18,22 +17,21 @@ import {
   type DraftState,
   type Gesture,
 } from './draft'
-import { FrameChunker, Mic, toBytes } from './mic'
 import { MAIN_ID, MAIN_NAME } from './render'
 import type { BackendSocket } from './socket'
 import { log } from './log'
 
-// The capture / draft screen of the server role: owns the mic, the capture id, the latest
-// order.draft and the two text containers (order, pending bar). The mic is on only
-// between capture.start and capture.stop.
+// The draft screen of the server role: sends a clipped minute (capture.start mode=clip, its
+// frames, capture.stop), then shows the order.draft the backend makes of it in two text
+// containers (order, pending bar). The mic and its rolling buffer belong to ServerHud.
 
 const BAR_ID = 2
-/** No `voice: listening` draft for this capture within this time means VOICE OFFLINE. */
-const START_TIMEOUT_MS = 10_000
+/** No draft out of `processing` for this clip within this time means VOICE OFFLINE. */
+const CLIP_TIMEOUT_MS = 30_000
 
 declare global {
   interface Window {
-    /** Dev measurement: end of speech -> draft shown on the glasses, ms. */
+    /** Dev measurement: swipe down -> draft from that clip shown on the glasses, ms. */
     __fsLatency?: number[]
   }
 }
@@ -56,17 +54,13 @@ function container(id: number, y: number, height: number, content: string, color
 
 export class CaptureScreen {
   private draft: OrderDraft | null = null
-  private captureId: string | null = null
+  private clipId: string | null = null
   private voice: VoiceState = 'idle'
+  private hint: string | null = null
   private online = false
   private active = false
-  private readonly mic: Mic
-  private readonly chunker = new FrameChunker()
-  private readonly fixtures = debugFixtures()
-  private nextFixture = 0
-  private debug: DebugStream | null = null
-  private startTimer: ReturnType<typeof setTimeout> | null = null
-  private speechEndAt: number | null = null
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private clipAt: number | null = null
   private shown = ''
   private writing = false
   private dirty = false
@@ -75,17 +69,14 @@ export class CaptureScreen {
     private readonly bridge: EvenAppBridge,
     private readonly socket: BackendSocket,
     private readonly onChange: () => void,
-  ) {
-    this.mic = new Mic(bridge)
-    if (this.fixtures.length) log('DEBUG PCM path on:', this.fixtures.join(','))
-  }
+  ) {}
 
-  get capturing(): boolean {
-    return this.captureId !== null
+  get processing(): boolean {
+    return this.voice === 'processing'
   }
 
   private state(): DraftState {
-    return { draft: this.draft, capturing: this.capturing, voice: this.voice, online: this.online }
+    return { draft: this.draft, voice: this.voice, online: this.online, hint: this.hint }
   }
 
   /** Switch to this screen (one rebuild), then every later change is an in-place upgrade. */
@@ -105,107 +96,83 @@ export class CaptureScreen {
     log('rebuild draft', ok, `${(performance.now() - t0).toFixed(1)} ms`)
   }
 
-  /** Leaving the screen always turns the mic off; the draft is kept. */
+  /** Leaving the screen keeps the draft; the backend may still answer the last clip. */
   leave(): void {
-    this.stop()
     this.active = false
   }
 
-  start(): void {
-    if (this.capturing) return
-    const id = `cap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-    this.captureId = id
-    this.voice = 'connecting'
-    this.chunker.reset()
-    this.socket.send({ type: 'capture.start', captureId: id })
-    this.startTimer = setTimeout(() => {
-      if (this.captureId === id && this.voice === 'connecting') this.offline('no answer from the voice relay')
-    }, START_TIMEOUT_MS)
-    const fixture = this.fixtures[this.nextFixture]
-    if (fixture) {
-      this.nextFixture = (this.nextFixture + 1) % this.fixtures.length
-      this.debug = streamFixture(
-        fixture,
-        frame => this.sendFrame(frame),
-        t => (this.speechEndAt = t),
-      )
-    } else {
-      void this.mic.set(true).then(ok => {
-        if (!ok && this.captureId === id) this.offline('mic did not open')
-      })
+  /**
+   * Send the clipped minute. Frames go out back to back (the socket buffers them); nothing
+   * is kept here once they are sent. Returns false if there was nothing to send.
+   */
+  sendClip(frames: readonly ArrayBuffer[], table?: string): boolean {
+    if (!this.online) {
+      this.hint = 'offline: clip not sent'
+      this.changed()
+      return false
     }
+    if (!frames.length) {
+      this.hint = 'mic off: nothing recorded'
+      this.changed()
+      return false
+    }
+    const id = `clip-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    this.clipId = id
+    this.clipAt = performance.now()
+    this.voice = 'processing'
+    this.hint = null
+    this.socket.send({ type: 'capture.start', captureId: id, mode: 'clip', ...(table ? { table } : {}) })
+    for (const f of frames) this.socket.sendAudio(f)
+    this.socket.send({ type: 'capture.stop', captureId: id })
+    log('clip sent', id, `${(frames.length / 10).toFixed(1)} s`, table ?? 'no table')
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = setTimeout(() => {
+      if (this.clipId === id && this.voice === 'processing') this.offline('no draft for the clip')
+    }, CLIP_TIMEOUT_MS)
     this.changed()
-  }
-
-  stop(): void {
-    if (this.startTimer) clearTimeout(this.startTimer)
-    this.startTimer = null
-    this.debug?.stop()
-    this.debug = null
-    void this.mic.set(false)
-    if (this.captureId) this.socket.send({ type: 'capture.stop', captureId: this.captureId })
-    this.captureId = null
-    if (this.voice !== 'offline') this.voice = 'idle'
-    this.changed()
+    return true
   }
 
   private offline(why: string): void {
     log('VOICE OFFLINE:', why)
-    this.stop()
     this.voice = 'offline'
     this.changed()
   }
 
-  private sendFrame(frame: ArrayBuffer): void {
-    if (this.capturing) this.socket.sendAudio(frame)
-  }
-
-  /** SDK audioEvent: only forwarded while capturing from the real mic. */
-  onAudio(pcm: unknown): void {
-    if (!this.capturing || this.debug || !this.mic.isOpen) return
-    const bytes = toBytes(pcm)
-    if (!bytes) return
-    for (const frame of this.chunker.push(bytes)) this.sendFrame(frame)
-  }
-
   onDraft(msg: OrderDraft): void {
     if (msg.orderId) this.draft = msg
-    const voice = msg.voice ?? this.voice
-    if (msg.captureId === this.captureId && voice !== 'offline') {
-      this.voice = voice
-      if (voice === 'listening' && this.startTimer) {
-        clearTimeout(this.startTimer)
-        this.startTimer = null
-      }
+    if (msg.voice === 'offline') return this.offline(msg.notice ?? 'relay reported offline')
+    if (msg.captureId === this.clipId && msg.voice) this.voice = msg.voice
+    if (!this.processing && this.timer) {
+      clearTimeout(this.timer)
+      this.timer = null
     }
-    if (voice === 'offline') this.offline(msg.notice ?? 'relay reported offline')
-    else this.changed()
+    this.changed()
   }
 
-  /** The send / cancel tap landed: mic off, draft dropped. True if it was the draft on screen. */
+  /** The send / cancel tap landed: draft dropped. True if it was the draft on screen. */
   onClosed(msg: OrderClosed): boolean {
     if (!closesDraft(this.draft, msg.orderId)) return false
     log('order closed', msg.orderId, msg.status)
     this.draft = null
-    this.stop()
+    this.clipId = null
+    this.voice = 'idle'
+    this.changed()
     return true
   }
 
   setOnline(online: boolean): void {
     this.online = online
-    if (!online && this.capturing) this.offline('backend socket offline')
+    if (!online && this.processing) this.offline('backend socket offline')
     else this.changed()
   }
 
-  gesture(g: Gesture): 'back' | 'none' {
+  /** 'clip': the caller sends a new last minute; 'back': return to the card. */
+  gesture(g: Gesture): 'back' | 'clip' | 'none' {
     const a = draftGesture(g, this.state())
     if (a.send) this.socket.send(a.send)
-    if (a.then === 'stop') this.stop()
-    if (a.then === 'listen') {
-      if (this.voice === 'offline') this.voice = 'idle'
-      this.start()
-    }
-    return a.then === 'back' ? 'back' : 'none'
+    if (a.then === 'clip' && this.voice === 'offline') this.voice = 'idle'
+    return a.then
   }
 
   private changed(): void {
@@ -247,11 +214,11 @@ export class CaptureScreen {
         this.shown = key
         const t1 = performance.now()
         log('draft upgrade', `${(t1 - t0).toFixed(1)} ms`, JSON.stringify(v.main), JSON.stringify(v.bar))
-        if (this.speechEndAt !== null && prev.main !== undefined && (prev.main !== v.main || prev.bar !== v.bar)) {
-          const ms = Math.round(t1 - this.speechEndAt)
+        if (this.clipAt !== null && !this.processing && this.draft?.captureId === this.clipId) {
+          const ms = Math.round(t1 - this.clipAt)
           ;(window.__fsLatency ??= []).push(ms)
-          log('latency end of speech -> draft on glasses', `${ms} ms`)
-          this.speechEndAt = null
+          log('latency swipe down -> draft on glasses', `${ms} ms`)
+          this.clipAt = null
         }
       } while (this.dirty && this.active)
     } finally {
