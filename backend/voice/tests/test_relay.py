@@ -351,7 +351,7 @@ async def test_small_talk_clip_adds_nothing_and_says_so():
     session, sent, _ = clip_relay(order=None, turns=(("speaker_0", "How was the theater?"),))
     await send_clip(session)
     assert sent[-1]["lines"] == [] and sent[-1]["voice"] == "idle"
-    assert sent[-1]["notice"] == "no order heard in the last 2 min"
+    assert sent[-1]["notice"] == "Nothing to add"
     await session.close()
 
 
