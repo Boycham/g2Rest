@@ -2,27 +2,97 @@
   "name": "Saturday dinner rush (fictional)",
   "seed": 20261018,
   "service_min": 120,
-  "arrivals_per_15min": [1, 2, 3, 4, 4, 3, 2, 1],
-  "party_size_weights": {"2": 40, "3": 15, "4": 30, "5": 5, "6": 10},
+  "arrivals_per_15min": [
+    1,
+    2,
+    3,
+    4,
+    4,
+    3,
+    2,
+    1
+  ],
+  "party_size_weights": {
+    "2": 45,
+    "3": 15,
+    "4": 30,
+    "5": 4,
+    "6": 6
+  },
   "appetizer_share": 0.6,
   "dessert_share": 0.5,
   "minutes": {
-    "order_after_seated": [4, 7],
-    "appetizer_cook": [7, 11],
-    "mains_after_appetizers": [14, 20],
-    "mains_cook_no_appetizer": [16, 22],
-    "dessert_order_after_mains": [22, 30],
-    "dessert_cook": [4, 7],
-    "leave_after_dessert": [10, 15],
-    "leave_after_mains_no_dessert": [25, 35]
+    "order_after_seated": [
+      3,
+      6
+    ],
+    "appetizer_cook": [
+      6,
+      10
+    ],
+    "mains_after_appetizers": [
+      10,
+      15
+    ],
+    "mains_cook_no_appetizer": [
+      14,
+      20
+    ],
+    "dessert_order_after_mains": [
+      12,
+      18
+    ],
+    "dessert_cook": [
+      3,
+      6
+    ],
+    "check_after_dessert": [
+      6,
+      10
+    ],
+    "check_after_mains_no_dessert": [
+      12,
+      18
+    ]
   },
-  "plate_jitter_sec": {"appetizer": 60, "main": 90, "dessert": 45},
+  "plate_jitter_sec": {
+    "appetizer": 60,
+    "main": 90,
+    "dessert": 45
+  },
   "runner": {
-    "reaction_sec": [3, 12],
+    "reaction_sec": [
+      3,
+      12
+    ],
     "slow_reaction_share": 0.05,
-    "slow_reaction_sec": [20, 45],
-    "travel_sec": [45, 90],
+    "slow_reaction_sec": [
+      20,
+      45
+    ],
+    "travel_sec": [
+      45,
+      90
+    ],
     "per_extra_table_sec": 15
+  },
+  "floor_work_sec": {
+    "ORDER": [
+      90,
+      210
+    ],
+    "DESSERT_ORDER": [
+      45,
+      90
+    ],
+    "CHECK": [
+      60,
+      150
+    ],
+    "CLEAR": [
+      60,
+      120
+    ]
   },
   "hard_stop_min": 360
 }

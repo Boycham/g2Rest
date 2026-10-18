@@ -1,9 +1,16 @@
 """The dinner-rush world and its offline run on the real backend, on a simulated clock.
 
 `World` plays the guests and the kitchen: parties arrive, wait for a table that fits, order,
-eat and leave; the kitchen puts plates up at the pass. `Runner` plays one person on the floor:
-it reacts to a RUN card after a short delay, carries the plates for a travel time and only then
-sends `task.done`, which is what frees it for the next run (sim/README.md).
+eat, pay and leave; the kitchen puts plates up at the pass. The floor work around a meal goes
+through the backend as real tasks: an ORDER task when a table is ready to order (the order is
+sent when it's done), another for desserts, a CHECK task to pay and a CLEAR task to reset the
+table before the next party sits.
+
+`Runner` plays one person on the floor: one task at a time, the rest queue on the glasses (a RUN
+card goes ahead of queued floor work). It reacts to the card after a short delay, accepts, keeps
+the task open for a travel time (RUN) or a work time (ORDER, CHECK, CLEAR) and only then sends
+`task.done`, which is what frees it for the next run (sim/README.md). A card that sits
+unaccepted for 30 s because its server is busy escalates through the real TaskBook.
 
 Both talk to a backend through a small interface (`Backend`), so the same world drives either the
 real `Store` + `Hub` in-process (`run_offline`, here) or a running server over HTTP and WebSocket
@@ -25,6 +32,7 @@ from typing import Any, Protocol
 from scenario import COURSES, Party
 
 Action = Callable[[], Awaitable[None]]
+DESSERT_NOTE = "dessert order"
 TICK_SEC = 1.0  # app/main.py tick_loop: min(TICK_SEC, escalation_sec / 4) with the defaults
 
 
@@ -37,6 +45,7 @@ class Backend(Protocol):
     async def set_status(self, table: str, status: str) -> None: ...
     async def fire(self, table: str, lines: list[tuple[int, str]]) -> str: ...
     async def plate_up(self, order_id: str, line: int) -> None: ...
+    async def create_task(self, kind: str, table: str, notes: list[str]) -> str: ...
 
 
 # ---------- the floor staff ----------
@@ -44,7 +53,7 @@ class Backend(Protocol):
 
 @dataclass
 class Runner:
-    """One server's hands: one run at a time, cards queue while busy."""
+    """One person's hands: one task at a time, cards queue while busy (RUN cards first)."""
 
     staff: str
     scn: dict[str, Any]
@@ -58,14 +67,15 @@ class Runner:
     def on_message(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
         task = msg.get("task") or {}
-        if kind == "task.assigned" and task.get("kind") == "RUN":
+        if kind == "task.assigned" and task.get("assignee", self.staff) == self.staff:
             if task["id"] != self.current and all(q["id"] != task["id"] for q in self.queue):
                 self.queue.append(task)
                 self._next()
         elif kind == "task.updated" and task.get("state") == "bounced":
+            # escalated away (unaccepted for 30 s) or rerouted (held past 5 min)
             self.queue = [q for q in self.queue if q["id"] != task["id"]]
-            if task["id"] == self.current and not self.accepted:
-                self.current = None  # escalated away before we accepted it
+            if task["id"] == self.current:
+                self.current = None
                 self._next()
         elif kind == "task.rejected" and msg.get("taskId") == self.current:
             self.current = None
@@ -80,16 +90,20 @@ class Runner:
         )
         return self.rng.uniform(lo, hi)
 
-    def travel(self, task: dict[str, Any]) -> float:
+    def work(self, task: dict[str, Any]) -> float:
+        """Seconds from accept to done: a trip to the table(s) and back, or the floor work."""
         r = self.scn["runner"]
-        return self.rng.uniform(*r["travel_sec"]) + r["per_extra_table_sec"] * (
-            len(run_tables(task)) - 1
-        )
+        if task["kind"] == "RUN":
+            extra = len(run_tables(task)) - 1
+            return self.rng.uniform(*r["travel_sec"]) + r["per_extra_table_sec"] * extra
+        return self.rng.uniform(*self.scn["floor_work_sec"][work_key(task)])
 
     def _next(self) -> None:
         if self.current is not None or not self.queue:
             return
-        task = self.queue.pop(0)
+        runs = [q for q in self.queue if q["kind"] == "RUN"]
+        task = runs[0] if runs else self.queue[0]
+        self.queue.remove(task)
         self.current, self.accepted = task["id"], False
         self.sched.at(self.sched.now() + self.reaction(), lambda: self._accept(task))
 
@@ -99,7 +113,7 @@ class Runner:
         self.accepted = True
         await self.send({"type": "task.accept", "taskId": task["id"]})
         if self.current == task["id"]:
-            self.sched.at(self.sched.now() + self.travel(task), lambda: self._done(task))
+            self.sched.at(self.sched.now() + self.work(task), lambda: self._done(task))
 
     async def _done(self, task: dict[str, Any]) -> None:
         if self.current != task["id"]:
@@ -107,6 +121,12 @@ class Runner:
         self.current = None
         await self.send({"type": "task.done", "taskId": task["id"]})
         self._next()
+
+
+def work_key(task: dict[str, Any]) -> str:
+    if task["kind"] == "ORDER" and DESSERT_NOTE in task.get("notes", []):
+        return "DESSERT_ORDER"
+    return str(task["kind"])
 
 
 def run_tables(task: dict[str, Any]) -> list[str]:
@@ -136,13 +156,15 @@ class World:
         self.sched = sched
         self.waitlist: list[Party] = []
         self.left = 0
+        self.cleared = 0
         self.plate_party: dict[str, tuple[Party, str]] = {}  # plate id -> (party, course)
         self.task_plates: dict[str, list[str]] = {}
+        self.on_done: dict[str, Action] = {}  # floor task id -> what happens when it's done
         self.log: list[dict[str, Any]] = []  # sim.* records for the event stream
 
     @property
     def finished(self) -> bool:
-        return self.left == len(self.parties)
+        return self.cleared == len(self.parties)
 
     def note(self, type: str, **data: Any) -> None:
         self.log.append({"t": self.sched.now(), "type": type, "data": data})
@@ -150,6 +172,14 @@ class World:
     def start(self) -> None:
         for p in self.parties:
             self.sched.at(p.arrive_sec, lambda p=p: self.arrive(p))
+
+    def after(self, sec: float, fn: Action) -> None:
+        self.sched.at(self.sched.now() + sec, fn)
+
+    async def task(self, kind: str, table: str, notes: list[str], then: Action) -> None:
+        task_id = await self.backend.create_task(kind, table, notes)
+        self.note("sim.task", taskId=task_id, kind=work_key({"kind": kind, "notes": notes}))
+        self.on_done[task_id] = then
 
     async def arrive(self, p: Party) -> None:
         self.note("sim.arrive", party=p.id, size=p.size)
@@ -169,10 +199,11 @@ class World:
             p.table = table
             self.note("sim.seat", party=p.id, table=table)
             await self.backend.set_status(table, "seated")
-            self.after(p.sec["order_after_seated"], lambda p=p: self.order(p))
+            self.after(p.sec["order_after_seated"], lambda p=p: self.ready_to_order(p))
 
-    def after(self, sec: float, fn: Action) -> None:
-        self.sched.at(self.sched.now() + sec, fn)
+    async def ready_to_order(self, p: Party) -> None:
+        assert p.table is not None
+        await self.task("ORDER", p.table, ["take order"], lambda: self.order(p))
 
     async def order(self, p: Party) -> None:
         """Appetizers and mains go in together; the kitchen times the mains off the appetizers."""
@@ -200,8 +231,12 @@ class World:
         if e["type"] == "pass.run":
             self.task_plates[e["data"]["taskId"]] = list(e["data"]["plates"])
         elif e["type"] == "task.done":
-            for plate in self.task_plates.pop(e["data"]["taskId"], []):
+            task_id = e["data"]["taskId"]
+            for plate in self.task_plates.pop(task_id, []):
                 self.delivered(plate)
+            then = self.on_done.pop(task_id, None)
+            if then is not None:
+                self.sched.at(self.sched.now(), then)
 
     def delivered(self, plate: str) -> None:
         p, course = self.plate_party[plate]
@@ -219,11 +254,15 @@ class World:
         if course == "appetizer":
             self.cook(p, "main", p.sec["mains_after_appetizers"], len(p.dishes["appetizer"]))
         elif course == "main" and p.dishes["dessert"]:
-            self.after(p.sec["dessert_order_after_mains"], lambda: self.dessert(p))
+            self.after(p.sec["dessert_order_after_mains"], lambda: self.dessert_order(p))
         elif course == "main":
-            self.after(p.sec["leave_after_mains_no_dessert"], lambda: self.leave(p))
+            self.after(p.sec["check_after_mains_no_dessert"], lambda: self.check(p))
         else:
-            self.after(p.sec["leave_after_dessert"], lambda: self.leave(p))
+            self.after(p.sec["check_after_dessert"], lambda: self.check(p))
+
+    async def dessert_order(self, p: Party) -> None:
+        assert p.table is not None
+        await self.task("ORDER", p.table, [DESSERT_NOTE], lambda: self.dessert(p))
 
     async def dessert(self, p: Party) -> None:
         assert p.table is not None
@@ -233,12 +272,23 @@ class World:
             self.plate_party[f"{order_id}:{i}"] = (p, "dessert")
         self.cook(p, "dessert", p.sec["dessert_cook"], first_line=0)
 
-    async def leave(self, p: Party) -> None:
+    async def check(self, p: Party) -> None:
         assert p.table is not None
-        await self.backend.set_status(p.table, "empty")
-        self.note("sim.leave", party=p.id, table=p.table)
-        self.free.add(p.table)
+        await self.backend.set_status(p.table, "check")
+        await self.task("CHECK", p.table, [], lambda: self.leave(p))
+
+    async def leave(self, p: Party) -> None:
+        table = p.table
+        assert table is not None
+        await self.backend.set_status(table, "empty")
+        self.note("sim.leave", party=p.id, table=table)
         self.left += 1
+        await self.task("CLEAR", table, [], lambda: self.reset(p, table))
+
+    async def reset(self, p: Party, table: str) -> None:
+        self.note("sim.cleared", party=p.id, table=table)
+        self.free.add(table)
+        self.cleared += 1
         await self.seat_waiting()
 
 
@@ -292,6 +342,7 @@ class OfflineResult:
 async def run_offline(
     scn: dict[str, Any], parties: list[Party], planner: str, seed: int
 ) -> OfflineResult:
+    from app import router
     from app.config import Settings
     from app.hub import Hub
     from app.runs import PLANNERS
@@ -332,6 +383,13 @@ async def run_offline(
             store.plate_up(order_id, line)  # POST /pass/up
             await hub.replan(push=True)
 
+        async def create_task(self, kind: str, table: str, notes: list[str]) -> str:
+            # POST /tasks without an assignee: the router picks (rules, no Gemini key)
+            who = await router.pick(store, hub.http, kind, table, notes)
+            task, out = store.book.create(kind, table, store.now(), notes=notes, assignee=who)  # type: ignore[arg-type]
+            await hub.deliver(out)
+            return task.id
+
     world = World(parties, store.floor.to_dict()["tables"], InProcess(), sched)
     staff = [*store.floor.servers, store.floor.manager.id]
     sockets = {}
@@ -346,7 +404,7 @@ async def run_offline(
         role = "manager" if who == store.floor.manager.id else "server"
         await hub.join(ws, role, who)  # type: ignore[arg-type]
 
-    reserved: tuple[str, ...] = ()
+    reserved: tuple[tuple[str, ...], tuple[str, ...]] = ((), ())
 
     def pump() -> None:
         """Stamp new backend events with the simulated time and let the world react."""
@@ -361,10 +419,15 @@ async def run_offline(
         world.log.clear()
 
     def observe() -> None:
-        """Free servers held back because the best ready run needs more hands than are free."""
+        """Free servers held back because the best ready run needs more hands than are free.
+
+        `free` is the pass's own view (no open RUN). `busy` marks the ones whose hands are full
+        with accepted floor work (an order, a check), which the pass can't see.
+        """
         nonlocal reserved
         free = store.free_runners()
         idle: tuple[str, ...] = ()
+        busy: tuple[str, ...] = ()
         lead = None
         if free:
             p = store.pass_
@@ -372,9 +435,12 @@ async def run_offline(
             if waiting:
                 lead = waiting[0]
                 idle = tuple(sorted(free))
-        if idle != reserved:
-            reserved = idle
-            data: dict[str, Any] = {"idle": list(idle)}
+                busy = tuple(
+                    s for s in idle if any(t.state == "accepted" for t in store.book.open_for(s))
+                )
+        if (idle, busy) != reserved:
+            reserved = (idle, busy)
+            data: dict[str, Any] = {"idle": list(idle), "busy": list(busy)}
             if lead is not None:
                 data |= {"runners": lead.runners, "plates": [x.id for x in lead.plates]}
             stream.append({"t": clock.t, "type": "sim.reserved", "data": data})
@@ -399,8 +465,8 @@ async def run_offline(
             await tick()
         pump()
         observe()
-    if reserved:
-        stream.append({"t": clock.t, "type": "sim.reserved", "data": {"idle": []}})
+    if reserved[0]:
+        stream.append({"t": clock.t, "type": "sim.reserved", "data": {"idle": [], "busy": []}})
     stream.append({"t": clock.t, "type": "sim.end", "data": {"finished": world.finished}})
     await hub.http.aclose()
     return OfflineResult(stream, world, planner)
