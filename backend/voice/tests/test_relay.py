@@ -587,3 +587,52 @@ async def test_verity_table_refuses_unknown_tables_sent_orders_and_no_order():
     await say_table(session, 2)
     assert sent[-1]["reason"] == "already sent"
     await session.close()
+
+
+def test_loudness_gate_zeroes_quiet_frames_and_holds_after_loud_ones():
+    import array
+
+    from relay import LoudnessGate
+
+    def frame(amp: int) -> bytes:
+        return array.array("h", [amp, -amp] * (FRAME_BYTES // 4)).tobytes()
+
+    loud, quiet, silent = frame(8000), frame(300), bytes(FRAME_BYTES)  # -12, -41 dBFS
+    gate = LoudnessGate(-30.0, hold=2)
+    assert [gate(f) for f in (quiet, loud, quiet, quiet, quiet)] == [
+        silent,
+        loud,
+        quiet,
+        quiet,
+        silent,
+    ]
+    assert LoudnessGate(None)(quiet) == quiet
+
+
+def test_crowd_settings_come_from_env(monkeypatch):
+    from relay import env_float
+
+    monkeypatch.setenv("X_GATE", "-31.5")
+    assert env_float("X_GATE", -30.0) == -31.5
+    monkeypatch.setenv("X_GATE", "off")
+    assert env_float("X_GATE", -30.0) is None
+    monkeypatch.setenv("X_GATE", "")
+    assert env_float("X_GATE", -30.0) == -30.0
+
+
+@run
+async def test_command_frames_pass_the_loudness_gate():
+    import relay as relay_mod
+
+    session, _, _ = clip_relay()
+    streams: list[FakeStt] = []
+    session.make_stt = lambda p, c: streams.append(FakeStt(p, c)) or streams[-1]
+    real = relay_mod.CMD_GATE_DBFS
+    relay_mod.CMD_GATE_DBFS = -30.0
+    try:
+        await session.handle_text('{"type": "capture.start", "captureId": "c", "mode": "command"}')
+        await session.audio(b"\x01\x00" * (FRAME_BYTES // 2))  # -90 dBFS: far talk
+    finally:
+        relay_mod.CMD_GATE_DBFS = real
+    assert streams[0].frames == [bytes(FRAME_BYTES)]
+    await session.close()
