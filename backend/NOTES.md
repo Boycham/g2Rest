@@ -15,7 +15,9 @@ Environment: `FS_TOKEN` (shared HTTP + WebSocket token; empty = no auth, for loc
 `FS_ESCALATION_SEC` (default 30), `FS_PORT`, `FS_DATA_DIR` (default `../data`),
 `GEMINI_API_KEY` (empty = the router uses the rules only), `FS_GEMINI_MODEL` (default
 `gemini-3.1-flash-lite`), `FS_ROUTER_TIMEOUT_SEC` (default 1.5), `FS_DONE_SEC` (default 300: an
-accepted task held this long alerts the manager and is rerouted, RUN tasks alert only).
+accepted task held this long alerts the manager and is rerouted, RUN tasks alert only),
+`FS_COURSE_WAIT_SEC` (default 720: a seated table waiting this long on its next course alerts the
+manager), `FS_VIP_ALERT_SEC` (default 300: how long "VIP seated" stays on the manager's list).
 
 ## Task router (`app/router.py`)
 
@@ -151,6 +153,19 @@ hold the draft (`order.closed`); confirm sends `order.closed` to the glasses too
 alteration -> `flagged`, never applied; allergy conflicts reported; confirm/cancel only propose
 (`needs_confirmation` + `order.readback`), the tap (`order.confirm` on the socket or
 `POST /orders/{id}/confirm`) fires. Behaviour copied from `backend/voice/order.py`, not the code.
+
+## Exceptions and 86 (`devin/exceptions-86`)
+
+- **Course wait** (`Store.course_wait`, run on every `hub.replan`, so the 1 s ticker and the sim):
+  the next course is the table's first course with a plate not up. The clock starts when that
+  course was fired; if an earlier course already left the pass, it starts when the table finished
+  eating (a CLEAR task done there, or status set to `waiting`) and not before. Plates up and only
+  waiting for a runner are the pass's job (5-minute ceiling), not a course wait. Clears when every
+  plate of the course is up; the table's minimap urgency is 3 while it is open.
+- **VIP seated:** `POST /tables/{id}/status {"status": "seated", "vip": true}`; once per party.
+- **86:** `POST /menu/{dish}/86` / `un86`; the list lives in `OrderBook.out` (reset by `/reset`).
+  `tests/test_exceptions.py`, `tests/test_menu_86.py`: raise + clear for each alert, the guard and
+  the `?` line, delivery to s1, s2 and m1 at once, replay on reconnect.
 
 ## Measured
 
