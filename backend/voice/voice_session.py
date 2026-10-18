@@ -166,7 +166,7 @@ CLIP_TOOL_SCHEMAS: list[dict[str, Any]] = [
         "per clip. It never sends or cancels anything; the server taps on the glasses.",
         "parameters": {
             "type": "object",
-            "required": [],
+            "required": ["items"],
             "properties": {
                 "table": {
                     "type": "integer",
@@ -208,6 +208,17 @@ CLIP_TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "description": "Occasion, pacing or timing worth knowing, a few words each",
                     "items": {"type": "string", "description": "e.g. 'anniversary'"},
                 },
+            },
+        },
+    },
+    {
+        "name": "set_talk",
+        "description": "After set_order: a short summary of the clip and every question or "
+        "comment a guest made. Display only on the glasses; code answers food questions.",
+        "parameters": {
+            "type": "object",
+            "required": ["summary"],
+            "properties": {
                 "summary": {
                     "type": "string",
                     "description": "1-2 short sentences: what the table said, mood, pacing or "
@@ -254,7 +265,7 @@ CLIP_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
             },
         },
-    }
+    },
 ]
 
 

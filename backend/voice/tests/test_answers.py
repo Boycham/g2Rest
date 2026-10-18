@@ -55,7 +55,7 @@ def test_alterations_are_checked_against_the_dish(menu):
             change="without butter")  # fmt: skip
     assert a["a"] == "yes, no butter is fine"
     a = ask(menu, q="torte without nuts?", kind="alteration", dish="torte", change="no nuts")
-    assert a["a"].startswith("has tree nuts; menu allows: no whipped cream, no hazel")
+    assert a["a"] == "has tree nuts; menu allows: no whipped cream, no hazelnuts"
     a = ask(menu, q="salmon without nuts?", kind="alteration", dish="salmon", change="no nuts")
     assert a["a"] == "salmon lists no tree nuts"
     a = ask(menu, q="duck without skin?", kind="alteration", dish="duck", change="no skin")
@@ -90,10 +90,12 @@ def test_summary_drops_guesses_and_questions(menu):
     assert s == "In a rush. Duck for the birthday girl"
 
 
-def test_set_order_with_no_dishes_still_carries_summary_and_answers():
+def test_set_talk_with_no_dishes_still_carries_summary_and_answers():
     book = OrderBook(Menu.load())
     book.hear("we're in a rush tonight, is the risotto vegetarian, does it have nuts")
-    result, err = book.dispatch("set_order", {
+    assert book.dispatch("set_order", {"items": []}) == ({"status": "ok", "table": None, "seats": {},
+        "table_unknown": "the server will say the table or an ORDER task sets it"}, False)  # fmt: skip
+    result, err = book.dispatch("set_talk", {
         "summary": "In a rush tonight.",
         "questions": [
             {"guest": 2, "q": "risotto vegetarian?", "kind": "dietary", "dish": "risotto"},
@@ -110,3 +112,21 @@ def test_set_order_with_no_dishes_still_carries_summary_and_answers():
         (1, NOT_IN_MENU), (1, "no tree nuts listed for risotto"), (None, "I'll put it in now"),
     ]  # fmt: skip
     assert result["dropped_questions"] == ["question without text"]
+
+
+def test_set_talk_keeps_set_orders_guest_numbers_and_a_new_clip_clears_it():
+    book = OrderBook(Menu.load())
+    book.hear("halibut salmon does the salmon have fish")
+    book.dispatch(
+        "set_order", {"items": [{"guest": 1, "dish": "halibut"}, {"guest": 2, "dish": "salmon"}]}
+    )
+    book.dispatch("set_talk", {"summary": "Quick lunch.", "questions": [
+        {"guest": 2, "q": "salmon fish?", "kind": "allergen", "dish": "salmon", "allergen": "fish"}]})  # fmt: skip
+    t = book.tables[0]
+    assert t.answers == [
+        {"seat": 2, "q": "salmon fish?", "a": "yes, salmon has fish", "answered": True}
+    ]
+    book.dispatch(
+        "set_order", {"items": [{"guest": 1, "dish": "halibut"}, {"guest": 2, "dish": "salmon"}]}
+    )
+    assert (t.summary, t.answers) == ("", [])

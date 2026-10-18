@@ -211,6 +211,8 @@ class RelaySession:
     ) -> None:
         log(f"tool {tool}({json.dumps(params)}) -> {'ERROR' if is_error else 'ok'}")
         self.notice = tool_notice(self.book, tool, params, result) if is_error else None
+        if tool == "set_talk" and not is_error and self.clip_stop:
+            log(f"latency clip stop -> set_talk {time.monotonic() - self.clip_stop:.2f}s")
         if tool == "set_order" and not is_error:
             self.got_order = True
             self.voice = "idle"

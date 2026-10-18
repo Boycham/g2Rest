@@ -17,7 +17,7 @@ from order import Dish, Menu, ToolError, _norm, _words, is_question
 MAX_ANSWERS = 4
 MAX_SUMMARY_CHARS = 120
 MAX_Q_CHARS = 40
-MAX_A_CHARS = 60
+MAX_A_CHARS = 80
 NOT_IN_MENU = "not in menu data"
 KINDS = ("allergen", "alteration", "dietary", "ingredients", "prep", "comment", "other")
 
@@ -107,7 +107,7 @@ def _change_answer(dish: Dish, change: str) -> tuple[str, bool]:
         has = [t for t in terms if t in dish.allergens]
         if not has:
             return f"{_label(dish)} lists no {terms[0]}", True
-        alts = ", ".join(dish.allowed_alterations) or "none"
+        alts = ", ".join(a for a in dish.allowed_alterations if a.startswith("no ")) or "none"
         return f"has {has[0]}; menu allows: {alts}", True
     return "not an allowed change on the menu", False
 

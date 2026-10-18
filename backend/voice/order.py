@@ -204,6 +204,8 @@ class OrderBook:
         self.table_source: str | None = None  # "task" (ORDER task) or "spoken"; task wins
         # Words of the clip the agent is reading; set_order only keeps what was said.
         self.heard: set[str] | None = None
+        # The last set_order's guest entries, so set_talk numbers guests the same way.
+        self.clip_entries: list[dict[str, Any]] = []
         self._next_proposal = 1
 
     def hear(self, transcript: str) -> None:
@@ -414,8 +416,6 @@ class OrderBook:
         """The complete order heard in a clip. Code numbers the seats, checks every dish and
         alteration, and turns anything already on the draft that the clip drops into a
         removal proposal (a tap applies it), so the agent can only ever add live."""
-        from answers import answer_all, clean_summary
-
         notices: list[str] = []
         if p.get("table") not in (None, "", 0):
             try:
@@ -430,9 +430,8 @@ class OrderBook:
         items = _list_of_objects(p, "items")
         allergies = _list_of_objects(p, "allergies")
         unclear = _list_of_objects(p, "unclear")
-        questions = _list_of_objects(p, "questions")
-        asked_by = [q for q in questions if q.get("guest") or q.get("seat")]
-        seat_of = self._seat_numbers([*items, *allergies, *unclear, *asked_by])
+        seat_of = self._seat_numbers([*items, *allergies, *unclear])
+        self.clip_entries = [*items, *allergies, *unclear]
 
         uncertain: list[str] = []
         flagged: list[str] = []
@@ -513,19 +512,7 @@ class OrderBook:
         table.uncertain = [_short(u) for u in uncertain[:MAX_UNCERTAIN]]
         notes = [n for n in _str_list_arg(p, "notes") if not is_question(n)]
         table.notes = [_short(n) for n in notes[:MAX_NOTES]]
-        table.answers, dropped_q = answer_all(
-            self.menu,
-            questions,
-            lambda q: seat_of(q) if q.get("guest") or q.get("seat") else None,
-            self.was_said,
-        )
-        table.summary = clean_summary(
-            self.menu,
-            str(p.get("summary") or ""),
-            {a for s in table.seats.values() for a in s.allergies},
-            {i.dish for s in table.seats.values() for i in s.items},
-        )
-
+        table.summary, table.answers = "", []
         result: dict[str, Any] = {
             "status": "ok",
             "table": t or None,
@@ -551,15 +538,42 @@ class OrderBook:
         if rejected:
             result["rejected_unclear"] = rejected
             result["warning"] = "unclear lines must be statements, never questions"
-        if table.answers:
-            result["answers_shown"] = [f"{a['q']} -> {a['a']}" for a in table.answers]
-            result["note_answers"] = "answers about food are written by code from the menu"
-        if dropped_q:
-            result["dropped_questions"] = dropped_q
         if notices:
             result["table_notice"] = notices[0]
         if conflicts := [c for s in table.seats.values() for c in self._allergy_conflicts(s)]:
             result["allergy_conflicts"] = conflicts
+        return result
+
+    def tool_set_talk(self, p: dict[str, Any]) -> dict[str, Any]:
+        """The clip's summary and the guests' questions, after set_order. Guests keep the
+        numbering of that set_order. Code writes every food answer from the menu (answers.py).
+        Display only: it never touches the order and works on a sent order too."""
+        from answers import answer_all, clean_summary
+
+        table = self.tables.setdefault(self.draft_table, Table())
+        questions = _list_of_objects(p, "questions")
+        asked_by = [q for q in questions if q.get("guest") or q.get("seat")]
+        seat_of = self._seat_numbers([*self.clip_entries, *asked_by])
+        table.answers, dropped = answer_all(
+            self.menu,
+            questions,
+            lambda q: seat_of(q) if q.get("guest") or q.get("seat") else None,
+            self.was_said,
+        )
+        table.summary = clean_summary(
+            self.menu,
+            str(p.get("summary") or ""),
+            {a for s in table.seats.values() for a in s.allergies},
+            {i.dish for s in table.seats.values() for i in s.items},
+        )
+        result: dict[str, Any] = {
+            "status": "ok",
+            "summary": table.summary,
+            "answers": [f"{a['q']} -> {a['a']}" for a in table.answers],
+            "note": "answers about food are written by code from the menu; reply ok",
+        }
+        if dropped:
+            result["dropped_questions"] = dropped
         return result
 
     def _guessed(self, raw: dict[str, Any], unclear_text: str, items_for_seat: int) -> bool:
@@ -675,6 +689,7 @@ class OrderBook:
 
 TOOL_NAMES = (
     "set_order",
+    "set_talk",
     "add_item",
     "remove_item",
     "modify_item",
