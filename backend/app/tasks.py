@@ -27,6 +27,8 @@ WIRE_STATE: dict[str, str] = {
     "bounced": "bounced",
     "escalated": "bounced",
 }
+# what an alert is about (CONTRACT.md §4): the manager list orders by level, servers show "86"
+AlertKind = Literal["unacked", "slow", "course_wait", "vip", "86"]
 OPEN_STATES: frozenset[str] = frozenset({"queued", "sent", "accepted"})
 UNACCEPTED: frozenset[str] = frozenset({"queued", "sent"})
 
@@ -99,6 +101,7 @@ class Alert:
     table: str
     since_sec: int = 0
     cleared: bool = False
+    kind: AlertKind | None = None
 
     def wire(self) -> dict[str, Any]:
         msg: dict[str, Any] = {
@@ -109,9 +112,14 @@ class Alert:
             "table": self.table,
             "sinceSec": self.since_sec,
         }
+        if self.kind:
+            msg["kind"] = self.kind
         if self.cleared:
             msg["cleared"] = True
         return msg
+
+    def clear(self) -> Alert:
+        return Alert(self.id, self.level, "", self.table, 0, cleared=True, kind=self.kind)
 
 
 class TaskBook:
@@ -311,6 +319,7 @@ class TaskBook:
             text=f"{task.table} {task.kind.lower()}: {self.name(holder)} {clock(held)}{tail}",
             table=task.table,
             since_sec=int(held),
+            kind="slow",
         )
         self.alerts[alert.id] = alert
         self.events.append("alert.raised", alertId=alert.id, taskId=task.id)
@@ -424,6 +433,7 @@ class TaskBook:
             text=f"{task.table} {task.kind.lower()} task unacknowledged {{elapsed}}",
             table=task.table,
             since_sec=int(now - task.history[0]["at"]),
+            kind="unacked",
         )
         self.alerts[alert_id] = alert
         self.events.append("alert.raised", alertId=alert_id, taskId=task.id)
@@ -436,9 +446,8 @@ class TaskBook:
             alert = self.alerts.pop(alert_id, None)
             if alert is None:
                 continue
-            cleared = Alert(alert.id, alert.level, "", alert.table, 0, cleared=True)
             self.events.append("alert.cleared", alertId=alert.id, taskId=task.id)
-            out.append(Outbound(self.floor.manager.id, cleared.wire()))
+            out.append(Outbound(self.floor.manager.id, alert.clear().wire()))
         return out
 
 
