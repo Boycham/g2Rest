@@ -79,10 +79,10 @@ export function formatDraft(s: DraftState, width = DRAFT_TEXT_WIDTH, maxLines = 
   const pending = d?.pending ?? []
   let bar = ''
   if (pending.length) {
-    bar = fit(`${pending[0].text} tap=yes swipe up=no${pending.length > 1 ? ` +${pending.length - 1}` : ''}`, width)
+    bar = fit(`${pending[0].text} tap=yes swipe fwd=no${pending.length > 1 ? ` +${pending.length - 1}` : ''}`, width)
   } else if (d?.lines.length && !d.table && (d.status ?? 'draft') === 'draft') {
     const of = pages.length > 1 ? ` · fwd ${page + 1}/${pages.length}` : ''
-    bar = fit(`${NO_TABLE} say the table, then swipe down${of}`, width)
+    bar = fit(`${NO_TABLE} say the table, then swipe back${of}`, width)
   } else if (pages.length > 1) {
     bar = fit(page < pages.length - 1 ? `swipe fwd = more ${page + 1}/${pages.length}` : `${page + 1}/${pages.length} swipe fwd = done`, width)
   }
@@ -115,8 +115,8 @@ export interface DraftAction {
 }
 
 /**
- * Swipe down: send the last minute again (more ordering, or the spoken table). Tap: accept the
- * pending proposal, else send the whole order, which needs a table. Swipe up: reject the
+ * Swipe back (SDK down): send the last minute again (more ordering, or the spoken table). Tap: accept the
+ * pending proposal, else send the whole order, which needs a table. Swipe fwd (SDK up): reject the
  * pending proposal, else back to the card.
  */
 export function draftGesture(g: Gesture, s: DraftState): DraftAction {

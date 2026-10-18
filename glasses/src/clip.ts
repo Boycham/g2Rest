@@ -1,7 +1,7 @@
 import { CAPTURE_AUDIO_FORMAT } from './contract'
 
 // The always-on mic's last minute, held in WebView memory only. Nothing is written to SDK
-// storage, browser storage or disk; a swipe down copies the minute out as one clip, and
+// storage, browser storage or disk; a swipe back copies the minute out as one clip, and
 // anything older than 60 s is overwritten frame by frame as new audio arrives.
 
 const FRAME = CAPTURE_AUDIO_FORMAT.frameBytes

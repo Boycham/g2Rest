@@ -1,7 +1,8 @@
 import { CARD_MAX_LINES, CARD_TEXT_WIDTH, spread } from './card'
 
 // The gesture map in one place. MAIN_GESTURES is what each gesture does on the main card;
-// giving swipe down to the queue instead of clip is `down: 'queue'`. Double tap is always exit (Even Hub
+// giving swipe back (SDK `down`) to the queue instead of clip is `down: 'queue'`.
+// On the G2 touchpad SDK `up` is a swipe fwd (toward the eyes) and `down` a swipe back (toward the ear). Double tap is always exit (Even Hub
 // review rule) and lives in main.ts.
 
 export type MainAction = 'task' | 'controls' | 'queue' | 'clip' | 'handoff'
@@ -14,7 +15,7 @@ export const MAIN_GESTURES: Record<'tap' | 'up' | 'down' | 'hold', MainAction> =
 }
 
 /** Always on the main card, bottom right. */
-export const CONTROLS_HINT = '↑ controls'
+export const CONTROLS_HINT = 'fwd: controls'
 
 export type ControlAction = MainAction | 'decline' | 'revert' | 'table' | 'exit' | 'close'
 
@@ -27,8 +28,8 @@ export interface ControlItem {
 
 const GESTURE_NAMES: Record<'tap' | 'up' | 'down' | 'hold', string> = {
   tap: 'tap',
-  up: 'swipe up',
-  down: 'swipe down',
+  up: 'swipe fwd',
+  down: 'swipe back',
   hold: 'hold',
 }
 
@@ -47,7 +48,7 @@ export const CONTROLS: readonly ControlItem[] = [
   { label: 'Revert last', gesture: 'menu', voice: 'verity revert', action: 'revert' },
   { label: 'Set table', gesture: 'voice', voice: 'verity table N', action: 'table' },
   { label: 'Exit', gesture: 'double tap', voice: '-', action: 'exit' },
-  { label: 'Close', gesture: 'menu', voice: 'verity back', action: 'close' },
+  { label: 'Close', gesture: 'hold', voice: 'verity back', action: 'close' },
 ]
 
 export function controlRow(item: ControlItem, selected: boolean, width = CARD_TEXT_WIDTH): string {
@@ -55,15 +56,18 @@ export function controlRow(item: ControlItem, selected: boolean, width = CARD_TE
   return spread(left, item.voice, width)
 }
 
-/** A window of CARD_MAX_LINES rows that keeps the selected row on screen. */
+/** Last line of the Controls menu. */
+export const CONTROLS_FOOTER = 'fwd/back: move · tap: pick · hold: back'
+
+/** A window of rows that keeps the selected row on screen, then the footer. */
 export function formatControls(selected: number, width = CARD_TEXT_WIDTH): string {
-  const start = Math.max(0, Math.min(selected - 2, CONTROLS.length - CARD_MAX_LINES))
-  return CONTROLS.slice(start, start + CARD_MAX_LINES)
-    .map((item, i) => controlRow(item, start + i === selected, width))
-    .join('\n')
+  const room = CARD_MAX_LINES - 1
+  const start = Math.max(0, Math.min(selected - 2, CONTROLS.length - room))
+  const rows = CONTROLS.slice(start, start + room).map((item, i) => controlRow(item, start + i === selected, width))
+  return [...rows, spread('', CONTROLS_FOOTER, width)].join('\n')
 }
 
-/** Swipe up/down in the menu; it stops at the ends. Only "verity back" or Close closes it. */
+/** Swipe fwd/back (SDK up/down) in the menu; it stops at the ends. Hold, Close or "verity back" close it. */
 export function moveSelection(selected: number, dir: 'up' | 'down'): number {
   return dir === 'up' ? Math.max(0, selected - 1) : Math.min(CONTROLS.length - 1, selected + 1)
 }

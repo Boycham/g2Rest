@@ -157,7 +157,7 @@ export interface OrderCancelConfirm {
   proposalId?: string
 }
 
-/** Swipe up on a pending proposal drops it; nothing changes. */
+/** Swipe fwd on a pending proposal drops it; nothing changes. */
 export interface OrderReject {
   type: 'order.reject'
   orderId: string
@@ -221,7 +221,7 @@ export interface OrderDraft {
   allergies: Allergy[]
   /** `sent` / `cancelled` only after the server's tap. */
   status?: 'draft' | 'sent' | 'cancelled'
-  /** Oldest first; only the first is shown and answered by tap / swipe up. */
+  /** Oldest first; only the first is shown and answered by tap / swipe fwd. */
   pending?: PendingProposal[]
   /** Speech pipeline state, `offline` shows VOICE OFFLINE. */
   voice?: VoiceState

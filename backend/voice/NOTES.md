@@ -261,11 +261,37 @@ clip uploads, frames go to the clip; after it, back to the command stream (the h
 per-socket command capture with no table).
 
 Unknown words right after "verity" (at most 5; longer is ordinary speech and ignored) go to Gemini
-(`gemini_intent.py`, `GEMINI_API_KEY`, default `gemini-2.5-flash-lite`, 3 s timeout, structured JSON)
+(`gemini_intent.py`, `GEMINI_API_KEY`, the router's `FS_GEMINI_MODEL`, default `gemini-3.1-flash-lite`,
+`FS_INTENT_TIMEOUT_SEC` timeout, default 2 s, structured JSON)
 with only that short phrase. Code checks the answer is one of the fixed intents and a handoff name is
 one plain word; anything else, a timeout or no key becomes `voice.unknown {words, reason?}` and the
 glasses show `Didn't get: <words>`. Realtime Scribe wrote the TTS "verity queue" as "Verity Q" (2/2 in
 the simulator run), so `q`/`cue` count as queue after the wake word.
+
+### Gemini intent call: why it was slow, and what changed
+
+Boyuan measured the relay's call with the real key: `gemini-2.5-flash-lite` (the old default) returned 404;
+`gemini-3.1-flash-lite` answered in 3.2 / 4.5 / 8.8 s against a 3 s timeout. The router
+(`backend/app/router.py`) gets 0.5-0.8 s from the same key. Request bodies compared:
+
+| | relay before | router | relay now |
+|---|---|---|---|
+| model | `GEMINI_MODEL`, default `gemini-2.5-flash-lite` | `FS_GEMINI_MODEL`, default `gemini-3.1-flash-lite` | `FS_GEMINI_MODEL`, same default |
+| key | `x-goog-api-key` header (AQ. keys 404) | `?key=` | `?key=` |
+| prompt | one user turn, ~1 KB with the words interpolated | fixed `systemInstruction` + JSON context | fixed `systemInstruction` + only the words as the user turn |
+| output | JSON object schema (`intent` enum + `name`) | `text/x.enum` | JSON object schema (the handoff name needs a field) |
+| thinking | model default | model default | `thinkingLevel: MINIMAL` |
+| timeout | 3 s, fixed | `FS_ROUTER_TIMEOUT_SEC` 3 s | `FS_INTENT_TIMEOUT_SEC`, default 2 s |
+
+Google's docs say `minimal` is already 3.1 Flash-Lite's default thinking level
+(https://ai.google.dev/gemini-api/docs/gemini-3), so asking for it explicitly should change little. Prompt
+size is ~1.1 KB either way. Without the key here, the biggest suspect is the JSON object schema versus the
+router's plain enum. `gemini_latency.py` times 5 calls of the old body against the new one (same model,
+same `?key=`) and prints prompt and thinking tokens per call; the key is never printed.
+
+Before/after, 5 calls each: **not measured yet** (no `GEMINI_API_KEY` in this environment). Run
+`GEMINI_API_KEY=... .venv/bin/python gemini_latency.py` and fill this in. If "after" is still above 1.5 s,
+the next step is the router's `text/x.enum` with the handoff name read from the words in code.
 
 ### Noise test (`noise_test.py`, Scribe batch, TTS "Verity, <command>." in the server voice)
 
