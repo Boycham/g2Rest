@@ -177,10 +177,13 @@ class Store:
 
     # ---------- captures ----------
 
-    def start_capture(self, capture_id: str, staff: str, table: str | None) -> Capture:
+    def start_capture(
+        self, capture_id: str, staff: str, table: str | None, *, bind: bool = True
+    ) -> Capture:
         """The capture's table: the one the glasses sent, else the server's open ORDER task
-        (accepted first), else none: the server says it in the clip."""
-        if table is None:
+        (accepted first), else none: the server says it in the clip. A command stream
+        (bind=False) has no table."""
+        if table is None and bind:
             orders = [t for t in self.book.open_for(staff) if t.kind == "ORDER"]
             orders.sort(key=lambda t: t.state != "accepted")
             table = orders[0].table if orders else None

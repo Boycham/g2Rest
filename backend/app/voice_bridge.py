@@ -90,7 +90,7 @@ class VoiceBridge:
         link = self.links.get(ws)
         if link is None:
             link = self.links[ws] = Link(send, staff)
-        if message.get("type") == "capture.start":
+        if message.get("type") == "capture.start" and message.get("mode") != "command":
             link.capture_id = str(message.get("captureId", ""))
         await self._forward(link, json.dumps(message))
 

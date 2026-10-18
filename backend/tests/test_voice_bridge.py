@@ -191,3 +191,58 @@ def test_tableless_live_draft_is_labelled_and_capture_has_no_table() -> None:
             hub.leave(glasses)  # type: ignore[arg-type]
 
     asyncio.run(run())
+
+
+def test_command_stream_survives_a_clip_and_voice_commands_reach_the_glasses() -> None:
+    async def run() -> None:
+        frames: list[bytes] = []
+        starts: list[dict[str, Any]] = []
+
+        async def relay(ws: ServerConnection) -> None:
+            async for data in ws:
+                if isinstance(data, bytes):
+                    frames.append(data)
+                    await ws.send(json.dumps({"type": "voice.command", "intent": "accept"}))
+                    continue
+                msg = json.loads(data)
+                if msg["type"] == "capture.start":
+                    starts.append(msg)
+
+        async with serve(relay, "localhost", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            hub = Hub(Store.from_settings(Settings()), f"ws://localhost:{port}/ws")
+            glasses = FakeWs()
+            await hub.join(glasses, "server", "s1")  # type: ignore[arg-type]
+            cmd = '{"type": "capture.start", "captureId": "cmd-1", "mode": "command"}'
+            await hub.on_text(glasses, cmd)  # type: ignore[arg-type]
+            clip = '{"type": "capture.start", "captureId": "clip-1", "mode": "clip"}'
+            await hub.on_text(glasses, clip)  # type: ignore[arg-type]
+            await hub.on_bytes(glasses, b"\1" * 3200)  # type: ignore[arg-type]
+            await hub.on_text(glasses, '{"type": "capture.stop", "captureId": "clip-1"}')  # type: ignore[arg-type]
+            await hub.on_bytes(glasses, b"\2" * 3200)  # type: ignore[arg-type]
+            await until(lambda: len(frames) == 2)
+            assert frames == [b"\1" * 3200, b"\2" * 3200]  # the command stream after the clip
+            assert hub.store.captures["cmd-1"].table is None
+            assert "table" not in starts[0] and starts[0]["mode"] == "command"
+            await until(lambda: any(m["type"] == "voice.command" for m in glasses.sent))
+            assert {"type": "voice.command", "intent": "accept"} in glasses.sent
+            hub.leave(glasses)  # type: ignore[arg-type]
+
+    asyncio.run(run())
+
+
+def test_voice_accept_frame_from_another_server_is_rejected() -> None:
+    async def run() -> None:
+        hub = Hub(Store.from_settings(Settings()))
+        mine, other = FakeWs(), FakeWs()
+        await hub.join(mine, "server", "s1")  # type: ignore[arg-type]
+        await hub.join(other, "server", "s2")  # type: ignore[arg-type]
+        task, out = hub.store.book.create("RUN", "T2", now=0, assignee="s1")
+        await hub.deliver(out)
+        task_id = task.id
+        await hub.on_text(other, f'{{"type": "task.accept", "taskId": "{task_id}"}}')  # type: ignore[arg-type]
+        assert hub.store.book.get(task_id).state == "assigned"
+        await hub.on_text(mine, f'{{"type": "task.accept", "taskId": "{task_id}"}}')  # type: ignore[arg-type]
+        assert hub.store.book.get(task_id).state == "accepted"
+
+    asyncio.run(run())

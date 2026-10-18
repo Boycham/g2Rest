@@ -33,6 +33,7 @@ class Hub:
         self.store = store
         self.conns: dict[WebSocket, Conn] = {}
         self.last_capture: dict[WebSocket, str] = {}
+        self.command_capture: dict[WebSocket, str] = {}
         self.voice = (
             VoiceBridge(
                 voice_relay_url,
@@ -59,6 +60,7 @@ class Hub:
     def leave(self, ws: WebSocket) -> None:
         conn = self.conns.pop(ws, None)
         self.last_capture.pop(ws, None)
+        self.command_capture.pop(ws, None)
         if self.voice:
             self.voice.drop(ws)
         if conn:
@@ -159,8 +161,9 @@ class Hub:
     # ---------- inbound ----------
 
     async def on_bytes(self, ws: WebSocket, data: bytes) -> None:
-        cap_id = self.last_capture.get(ws)
-        cap = self.store.captures.get(cap_id or "")
+        cap = self.store.captures.get(self.last_capture.get(ws) or "")
+        if cap is None or not cap.open:
+            cap = self.store.captures.get(self.command_capture.get(ws) or "")
         if cap is None or not cap.open:
             log.warning("[fs] audio frame with no open capture (%d bytes)", len(data))
             return
@@ -186,7 +189,7 @@ class Hub:
             await self.handle(conn, msg)
         except (TaskError, ToolError) as e:
             log.warning("[fs] %s from %s rejected: %s", msg.type, conn.staff, e)
-            self.store.events.append("ws.rejected", staff=conn.staff, type=msg.type, error=str(e))
+            self.store.events.append("ws.rejected", staff=conn.staff, msg=msg.type, error=str(e))
 
     async def handle(self, conn: Conn, msg: Any) -> None:
         now = self.store.now()
@@ -201,8 +204,11 @@ class Hub:
                 await self.deliver(book.bounce(msg.taskId, now, by=conn.staff))
                 await self.replan()
             case "capture.start":
-                cap = self.store.start_capture(msg.captureId, conn.staff, msg.table)
-                self.last_capture[conn.ws] = cap.id
+                command = msg.mode == "command"
+                cap = self.store.start_capture(
+                    msg.captureId, conn.staff, msg.table, bind=not command
+                )
+                (self.command_capture if command else self.last_capture)[conn.ws] = cap.id
                 await self.to_voice(conn, msg, table=cap.table)
             case "capture.stop":
                 cap = self.store.stop_capture(msg.captureId)
