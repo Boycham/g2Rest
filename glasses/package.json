@@ -1,7 +1,7 @@
 {
   "name": "floor-sense-glasses",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
     "test": "vitest run",
     "fake-backend": "tsx dev/fake-backend.ts",
     "pack": "npm run build && evenhub pack app.json dist -o floor-sense.ehpk",
+    "pack:vultr": "test -n \"$VITE_FS_TOKEN\" || { echo 'set VITE_FS_TOKEN (the server FS_TOKEN)'; exit 1; }; VITE_BACKEND_URL=wss://45-76-173-44.sslip.io/ws npm run pack",
     "simulate": "evenhub-simulator http://localhost:5173"
   },
   "dependencies": {
