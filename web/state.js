@@ -8,9 +8,9 @@ export function emptyState() {
   return { tables: {}, tasks: {}, orders: {}, alerts: {}, pass: null, at: Date.now() }
 }
 
-/** Full resync from GET /state. `pass` is kept: it comes from GET /pass, not /state. */
+/** Full resync from GET /state (which includes the pass on backends that have one). */
 export function fromSnapshot(snap, prev = emptyState(), now = Date.now()) {
-  const s = { ...emptyState(), pass: prev.pass, at: now }
+  const s = { ...emptyState(), pass: snap.pass ? withAt(snap.pass, now) : prev.pass, at: now }
   for (const t of snap.tables ?? []) s.tables[t.table] = { ...t, at: now }
   for (const t of snap.tasks ?? []) s.tasks[t.id] = t
   for (const o of snap.orders ?? []) s.orders[o.orderId] = o
@@ -58,13 +58,29 @@ export function apply(state, msg, now = Date.now()) {
       return s
     }
     case 'pass.state': {
-      const { type: _type, ...pass } = msg
-      s.pass = pass
+      s.pass = withAt(msg, now)
       return s
     }
     default:
       return state
   }
+}
+
+/** A pass body (GET /pass, POST /pass/up or pass.state) stamped with when it arrived. */
+export function withAt(pass, now = Date.now()) {
+  const { type: _type, ...body } = pass
+  return { ...body, at: now }
+}
+
+/**
+ * Holds worth showing at the pass: courses where some plates are up and others are not, with
+ * the dishes they wait on. A course with nothing up yet is still cooking, not held.
+ */
+export function activeHolds(pass) {
+  const plates = pass?.plates ?? []
+  return (pass?.holds ?? []).filter((hd) =>
+    plates.some((p) => p.table === hd.table && p.course === hd.course && p.status === 'up'),
+  )
 }
 
 /** Seconds since `sinceSec` was measured, ticking client-side between updates. */
@@ -106,14 +122,15 @@ export function allergyText(allergies) {
 }
 
 /**
- * A fired order as kitchen rows: each line with its index, course and temperature from the
- * menu, sorted by course then seat. `up` is true when the pass already has that line.
- * `conflicts` lists the seat's allergens that the dish contains, uppercase.
+ * An order as kitchen rows: each line with its index, course and temperature from the menu,
+ * sorted by course then seat. `plate` is that line's status at the pass ('waiting', 'up',
+ * 'running'), or null while the order is a draft. `conflicts` lists the seat's allergens that
+ * the dish contains, uppercase.
  */
 export function ticketRows(order, menu, pass) {
   const byName = new Map((menu?.dishes ?? []).map((d) => [d.name, d]))
-  const upLines = new Set(
-    (pass?.plates ?? []).filter((p) => p.orderId === order.orderId).map((p) => p.line),
+  const plates = new Map(
+    (pass?.plates ?? []).filter((p) => p.orderId === order.orderId).map((p) => [p.line, p.status]),
   )
   return order.lines
     .map((line, index) => {
@@ -125,7 +142,7 @@ export function ticketRows(order, menu, pass) {
         index,
         course: dish?.course ?? 'main',
         temperature: dish?.temperature ?? '',
-        up: upLines.has(index),
+        plate: plates.get(index) ?? null,
         conflicts: seatAllergens.filter((a) => contains.has(a)),
       }
     })

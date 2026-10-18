@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
+  activeHolds,
   alertText,
   allergyText,
   apply,
@@ -71,9 +72,36 @@ test('order.closed for an unknown order is ignored', () => {
   assert.equal(apply(s, { type: 'order.closed', orderId: 'nope', status: 'fired' }), s)
 })
 
-test('fromSnapshot keeps the pass from the previous state', () => {
-  const prev = apply(emptyState(), { type: 'pass.state', plates: [], holds: [] })
-  assert.deepEqual(fromSnapshot({}, prev).pass, { plates: [], holds: [] })
+test('fromSnapshot takes the pass from the snapshot, else keeps the previous one', () => {
+  const prev = apply(emptyState(), { type: 'pass.state', plates: [], holds: [] }, 5)
+  assert.deepEqual(fromSnapshot({}, prev).pass, { plates: [], holds: [], at: 5 })
+  const snapPass = { type: 'pass.state', planner: 'priority', plates: [], holds: [], runs: [] }
+  assert.deepEqual(fromSnapshot({ pass: snapPass }, prev, 9).pass, {
+    planner: 'priority',
+    plates: [],
+    holds: [],
+    runs: [],
+    at: 9,
+  })
+})
+
+test('activeHolds shows a course only once some of its plates are up', () => {
+  const pass = {
+    plates: [
+      { table: 'T4', course: 'main', status: 'up' },
+      { table: 'T4', course: 'main', status: 'waiting' },
+      { table: 'T2', course: 'appetizer', status: 'waiting' },
+    ],
+    holds: [
+      { table: 'T4', course: 'main', waitingOn: ['Duck'] },
+      { table: 'T2', course: 'appetizer', waitingOn: ['Burrata'] },
+    ],
+  }
+  assert.deepEqual(
+    activeHolds(pass).map((hd) => hd.table),
+    ['T4'],
+  )
+  assert.deepEqual(activeHolds(null), [])
 })
 
 test('alertText fills in the elapsed time and keeps ticking', () => {
@@ -118,7 +146,7 @@ test('itemsText and allergyText', () => {
   assert.equal(allergyText([]), '')
 })
 
-test('ticketRows sorts by course then seat and marks lines already up', () => {
+test('ticketRows sorts by course then seat and carries each plate status', () => {
   const menu = {
     dishes: [
       { name: 'Halibut', course: 'main', temperature: 'hot' },
@@ -133,14 +161,20 @@ test('ticketRows sorts by course then seat and marks lines already up', () => {
       { seat: 1, qty: 1, dish: 'Soup', alterations: [], flagged: [] },
     ],
   }
-  const pass = { plates: [{ orderId: 'o1', line: 0 }, { orderId: 'other', line: 1 }] }
+  const pass = {
+    plates: [
+      { orderId: 'o1', line: 0, status: 'up' },
+      { orderId: 'o1', line: 1, status: 'running' },
+      { orderId: 'other', line: 2, status: 'up' },
+    ],
+  }
   const rows = ticketRows(order, menu, pass)
   assert.deepEqual(
-    rows.map((r) => [r.index, r.course, r.up]),
+    rows.map((r) => [r.index, r.course, r.plate]),
     [
-      [2, 'appetizer', false],
-      [1, 'appetizer', false],
-      [0, 'main', true],
+      [2, 'appetizer', null],
+      [1, 'appetizer', 'running'],
+      [0, 'main', 'up'],
     ],
   )
 })
