@@ -745,3 +745,13 @@ def test_other_tables_rule():
     wearer = {"server": (50, -8.0), "g1": (12, -26.0), "g2": (9, -29.0), "far": (14, -37.0)}
     assert drop(wearer) == {"far"}
     assert other_tables({"a": (40, -18.0), "b": (12, -30.0)}, quiet_db=None) == {"b"}
+
+
+@run
+async def test_menu_86_from_the_backend_reaches_the_order_book(relay):
+    session, _, _ = await relay()
+    await session.handle_text(json.dumps({"type": "menu.86", "dishes": ["Pan-Roasted Halibut"]}))
+    assert session.book.out == {"Pan-Roasted Halibut"}
+    await session.handle_text(json.dumps({"type": "menu.86", "dishes": []}))
+    assert session.book.out == set()
+    await session.close()

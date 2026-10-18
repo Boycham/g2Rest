@@ -398,3 +398,21 @@ def test_a_sent_order_keeps_its_table():
     book.tables.setdefault(2, Table()).status = "sent"
     with pytest.raises(ToolError, match="already sent"):
         book.bind_table(4, "voice")
+
+
+def test_an_86d_dish_from_the_clip_becomes_a_question_line_not_an_item(book):
+    book.out = {"Pan-Roasted Halibut"}
+    result, err = book.dispatch(
+        "set_order", {"items": [{"guest": 1, "dish": "halibut"}, {"guest": 2, "dish": "duck"}]}
+    )
+    assert not err
+    assert seats(book) == {2: [("Duck Breast", [], [])]}
+    assert book.tables[0].uncertain == ["? s1 halibut 86'd"]
+
+
+def test_add_item_rejects_an_86d_dish_with_a_question_line(book):
+    book.out = {"Pan-Roasted Halibut"}
+    result, err = call(book, "add_item", table=12, seat=2, dish="the halibut")
+    assert err and "86'd" in result["error"]
+    assert not book.tables[12].seats or not book.tables[12].seats.get(2, None)
+    assert book.tables[12].uncertain == ["? s2 halibut 86'd"]

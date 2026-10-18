@@ -42,6 +42,11 @@ class TaskIn(BaseModel):
 
 class StatusIn(BaseModel):
     status: str
+    vip: bool = False  # seating a VIP party: the manager gets "VIP seated T7" once
+
+
+class RerouteIn(BaseModel):
+    to: str | None = None  # staff id or name; None lets the router pick anyone but the holder
 
 
 class PlateUp(BaseModel):
@@ -127,6 +132,8 @@ def create_app(
             "ok": True,
             "tasksOpen": len(store.book.open_tasks()),
             "clients": len(hub.conns),
+            # staff whose glasses are connected right now (the dashboard's "Glasses n/m online")
+            "online": sorted({c.staff for c in hub.conns.values() if c.role != "organizer"}),
             "eventDb": eventdb.status() if eventdb else {"enabled": False},
             "sentry": sentry_on,
         }
@@ -193,6 +200,26 @@ def create_app(
     def menu() -> dict[str, Any]:
         return store.menu.to_dict()
 
+    @app.get("/menu/86", dependencies=auth)
+    def menu_86_list() -> dict[str, Any]:
+        return {"eightySix": store.eighty_six}
+
+    @app.post("/menu/{dish}/{action}", dependencies=auth)
+    async def menu_86(dish: str, action: str) -> dict[str, Any]:
+        """86 a dish (`/menu/halibut/86`) or bring it back (`/menu/halibut/un86`)."""
+        if action not in ("86", "un86"):
+            raise HTTPException(404, "action must be 86 or un86")
+        found = store.menu.find(dish)
+        if found is None:
+            close = store.menu.closest(dish)
+            raise HTTPException(
+                404, f"'{dish}' is not on the menu. Did you mean: {', '.join(close)}?"
+            )
+        alert = store.set_86(found, out=action == "86")
+        if alert is not None:
+            await hub.push_86(alert)
+        return {"dish": found.name, "eightySix": store.eighty_six}
+
     @app.get("/floor", dependencies=auth)
     def floor() -> dict[str, Any]:
         return store.floor.to_dict()
@@ -241,6 +268,8 @@ def create_app(
         )
         return {
             "doneSec": settings.done_sec,
+            # unaccepted this long and the task moves on (the dashboard's countdown ring)
+            "escalationSec": settings.escalation_sec,
             "servers": store.book.stats(store.now()),
             "history": history,
         }
@@ -248,6 +277,27 @@ def create_app(
     @app.get("/tasks", dependencies=auth)
     def list_tasks() -> list[dict[str, Any]]:
         return [t.to_dict() for t in store.book.tasks.values()]
+
+    @app.post("/tasks/{task_id}/reroute", dependencies=auth)
+    async def reroute_task(task_id: str, body: RerouteIn) -> dict[str, Any]:
+        """The manager moves an open task to someone else (the dashboard's Reroute button).
+        Same frames as a handoff: `bounced` to the old holder, `task.assigned` to the new one.
+        Managers only send and re-route; accept and done stay on the glasses."""
+        with telemetry.span("task.reroute", f"task.reroute {task_id}", to=body.to or "router"):
+            try:
+                task = store.book.get(task_id)
+            except TaskError as e:
+                raise HTTPException(404, str(e)) from None
+            to = body.to or await router.pick(
+                store, http, task.kind, task.table, task.notes, exclude=frozenset({task.assignee})
+            )
+            try:
+                out = store.book.handoff(task_id, store.now(), by=None, to=to, manager=True)
+            except TaskError as e:
+                raise HTTPException(409, str(e)) from None
+            await hub.deliver(out)
+            await hub.replan()
+        return store.book.get(task_id).to_dict()
 
     @app.post("/tasks/{task_id}/{action}", dependencies=auth)
     async def task_action(task_id: str, action: str, by: str = Query(...)) -> dict[str, Any]:
@@ -270,9 +320,10 @@ def create_app(
     @app.post("/tables/{table_id}/status", dependencies=auth)
     async def table_status(table_id: str, body: StatusIn) -> dict[str, Any]:
         try:
-            store.set_table_status(table_id, body.status)
+            out = store.set_table_status(table_id, body.status, vip=body.vip)
         except DataError as e:
             raise HTTPException(400, str(e)) from None
+        await hub.deliver(out)
         await hub.push_floor()
         return store.table_wire(table_id)
 

@@ -33,6 +33,8 @@ class Settings:
     cors_origins: tuple[str, ...] = ("*",)
     voice_relay_url: str = ""  # empty: no voice bridge, audio frames are only counted
     done_sec: float = 300.0  # accepted but not done this long: alert the manager, reroute
+    course_wait_sec: float = 720.0  # a seated table waiting this long on its next course: alert
+    vip_alert_sec: float = 300.0  # how long "VIP seated" stays on the manager's list
     gemini_api_key: str = ""  # empty: the router uses the rules only (app/router.py)
     gemini_model: str = "gemini-3.1-flash-lite"
     router_timeout_sec: float = 3.0
@@ -54,6 +56,8 @@ class Settings:
             data_dir=Path(os.environ.get("FS_DATA_DIR", str(DATA_DIR))),
             voice_relay_url=os.environ.get("VOICE_RELAY_URL") or "ws://localhost:8790/ws",
             done_sec=float(os.environ.get("FS_DONE_SEC", "300")),
+            course_wait_sec=float(os.environ.get("FS_COURSE_WAIT_SEC", "720")),
+            vip_alert_sec=float(os.environ.get("FS_VIP_ALERT_SEC", "300")),
             gemini_api_key=os.environ.get("GEMINI_API_KEY", ""),
             gemini_model=os.environ.get("FS_GEMINI_MODEL", "gemini-3.1-flash-lite"),
             router_timeout_sec=float(os.environ.get("FS_ROUTER_TIMEOUT_SEC", "3")),

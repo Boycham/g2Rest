@@ -8,8 +8,13 @@ mean: [NOTES.md](NOTES.md).
 ```sh
 cd sim && ../backend/.venv/bin/python rush.py          # both planners, offline, ~3 s
 ../backend/.venv/bin/python rush.py --seed 7           # another service, same shape
+../backend/.venv/bin/python sweep.py                   # seeds 1-20 side by side, ~35 s
 ../backend/.venv/bin/python -m pytest -q tests         # metrics + a tiny service end to end
 ```
+
+Priority does not beat FIFO on per-plate hot pass wait and can't while a course leaves whole:
+the hold floor alone is above FIFO's median (see NOTES.md, "Priority vs FIFO"). It does win
+the guest-facing number, hot course whole at the table.
 
 It writes `out/rush-<seed>.json` (the same table, per planner) and one
 `out/rush-<seed>-<planner>-events.jsonl` with every event stamped in simulated seconds. `out/` is
@@ -46,6 +51,7 @@ gitignored.
 |---|---|
 | wait median / p90 / max | `pass.up` to `pass.run` per plate (nearest-rank), split by the dish's temperature |
 | plate to table | `pass.up` to `task.done` of the RUN that carried it |
+| hot hold floor | per hot plate, its `pass.up` to the last `pass.up` of its course: the wait the "whole course goes out together" rule alone forces, the same for every planner (kitchen jitter only), so a lower bound for priority |
 | hot wait after course up | hot plate's wait counted from the last plate of its course coming up |
 | hot course whole at table | per course with a hot plate: last plate up to last plate delivered |
 | over 5 min ceiling | plates with a pass wait above 300 s (`RunWeights.ceiling_min`) |
