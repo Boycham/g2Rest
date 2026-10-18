@@ -205,6 +205,16 @@ little next to Scribe's 0.8 s VAD and the agent turn, and the spread run to run 
   shows one `T12 · RUN · ! SHELLFISH` row per task, the current one marked, `tap: back` bottom right, and
   updates in place.
 
+## Real G2 0.1.7: three tabs (reported by Boyuan for the owner)
+
+- Owner: "make the queue have a seperate menu from the controls. Make it like the default dispaly with the 4
+  different tabs that you can scroll up and down in. However only have 3 tabs, and the controls should be the
+  top most tab, so move the control tip to be in the same tab as the queue."
+- Now Controls / Queue / Card stacked tabs (see Gesture map). Simulator, 2026-10-18: Card → swipe fwd → Queue
+  → swipe fwd → Controls → tap (page 2/2) → swipe fwd (stays) → swipe back → Queue → hold → Card; hold on the
+  Card → `Confirm handoff? (tap)`; swipe back on the Card → draft. Each rebuild 1-3 ms.
+- HW-PENDING: compare the rail with the G2 dashboard's tabs on the lens; whether the rebuild flickers.
+
 ## Real G2 against the Vultr host (0.1.6)
 
 The backend and voice relay run on Vultr at `https://45-76-173-44.sslip.io` (PR #12, Caddy, Let's Encrypt).
@@ -321,25 +331,31 @@ once; the card shows `Heard: <command>` for 3 s. The backend decides: a refused 
 
 ### Gesture map (one place)
 
-`MAIN_GESTURES` in `src/controls.ts` says what each gesture does on the main card (moving clip is one
-line there); `GESTURE_EVENTS` in `src/main.ts` maps OS events to gestures.
+The server HUD is three stacked tabs, top to bottom `TABS` in `src/controls.ts`: **Controls**, **Queue**,
+**Card** (home, where it starts). `CARD_GESTURES` there says what each gesture does on the Card (moving clip is
+one line); `GESTURE_EVENTS` in `src/main.ts` maps OS events to gestures.
 
-| Gesture (main card) | Action | Voice |
-|---|---|---|
-| Tap | accept, then done; confirms a popup or sends the draft | `verity accept` / `verity done` / `verity confirm` |
-| Swipe fwd | open Controls | `verity menu` / `verity controls` / `verity up` |
-| Swipe back | clip the last minute | `verity clip` / `verity down` |
-| Long hold | handoff: `Confirm handoff?` popup, then tap | `verity handoff [name]`, then `verity confirm` |
-| Double tap | exit dialog (`shutDownPageContainer(1)`, Even Hub review rule) | none |
-| Controls → Queue | queue page (`tap: back`; any tap or swipe goes back) | `verity queue` |
-| Controls → Decline / Revert | `task.bounce` / `task.revert` | `verity decline` / `verity revert` |
-| Controls → Close, or hold in Controls | back to the card | `verity back` |
-| (popup open) | cancel it | `verity nevermind` |
+| Gesture | Card (bottom) | Queue (middle) | Controls (top) | Voice |
+|---|---|---|---|---|
+| Tap | accept, then done; confirms a popup or sends the draft | back to the Card | next page (1/2 ↔ 2/2) | `verity accept` / `done` / `confirm` |
+| Swipe fwd | to Queue | to Controls | nothing (top tab) | `verity up`; `verity queue` / `verity menu` jump to a tab |
+| Swipe back | clip the last minute | to the Card | to Queue | `verity down`; `verity clip` clips from any tab |
+| Long hold | handoff: `Confirm handoff?`, then tap | back to the Card | back to the Card | `verity handoff [name]` / `verity back` |
+| Double tap | exit (`shutDownPageContainer(1)`, Even Hub review rule) | exit | exit | none |
+| Voice only | decline (`task.bounce`), revert (`task.revert`), cancel a popup | | | `verity decline` / `revert` / `nevermind` |
 
-In Controls swipe fwd/back move the `>` row and stop at the ends; a tap picks the row; hold, Close or "verity
-back" close it (swipe back doesn't: it's clip on the card). The last line is `fwd/back: move · tap: pick ·
-hold: back`. The always-on `fwd: controls` hint is the card's last line, right-aligned (sharing it with
-`+N queued`), measured with pretext (`controls.test.ts`).
+Controls is a read-only reference (swipes switch tabs, so there's nothing to move a selection with): every
+gesture and its voice command, 4 rows a page, `1/2 ... tap: more · back: queue` on the last line. Queue was
+removed from it. The Queue tab shows only tasks (`> T12 · RUN · ! SHELLFISH`, current one marked) with
+`fwd: controls` bottom right; the Card's hint is `fwd: queue`, beside `+N queued`. All measured with pretext
+against the content width beside the rail (`controls.test.ts`, `card.test.ts`).
+
+The tab rail (`tabsPage` in `src/render.ts`) is three 88×96 text containers on the left, one per tab, the open
+one bordered and bright, the others dim; the content (input capture, upgraded in place) is the 488 px beside
+it. Even's docs don't show how the G2's own dashboard draws its tabs, so this follows their documented
+patterns (stacked 96 px containers, `borderWidth` as the selection). Switching tabs is a
+`rebuildPageContainer` (1-3 ms in the simulator; flicker on hardware HW-PENDING). The draft stays a full-screen
+page without the rail. Leaving the Card drops an open handoff popup, so a tap on Queue can't confirm it unseen.
 
 - Handoff sends `task.handoff {taskId, to?}` only after the popup is confirmed; "verity revert" sends
   `task.revert` and the un-accepted `task.updated` that answers it isn't replayed as a lost accept.

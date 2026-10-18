@@ -43,7 +43,7 @@ export function mountUi(backendUrl: string, onRole: (role: Role) => void): void 
         <h2>Glasses gestures</h2>
         <ul class="help">
           <li><b>Tap</b> accept the task; tap again when it's done</li>
-          <li><b>Swipe fwd</b> (toward your eyes) Controls: every gesture, its "verity" command, and the queue</li>
+          <li><b>Swipe fwd</b> (toward your eyes) one tab up: Card → Queue → Controls (every gesture and its "verity" command); swipe back goes down, hold goes to the Card</li>
           <li><b>Swipe back</b> (toward your ear) send the last minute: the order shows as a draft (tap = send)</li>
           <li><b>Hold</b> hand the task off (tap to confirm)</li>
           <li><b>Double tap</b> exit</li>
