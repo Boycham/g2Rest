@@ -1,4 +1,4 @@
-# glasses/ notes (server HUD)
+# glasses/ notes (server HUD + voice capture)
 
 ## How to run
 
@@ -55,12 +55,35 @@ Unit tests: 27 vitest tests (card formatter, queue screen, task state machine, m
 - `npm audit` flags transitive dev dependencies (esbuild via vite 5, vitest 1). Dev-only; not fixed with
   `--force` because that bumps majors.
 
+## Voice capture (draft screen)
+
+Run the relay too: `cd backend/voice && .venv/bin/python relay.py` (needs `ELEVENLABS_API_KEY` and an agent
+from `create_agent.py`; fixtures from `make_fixtures.py`). The fake backend proxies capture.* / order.* to it
+and shows confirmed orders at `http://localhost:8787/kitchen`.
+
+Debug PCM path (dev server only): open the app with
+`?debugPcm=01_order,02_no_soup,03_allergy,04_cancel_dessert`. Each swipe-down capture streams the next fixture
+from `backend/voice/fixtures/` (served by the Vite plugin at `/dev-fixtures/`) through the same capture.audio
+path in real time, then silence like a quiet mic. Without the param the G2 mic is used (`audioControl`).
+
+Checked in the simulator (0.9.5) against the live relay (Scribe realtime + text-only agent), all four
+fixtures, twice: the order builds by seat, `REMOVE s2 soup? tap=yes swipe up=no` and `CANCEL T12 dessert? ...`
+appear as the bright bottom line while the order dims, a tap applies each, the final tap sends
+`order.confirm`, the card shows `SENT` and the fake kitchen shows `! SHELLFISH s3 / s1 halibut –no butter /
+s2 salmon –no dill`. The simulator's own mic: `audioControl(true)` returned false in this VM (no audio
+device), which correctly shows `VOICE OFFLINE`.
+
+**End of speech -> draft updated on the glasses** (last voiced 100 ms frame sent -> `textContainerUpgrade`
+resolved; logged as `latency ...` and `window.__fsLatency`), 8 runs over the 4 fixtures:
+1872, 1926, 1951, 2003, 2032, 2346, 2414, 2550 ms. **Median 2.0 s** (first 5 runs: 2.03 s). About 0.8 s of
+it is Scribe's VAD silence before a commit; the rest is the agent turn plus relay and proxy hops. The
+upgrade itself takes 0-4 ms in the simulator.
+
 ## Not done here
 
-- **No mic audio.** `capture.audio` (binary PCM frame) is in the contract and `BackendSocket.sendAudio` exists,
-  but the mic is not opened and no frames are forwarded. That is the voice session's work.
-- `order.draft`, `order.readback`, `alert`, `floor.state` are parsed but not drawn; `order.confirm` /
-  `order.cancel_confirm` and `task.bounce` are typed but no gesture sends them yet.
+- `order.readback`, `alert`, `floor.state` are parsed but not drawn; `task.bounce` is typed but no gesture
+  sends it yet.
+- The relay's order lives per glasses connection: a WebView reload starts a new draft.
 - `app.json` whitelists only `ws://localhost:8787` and `http://localhost:8787`. Add the real `wss://`/`https://`
   host before packing for the phone.
 
@@ -74,3 +97,5 @@ Unit tests: 27 vitest tests (card formatter, queue screen, task state machine, m
 - 5-minute locked-phone test (Even's requirement).
 - Double tap exits cleanly on hardware and passes Even Hub review.
 - Card update latency on hardware (backend send -> visible card).
+- G2 mic quality in a noisy room (the real risk); `audioPcm` chunk size/encoding on a real device; mic turns
+  off on swipe down, swipe up back, background and exit (the G2 mic LED, if any).
