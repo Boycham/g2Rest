@@ -37,7 +37,7 @@ Read the file for the area you're about to touch before designing or changing it
 
 1. **Double tap on the root page always calls `shutDownPageContainer(1)`** (the system exit dialog). Anything
    else gets the app auto-rejected. Never use double tap for anything else.
-2. **There is no long press.** Our gestures: tap = accept, tap again = done; swipe down = send the last minute as an order;
+2. **There is no long press.** Our gestures: tap = accept, tap again = done; swipe down = send the last 2 minutes as an order;
    swipe up = queue; double tap = exit.
 3. **Update cards in place with `textContainerUpgrade`.** Use `rebuildPageContainer` only to switch screens.
 4. **API keys never go in the glasses bundle.** The WebView ships to every phone. Audio goes to our backend,

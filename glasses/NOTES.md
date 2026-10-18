@@ -247,24 +247,24 @@ connected as s2 so the real G2 on s1 was left alone):
 - Sync 1 on hardware: the packed build against the real backend over the LAN/Tailscale host (whitelist it in
   `app.json`), dispatch -> card latency on the lens, and a real-mic order through the hub and relay.
 
-## Conversational capture (rolling minute), checked in the simulator 0.9.5 against the real backend
+## Conversational capture (rolling buffer), checked in the simulator 0.9.5 against the real backend
 
-Owner's design (2026-10-18): the server talks normally with the table; a **swipe down sends the last minute**.
+Owner's design (2026-10-18): the server talks normally with the table; a **swipe down sends the last 2 minutes** (60 s until the 2-minute change below).
 
-- **Mic rule (exactly):** while the Server role is on, the mic records constantly into a rolling 60 s buffer
-  that lives only in WebView memory (`src/clip.ts`, a fixed ring of 600 × 100 ms frame slots). Anything older
-  than 60 s is overwritten continuously. Only a clipped minute ever leaves the device, and only on a swipe
+- **Mic rule (exactly):** while the Server role is on, the mic records constantly into a rolling 120 s buffer
+  that lives only in WebView memory (`src/clip.ts`, a fixed ring of 1200 × 100 ms frame slots, 3.84 MB). Anything older
+  than 120 s is overwritten continuously. Only a clip ever leaves the device, and only on a swipe
   down. Nothing is written to SDK storage, browser storage or disk. The relay holds the clip in memory, hands
   it to Scribe and drops it; it keeps the extracted order only. Switching to Manager or exiting turns the mic
   off and clears the buffer. The phone page says `mic: last N s in memory`.
-- **Gestures:** swipe down on the card or the draft = send the last minute (`capture.start{mode:'clip'}`,
+- **Gestures:** swipe down on the card or the draft = send the last 2 minutes (`capture.start{mode:'clip'}`,
   the frames back to back, `capture.stop`). Tap on the draft = accept a pending line, else send (refused while
   `TABLE?`). Swipe up = reject a pending line, else back to the card. Double tap = exit, as before.
 - **Table:** an accepted ORDER task (`ORDER · T3`, then `swipe down once they have ordered`) sends its table;
   the hub also falls back to the server's open ORDER task. Without one the draft shows `TABLE?` and the bar
   says `TABLE? say the table, then swipe down`; saying "that was table two" and swiping again binds T2.
   Firing the order marks the ORDER task done.
-- **Draft:** allergies on top, `T3 … tap = send` (or `Reading last min…` while processing), order by seat,
+- **Draft:** allergies on top, `T3 … tap = send` (or `Reading last 2 min…` while processing), order by seat,
   then `?` lines and `note: anniversary · no rush on mains`. Order lines fold into `… N more` first, so `?`
   lines never drop off the lens.
 - **Debug path:** `?debugPcm=conv_task` fills the buffer with the fixture (instead of the mic) and refills it
@@ -293,8 +293,38 @@ bread` (the clip-words guard only checks the words were said).
 HW-PENDING (conversational capture):
 - Whether the mic keeps running with the phone locked or the Even app backgrounded (the app leaves it on at
   foreground exit), and the battery cost of always-on capture on the G2 and the phone.
-- Clip upload time over phone Bluetooth/LTE (600 frames, 1.9 MB) and the real-mic transcript quality in a
+- Clip upload time over phone Bluetooth/LTE (1200 frames, 3.84 MB) and the real-mic transcript quality in a
   noisy room with real, different guest voices.
+
+## Clip summary, answers and table by voice, checked in the simulator 0.9.5 against the real backend
+
+Real hub (`backend/app`, restarted after the `contract.py` change: the old process dropped
+`voice.command {intent: "table"}`) + relay with the order and talk agents. Each run is a fresh simulator.
+
+- **Layout (`src/draft.ts`, pretext-measured):** order lines, `── table said ──`, the summary (wrapped, 2 lines
+  max), then one line per answer: `s2 pork belly have sesame? → yes, pork belly has sesame`, or the menu-gap
+  line `? s1 asks gluten-free bread: not in menu data`. Overflow goes to pages: `swipe fwd = more 1/2`, then
+  `2/2 swipe fwd = done`. Tap sends only `order.confirm {orderId}`; summary and answers never reach the kitchen.
+- **Answers only** (`conv_answers_only`, 24 s, no dishes): `TABLE?`, separator, summary and four answers, no
+  order lines; draft 3.80 s, summary and answers 3.95 s after the swipe (1 run).
+- **Swipe down → card, median of 5** (`latency swipe down -> ...` in the console):
+
+| Clip | → order draft | → summary + answers |
+|---|---|---|
+| 60 s (`conv_questions`): 4048, 3363, 3582, 3746, 4149 / 4532, 4819, 4807, 4985, 4881 ms | **3.75 s** | **4.82 s** |
+| 120 s (`conv_2min`): 5734, 5177, 5463, 5821, 5289 / 6941, 6570, 6587, 6937, 6699 ms | **5.46 s** | **6.70 s** |
+
+  Relay split, 120 s vs 60 s: batch Scribe 2.32-2.80 s vs 1.45-1.59 s; clip stop → `set_order` 4.96-5.59 s vs
+  3.24-4.04 s (the agent reads 33 turns instead of 17). Old main (order only, 58.6 s): 4.02 s.
+- **Table by voice** (`?debugPcm=conv_notable&say=silence_20,verity_table_12,verity_table_four,silence_8,verity_table_two`):
+  `TABLE?` draft → "verity table twelve" → `? T12: no table 12` (still `TABLE?`) → "verity table four" →
+  `T4 … tap = send` with `? Heard: table T4` and no new clip → tap → `order.closed fired` → "verity table two"
+  → `T2: already sent` on the main card. The override of an ORDER task's table (`Table T3 → T4`) and the
+  table said last in a clip (`conv_table_last` → T4) were checked against the relay (`tests/test_relay.py`,
+  relay bench), not in the simulator.
+- Known: the talk agent numbers guests on its own, so an answer's `s2` can differ from the order's seat for
+  the same guest when the order agent and talk agent count differently (seen once in the 120 s run).
+- HW-PENDING: the extra lines' legibility on the lens; "verity table N" with a real voice in the room.
 
 ## Voice commands, checked in the simulator 0.9.5 against the real backend
 
@@ -313,11 +343,12 @@ line there); `GESTURE_EVENTS` in `src/main.ts` maps OS events to gestures.
 |---|---|---|
 | Tap | accept, then done; confirms a popup or sends the draft | `verity accept` / `verity done` / `verity confirm` |
 | Swipe up | open Controls | `verity menu` / `verity controls` / `verity up` |
-| Swipe down | clip the last minute | `verity clip` / `verity down` |
+| Swipe down | clip the last 2 minutes | `verity clip` / `verity down` |
 | Long hold | handoff: `Confirm handoff?` popup, then tap | `verity handoff [name]`, then `verity confirm` |
 | Double tap | exit dialog (`shutDownPageContainer(1)`, Even Hub review rule) | none |
 | Controls → Queue | queue view | `verity queue` |
 | Controls → Decline / Revert | `task.bounce` / `task.revert` | `verity decline` / `verity revert` |
+| Controls → Set table | bind the unsent draft to table N | `verity table N` |
 | Controls → Close | back to the card | `verity back` |
 | (popup open) | cancel it | `verity nevermind` |
 
