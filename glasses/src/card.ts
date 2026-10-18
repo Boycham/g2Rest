@@ -27,6 +27,8 @@ export interface CardOptions {
   maxLines?: number
   /** A transient line under the allergies, e.g. `Heard: accept`. */
   banner?: string
+  /** What is 86'd tonight (`eightysix.ts`), under the allergies until un-86'd, e.g. `86 halibut`. */
+  eightySix?: string
   /** Always-on corner hint (bottom right), e.g. `fwd: controls`. */
   hint?: string
 }
@@ -75,13 +77,16 @@ export function formatCard(queue: readonly Task[], opts: CardOptions): CardView 
   const head = queue[0]
   if (!head) {
     const top = opts.banner ? fit(opts.banner, width) : opts.offline ? 'OFFLINE' : ''
-    if (!opts.hint) return { text: top, brightness: 4 }
-    return { text: atBottom([top], spread('', opts.hint, width), maxLines), brightness: 2 }
+    const out = opts.eightySix ? [fit(opts.eightySix, width)] : []
+    const shown = top || !out.length ? [...out, top] : out
+    if (!opts.hint) return { text: shown.join('\n'), brightness: top ? 4 : out.length ? 2 : 4 }
+    return { text: atBottom(shown, spread('', opts.hint, width), maxLines), brightness: 2 }
   }
 
   const lines: string[] = []
   const allergies = allergyLine(head.allergies)
   if (allergies) lines.push(fit(allergies, width))
+  if (opts.eightySix) lines.push(fit(opts.eightySix, width))
   if (opts.banner) lines.push(fit(opts.banner, width))
   lines.push(fit(taskLine(head), width))
 

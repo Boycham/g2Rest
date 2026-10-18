@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  BUILT,
   PLATE0,
   SCENES,
+  builtAt,
   counterLayers,
   doorsLayers,
   floorLayers,
@@ -97,4 +99,15 @@ test('snap points: every keyframe of every scene, shared boundaries once', () =>
   assert.equal(p[0], 0)
   assert.equal(p.at(-1), 1)
   assert.ok(p.includes(0.6625))
+})
+
+test('scene dots land where each scene is fully built, inside that scene', () => {
+  assert.deepEqual(SCENES.map((_, i) => builtAt(i)), [0, 0.25, 0.55, 0.7875, 1])
+  SCENES.forEach((_, i) => {
+    assert.equal(sceneIndex(builtAt(i)), i)
+    assert.ok(snapPoints().includes(builtAt(i)))
+  })
+  assert.equal(step(BUILT[2]), 3) // the voice ticket reads CONFIRM with the full order
+  assert.equal(doorsLayers(BUILT[3]).copy, 1)
+  assert.equal(floorLayers(BUILT[4]).sign, 1)
 })

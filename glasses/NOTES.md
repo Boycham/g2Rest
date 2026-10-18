@@ -423,3 +423,21 @@ open dev token), one simulator as manager m1 and one as server s1, backend kille
 - HW-PENDING: on a real G2 the WebView may throttle timers in the background or with the phone locked, which
   would stretch the retries; `FOREGROUND_ENTER_EVENT` redials at once. The 10 s cap plus the dashboard's 4 s
   `/health` poll means up to about 14 s of "offline" after a restart, not "until reopened".
+
+## Manager exceptions and the 86 banner, checked in the simulator 0.9.5 against the real backend
+
+Backend `FS_TOKEN=dev FS_COURSE_WAIT_SEC=15` (shortened so the course wait shows within a minute), Vite, simulator
+with `--automation-port 9898`, role switched on the phone page.
+
+- **Manager:** seated T4, fired a salmon (`/tools/add_item` + `/orders/{id}/confirm`), seated T7 with `vip: true`,
+  `POST /menu/risotto/86`. The exceptions screen showed, brightest first:
+  `! T4 waiting 10s on mains` / `86 risotto` / `VIP seated T7` (`exceptions upgrade true 2.0 ms`). Plate up
+  (`/pass/up`) cleared the course wait and `un86` cleared the 86 line; only `VIP seated T7` was left.
+- **Server (s1):** `POST /menu/halibut/86` put `86 halibut` on the card's top line, above the RUN
+  (`card upgrade true 2.0 ms`); `POST /menu/halibut/un86` removed it (`1.0 ms`). The same `add_item` for risotto
+  while it was 86'd returned the error and the draft got `? s1 risotto 86'd`.
+- **Widths** (pretext, card text width 564 px): `86 halibut` 88, `86 halibut, risotto, salmon, chocolate torte`
+  363, `VIP seated T7` 122, `! T4 waiting 14m on mains` 216, `! T4 waiting 2h00 on desserts` 254.
+- Under 2 minutes `{elapsed}` rounds down to 10 s steps, so a 15 s wait reads `10s`; at the 12-minute default it
+  reads `12m`.
+- HW-PENDING: the 86 line and the three-line exceptions list on a real G2 (brightness of the `warn` vs `info` lines).

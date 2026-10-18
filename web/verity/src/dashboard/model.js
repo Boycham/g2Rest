@@ -329,8 +329,15 @@ export function latestClip(orders, table) {
     .at(-1) ?? null
 }
 
-/** Seconds until the shift ends ("HH:MM" today, or tomorrow if already past). */
-export function shiftLeft(nowMs, end = '23:00') {
+/** Service ends used when the link names no shift end: lunch at 15:00, dinner at 22:00. */
+export const SERVICE_ENDS = ['15:00', '22:00']
+
+/**
+ * Seconds until the shift ends ("HH:MM" today, or tomorrow if already past). With no end
+ * given, the nearest coming service end from SERVICE_ENDS.
+ */
+export function shiftLeft(nowMs, end) {
+  if (!end) return Math.min(...SERVICE_ENDS.map((e) => shiftLeft(nowMs, e)))
   const [h, m] = end.split(':').map(Number)
   const d = new Date(nowMs)
   d.setHours(h, m || 0, 0, 0)

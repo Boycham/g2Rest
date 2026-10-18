@@ -587,3 +587,13 @@ async def test_verity_table_refuses_unknown_tables_sent_orders_and_no_order():
     await say_table(session, 2)
     assert sent[-1]["reason"] == "already sent"
     await session.close()
+
+
+@run
+async def test_menu_86_from_the_backend_reaches_the_order_book(relay):
+    session, _, _ = await relay()
+    await session.handle_text(json.dumps({"type": "menu.86", "dishes": ["Pan-Roasted Halibut"]}))
+    assert session.book.out == {"Pan-Roasted Halibut"}
+    await session.handle_text(json.dumps({"type": "menu.86", "dishes": []}))
+    assert session.book.out == set()
+    await session.close()

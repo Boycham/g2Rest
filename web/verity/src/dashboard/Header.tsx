@@ -3,8 +3,9 @@ import type { DrawerKind, View } from './App'
 import { hms, shiftLeft } from './model.js'
 import { StatusChip } from './ui'
 
-// The shift end isn't a backend setting yet: ?shiftEnd=HH:MM, 23:00 by default.
-const SHIFT_END = new URLSearchParams(location.search).get('shiftEnd') ?? '23:00'
+// The shift end isn't a backend setting yet: ?shiftEnd=HH:MM, else the next service end
+// (lunch 15:00, dinner 22:00; see SERVICE_ENDS in model.js).
+const SHIFT_END = new URLSearchParams(location.search).get('shiftEnd') ?? undefined
 
 const TABS: { label: string; drawer: DrawerKind }[] = [
   { label: 'Floor', drawer: null },
