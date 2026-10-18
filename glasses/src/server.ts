@@ -1,6 +1,7 @@
 import { RebuildPageContainer } from '@evenrealities/even_hub_sdk'
 import type { BackendMessage, GlassesJsonMessage, VoiceCommand } from './contract'
 import { formatCard, formatQueue } from './card'
+import { EightySix } from './eightysix'
 import { CaptureScreen } from './capture'
 import { RollingBuffer } from './clip'
 import { debugFixtures, debugSays, loadFixture } from './debug-pcm'
@@ -43,6 +44,7 @@ export class ServerHud implements Hud {
   private selected = 0
   /** task.revert is in flight: the next task update is its answer. */
   private revertSent = false
+  private readonly out86 = new EightySix()
 
   constructor(
     private readonly ctx: HudContext,
@@ -139,7 +141,7 @@ export class ServerHud implements Hud {
 
   private currentCard() {
     const offline = this.ctx.status() !== 'online'
-    return formatCard(this.queue, { offline, banner: this.banner(), hint: CONTROLS_HINT })
+    return formatCard(this.queue, { offline, banner: this.banner(), eightySix: this.out86.line(), hint: CONTROLS_HINT })
   }
 
   /** What the main text container shows on the card, Controls and queue screens (null on the draft). */
@@ -194,6 +196,10 @@ export class ServerHud implements Hud {
 
   onMessage(msg: BackendMessage): void {
     if (msg.type === 'voice.command') return this.onVoiceCommand(msg)
+    if (msg.type === 'alert') {
+      if (this.out86.apply(msg)) void this.card.render()
+      return
+    }
     if (msg.type === 'voice.unknown') {
       log('<- voice.unknown', msg.reason ?? '')
       return this.flash(didntGet(msg.words, msg.reason))

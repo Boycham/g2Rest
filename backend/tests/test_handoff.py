@@ -82,3 +82,30 @@ def test_frames_on_the_socket() -> None:
                 "action": "revert",
                 "reason": "Ben already accepted it",
             }
+
+
+def test_manager_reroute_over_http() -> None:
+    """The dashboard's Reroute: the manager moves a task without being its holder."""
+    settings = Settings(token="t", escalation_sec=30, data_dir=DATA_DIR)
+    with TestClient(create_app(settings)) as client:
+        h = {"Authorization": "Bearer t"}
+        with (
+            client.websocket_connect("/ws?token=t&staff=s1") as ava,
+            client.websocket_connect("/ws?token=t&staff=s2") as ben,
+        ):
+            assert client.get("/health").json()["online"] == ["s1", "s2"]
+            tid = client.post("/tasks", headers=h, json={"kind": "CHECK", "table": "T1"}).json()[
+                "id"
+            ]
+            assert json.loads(ava.receive_text())["type"] == "task.assigned"
+            r = client.post(f"/tasks/{tid}/reroute", headers=h, json={"to": "Ben"})
+            assert r.status_code == 200 and r.json()["assignee"] == "s2"
+            assert "manager reroute to s2" in [e["reason"] for e in r.json()["history"]]
+            assert json.loads(ava.receive_text())["task"]["state"] == "bounced"
+            assert json.loads(ben.receive_text())["task"]["assignee"] == "s2"
+            ava.send_text(json.dumps({"type": "task.revert"}))  # not Ava's move to undo
+            assert json.loads(ava.receive_text())["reason"] == "nothing to revert"
+            r = client.post(f"/tasks/{tid}/reroute", headers=h, json={"to": "s2"})
+            assert r.status_code == 409 and "already yours" in r.json()["detail"]
+            r = client.post("/tasks/nope/reroute", headers=h, json={})
+            assert r.status_code == 404

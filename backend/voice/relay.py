@@ -588,6 +588,9 @@ class RelaySession:
             await self.capture_stop(msg["captureId"])
         elif kind in ("order.confirm", "order.cancel_confirm", "order.reject"):
             await self.gesture(msg)
+        elif kind == "menu.86" and isinstance(msg.get("dishes"), list):
+            self.book.out = {d for d in msg["dishes"] if isinstance(d, str)}
+            log(f"86'd: {', '.join(sorted(self.book.out)) or 'none'}")
         else:
             log(f"ignored {raw[:200]}")
 

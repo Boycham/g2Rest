@@ -17,6 +17,10 @@ Default `RunWeights` (`backend/app/run_weights.py`, untouched), rules routing (n
   (2) a run with a plate past the 5-min ceiling leaves with whoever is free, the manager
   included, 3 plates each, the rest on the next free hands.
 
+Re-run on this branch (engine unchanged since C, so C is still current; `rush.py` ~2.9 s):
+every number below matches. New row `hot hold floor` (the wait the course rule alone forces, see
+"Priority vs FIFO" below): 19.4 / 72.9 s median / p90 at this seed, the same for both planners.
+
 ### Seed 20261018
 
 | | FIFO A | FIFO B | FIFO C | priority A | priority B | priority C |
@@ -40,7 +44,7 @@ this scenario, never has a plate past the ceiling.
 
 ### Seed sweep (seeds 1-20, same scenario)
 
-Median over the 20 seeds of each run's number (`out/sweep.py` calling `rush.offline`):
+Median over the 20 seeds of each run's number (`sweep.py`, which calls `rush.offline`):
 
 | | FIFO A | FIFO B | FIFO C | priority A | priority B | priority C |
 |---|---:|---:|---:|---:|---:|---:|
@@ -84,23 +88,76 @@ Every run served 20/20 parties.
   servers. Letting the manager take the second half of a big course earlier than the ceiling
   (say past 2-3 minutes) is the obvious next experiment; not done here.
 
-## Priority still does not beat FIFO on hot-plate wait at the pass
+## Priority vs FIFO on hot-plate wait at the pass: the course rule makes it impossible
 
-Measured as asked (`pass.up` to `pass.run`, per plate), priority is worse at this seed (hot
-median 38.1 s vs 0.0 s, p90 127 s vs 46.5 s) and on 19 of 20 seeds. The weights were not tuned.
+Asked: make priority beat FIFO on median and p90 hot-plate pass wait (`pass.up` to `pass.run`)
+at seed 20261018 and over seeds 1-20, without breaking the build plan's rules. **It can't be done
+while "a table's whole course goes out together" holds**, so the engine is unchanged. Numbers:
 
-Why: "a table's whole course goes out together". A course is only ready when its last plate is
-up, so its first hot plate waits for the slowest one (the per-plate kitchen spread here is up to
-90 s for mains), and a 4+ plate course also waits for two free servers. FIFO sends each plate
-as soon as someone is free, so its per-plate pass wait stays low, but tables get their course in
-pieces (21 of 56 courses left together, up to 89 s p90 between first and last plate).
+```sh
+cd sim && ../backend/.venv/bin/python rush.py                                  # seed 20261018
+cd sim && ../backend/.venv/bin/python sweep.py                                 # seeds 1-20, ~35 s
+cd sim && ../backend/.venv/bin/python sweep.py --what-if no-course-hold        # experiment only
+```
 
-What guests see still favours priority at the median: kitchen finishing a hot course to the whole
-table having it, 87.4 s vs 104 s over seeds (19/20 seeds), with about a third fewer trips. At
-p90 it is worse (156 vs 149 s over seeds, better on 5/20).
+**The hold floor.** A course is ready only when its last plate is up, so each hot plate waits at
+least from its own `pass.up` to the last `pass.up` of its course (`hotCourseHoldSec`, printed as
+"hot hold floor"). That gap is the kitchen's per-plate jitter (up to 90 s for mains in
+`scenario.json`), drawn from the seed: it is identical under both planners on every seed
+(checked: the per-plate lists are equal), so no planner that keeps courses together can go
+below it, even with unlimited instant runners. Percentiles of a per-plate lower bound are lower
+bounds of the percentiles.
 
-For the demo, quote pass wait as a trade: lead with "course at the table, median" and "trips",
-and say that big courses can wait for two free servers.
+| hot pass wait, median / p90 (s) | FIFO | priority (now) | hold floor (any course-together planner) |
+|---|---:|---:|---:|
+| seed 20261018 | **0.0 / 46.5** | 38.1 / 127 | **19.4 / 72.9** |
+| seeds 1-20, median over seeds | **11.3 / 56.7** | 28.4 / 119 | **11.5 / 55.3** |
+| seeds where it is under FIFO (median / p90) | | 1 / 0 of 20 | 10 / 12 of 20 |
+
+- Seed 20261018: the floor is above FIFO on both numbers (19.4 > 0.0, 72.9 > 46.5). Impossible.
+- Sweep median: floor 11.5 s > FIFO 11.3 s. Impossible.
+- Sweep p90: floor 55.3 s vs FIFO 56.7 s leaves 1.4 s for everything else (reaction is not in
+  the metric, but a free server must exist the instant the last plate lands, for 90% of hot
+  plates, through a rush with two servers). Not reachable in practice; priority's after-course-up
+  p90 is 76-157 s per seed today.
+
+**What the rule costs, measured** (what-if, plates may leave as they come up; breaks the rule,
+not shipped): priority drops to 13.9 / 68.8 s over seeds (11.4 / 56.2 s at 20261018), still
+behind FIFO's 11.3 / 56.7 (better on 5 and 2 seeds of 20), and courses left together fall from
+~55/56 to ~22/56. So the course rule explains most of the gap; the rest is below.
+
+**Where priority's wait beyond the floor comes from** (seeds 1-20, hot plates by course size):
+
+| course size | share of hot plates | priority wait median / p90 | of it after course up | FIFO wait median / p90 |
+|---|---:|---:|---:|---:|
+| 1 plate | 5% | 0.0 / 42.1 | 0.0 / 42.1 | 0.0 / 50.0 |
+| 2-3 plates | 48% | 14.0 / 63.0 | 0.0 / 36.6 | 3.5 / 51.8 |
+| 4+ plates | 47% | 57.3 / 139 | 22.5 / 93.2 | 18.2 / 58.6 |
+
+- **Runner limit (3 plates) + two servers:** a 4+ plate course needs two free servers at once, and
+  half the hot plates are in such courses. Their after-course-up p90 is 93 s (FIFO's plates 47 s);
+  this is where priority's p90 goes. The reservation (`Pass.reserved`, idle while reserved
+  ~300 s a night) keeps it under the ceiling but can't create a second pair of hands.
+- **2-3 plate courses** leave as soon as they are whole (after-course-up median 0) and beat FIFO
+  after course up at p90 (36.6 vs 47.8 s); their total is the hold.
+- **Scoring weights and course above temperature** only decide which ready course goes first when
+  hands are short; with the hold in place they can't lower the floor, and dropping the hold
+  (what-if) still leaves priority behind FIFO because a cold appetizer course (12) outranks a hot
+  main (11) by design.
+- **Pairing** (0 cross-table runs) and **cold never delays hot** don't bind here: cold plates
+  never ride with another table's hot run, and pairing only uses spare hands.
+- **The 5-min ceiling** fires on no seed (0 plates over), so it adds no wait.
+
+**What would change the answer (team's call, each changes a rule or the model):**
+1. Measure from the course being whole, not per plate (`hot wait after course up`, `hot course
+   whole at the table`): priority already wins the guest-facing median (87 vs 104 s, 19/20 seeds).
+2. Let the kitchen fire a course to come up together (cook-time staggering): the hold floor is
+   kitchen timing, so this is a kitchen/model change, not a dispatch change.
+3. The manager (or a third server) as an earlier second pair of hands for 4+ plate courses: cuts
+   the after-course-up tail, but even at zero the floor keeps the median at or above FIFO.
+
+For the demo, keep quoting pass wait as a trade: lead with "course at the table, median" and
+"trips", and say that big courses wait for the whole course and for two free servers.
 
 ## Surprises and things worth fixing (team's call, not changed here)
 

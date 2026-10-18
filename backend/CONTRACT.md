@@ -118,9 +118,15 @@ current card, or the organizer can set it with `POST /captures/{captureId}/table
 { "type": "order.readback", "orderId": "order-9c1d", "action": "confirm", "text": "Send T12: 2x halibut, 1x risotto?" }
 
 // Manager exception. Re-sending the same id replaces it; cleared=true removes it.
-{ "type": "alert", "id": "late-T4", "level": "urgent", "text": "T4 waiting {elapsed} on mains", "table": "T4", "sinceSec": 840 }
-{ "type": "alert", "id": "late-T4", "level": "urgent", "text": "", "cleared": true }
+{ "type": "alert", "id": "course-T4", "level": "urgent", "text": "T4 waiting {elapsed} on mains", "table": "T4", "sinceSec": 840, "kind": "course_wait" }
+{ "type": "alert", "id": "course-T4", "level": "urgent", "text": "", "cleared": true, "kind": "course_wait" }
 // level: info | warn | urgent
+// kind? (§8.13): unacked | slow | course_wait | vip | 86
+//   unacked-<task>  urgent  "T1 run task unacknowledged {elapsed}"  end of the escalation chain
+//   slow-<task>     warn    accepted, not done after FS_DONE_SEC
+//   course-<T>      urgent  "T4 waiting {elapsed} on mains"  past FS_COURSE_WAIT_SEC; clears when the plates are up
+//   vip-<T>         info    "VIP seated T7"  once per VIP party; clears after FS_VIP_ALERT_SEC or when the table empties
+//   86-<dish>       warn    "86 halibut"  table ""; clears on un-86
 
 // Full snapshot of every table; sent on connect and on every change.
 { "type": "floor.state", "tables": [ { ...TableState } ] }
@@ -129,7 +135,8 @@ current card, or the organizer can set it with `POST /captures/{captureId}/table
 Delivery rules:
 - `task.assigned` / `task.updated` go only to the task's assignee (and to organizer sockets).
 - `order.*` go to the socket that opened the capture.
-- `alert` and `floor.state` go to manager and organizer sockets.
+- `alert` and `floor.state` go to manager and organizer sockets. An alert with `kind: "86"` also goes
+  to **every server** (the card shows it as one line); open 86 alerts are replayed to a server on connect.
 - The glasses may apply taps optimistically; the backend's `task.updated` is the truth and wins.
 
 ```jsonc
@@ -161,15 +168,18 @@ Operations (used by the organizer page, the walkthrough script and the simulator
 
 | method + path | purpose |
 |---|---|
-| `GET /health` | `{ok, tasksOpen, clients, eventDb, sentry}` (no token); `eventDb` is `{enabled: false}` without `DATABASE_URL`, else `{enabled, ok, queued, written, dropped, failures, lastError, lastWriteAgoSec, writeMs: {p50, p95, max}, schemaErrors}` |
+| `GET /health` | `{ok, tasksOpen, clients, online, eventDb, sentry}` (no token); `online` lists the staff ids whose glasses are connected; `eventDb` is `{enabled: false}` without `DATABASE_URL`, else `{enabled, ok, queued, written, dropped, failures, lastError, lastWriteAgoSec, writeMs: {p50, p95, max}, schemaErrors}` |
 | `GET /config` | what the web pages need at load: `{sentry: null}` or `{sentry: {dsn, environment, tracesSampleRate}}` (from `SENTRY_DSN_WEB`) |
 | `GET /state` | tables, orders, tasks, open alerts |
-| `GET /stats` | how long each server takes: `{doneSec, servers: [{id, name, done, avgSec, avgSecByKind: {CHECK: 60}, open: [{taskId, kind, table, state, heldSec}]}]}`; `avgSec` is accept to done over this service's finished tasks (`null` before the first), `heldSec` counts from accept (or from assignment if not accepted yet). `?hours=` (default 24) and `history: {available, hours, accept: [...], ticket: [...]}`: per server (`staff`) and `kind`, `{n, avgSec, p50Sec, p90Sec, maxSec}` from the Tiger Data continuous aggregates, across every boot (`accept` = sent to accepted, `ticket` = accepted to done); `{available: false, reason}` without a database or during an outage |
+| `GET /stats` | how long each server takes: `{doneSec, escalationSec, servers: [{id, name, done, avgSec, avgSecByKind: {CHECK: 60}, open: [{taskId, kind, table, state, heldSec}]}]}`; `avgSec` is accept to done over this service's finished tasks (`null` before the first), `heldSec` counts from accept (or from assignment if not accepted yet). `?hours=` (default 24) and `history: {available, hours, accept: [...], ticket: [...]}`: per server (`staff`) and `kind`, `{n, avgSec, p50Sec, p90Sec, maxSec}` from the Tiger Data continuous aggregates, across every boot (`accept` = sent to accepted, `ticket` = accepted to done); `{available: false, reason}` without a database or during an outage |
 | `GET /events?since=<n>` | append-only event log (`seq`, `at`, `type`, `data`) |
 | `GET /menu`, `GET /floor` | the loaded `data/menu.json`, `data/floor.json` |
 | `POST /tasks` | create a task: `{kind, table, items?, allergies?, notes?, assignee?}`; without `assignee` Gemini picks the server (`app/router.py`), falling back to the table's section server |
 | `POST /tasks/{id}/{accept|done|bounce}?by={staff}` | same as the glasses gestures, for the simulator and tests; `by` must be the assignee (409 otherwise), so only the server holding a task closes it, never the organizer |
-| `POST /tables/{id}/status` | `{status}`; broadcasts `floor.state` |
+| `POST /tasks/{id}/reroute` | `{to?}` (staff id or name): the manager dashboard moves an open task to someone else; without `to` the router picks anyone but the holder. Same frames as a handoff (`bounced` to the old holder, `task.assigned` to the new one), logged with reason `manager reroute to <id>`, and the old holder can't `task.revert` it. 404 unknown task, 409 already theirs or closed |
+| `POST /tables/{id}/status` | `{status, vip?}`; broadcasts `floor.state`. `vip: true` with `seated` alerts the manager once (`kind: "vip"`) |
+| `POST /menu/{dish}/86`, `POST /menu/{dish}/un86` | `{dish, eightySix: [names]}`; `dish` is a name or alias (404 with the closest names). Pushes the `86` alert (or its clear) to every socket; `add_item` and the clip's `set_order` refuse the dish with a `? s2 halibut 86'd` line on the draft |
+| `GET /menu/86` | `{eightySix: [names]}`; also `eightySix` in `GET /state` |
 | `POST /plates` | `{table, dish, seat?, orderId?}` registers a plate the kitchen is cooking |
 | `POST /plates/{id}/up` | the plate is at the pass; the priority engine re-plans runs |
 | `GET /runs?mode=priority|fifo` | the planned runs (debug view of the engine) |
@@ -329,3 +339,9 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
     - `sentryTrace` is `<32 hex trace id>-<16 hex span id>[-0|1]`; anything else is rejected like any
       malformed frame. The backend accepts the field today (`app/contract.py`: `TraceContext`);
       `contract.ts` needs `trace?` on those three types, and `parse.ts` already ignores it.
+13. **Exceptions and 86 (backend lane, branch `devin/exceptions-86`): additive.** `alert` gains
+    `kind?: "unacked" | "slow" | "course_wait" | "vip" | "86"` (both mirrors: `app/contract.py`,
+    `glasses/src/contract.ts`); the glasses parser rejects an unknown kind. `86` alerts go to every
+    server as well as manager and organizer sockets. `order.draft` from the hub may now carry
+    `uncertain` (the `? s2 halibut 86'd` line). Backend-to-relay only (not glasses): the hub sends the
+    voice relay `{ "type": "menu.86", "dishes": [names] }` on connect and on every change.

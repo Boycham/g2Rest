@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -88,6 +89,10 @@ class Hub:
             await self._send(conn, self.store.floor_state())
             for alert in self.store.book.alerts.values():
                 await self._send(conn, alert.wire())
+        else:
+            for alert in self.store.book.alerts.values():
+                if alert.kind == "86":  # so a reconnecting server still won't sell it
+                    await self._send(conn, alert.wire())
 
     # ---------- outbound ----------
 
@@ -135,6 +140,13 @@ class Hub:
                 delivered = await self.send_staff(out.staff, out.message)
             if out.message["type"] == "task.assigned" and delivered:
                 self.store.book.mark_sent(out.message["task"]["id"], self.store.now())
+
+    async def push_86(self, alert: dict[str, Any]) -> None:
+        """An 86 (or its clear) goes to every server, the manager and organizers at once, and
+        to the voice relay so the clip agent won't put it on a draft."""
+        await asyncio.gather(*(self._send(c, alert) for c in list(self.conns.values())))
+        if self.voice:
+            await self.voice.menu_86(self.store.eighty_six)
 
     async def push_floor(self) -> None:
         await self.broadcast(self.store.floor_state(), ("manager", "organizer"))
@@ -192,6 +204,10 @@ class Hub:
         if out:
             with telemetry.root("pass.run", "run dispatch", tasks=len(out)):
                 await self.deliver(out)
+        waits = self.store.exceptions()
+        if waits:
+            await self.deliver(waits)
+            await self.push_floor()
         if out or push:
             await self.push_pass()
         return bool(out)
