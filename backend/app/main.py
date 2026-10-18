@@ -181,12 +181,14 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         return [t.to_dict() for t in store.book.tasks.values()]
 
     @app.post("/tasks/{task_id}/{action}", dependencies=auth)
-    async def task_action(task_id: str, action: str) -> dict[str, Any]:
+    async def task_action(task_id: str, action: str, by: str = Query(...)) -> dict[str, Any]:
+        """The assignee's own gesture over HTTP (simulator, tests). `by` must be the assignee:
+        only the server holding a task accepts, finishes or bounces it, never the organizer."""
         moves = {"accept": store.book.accept, "done": store.book.done, "bounce": store.book.bounce}
         if action not in moves:
             raise HTTPException(404, f"action must be one of {sorted(moves)}")
         try:
-            out = moves[action](task_id, store.now())
+            out = moves[action](task_id, store.now(), by=by)
         except TaskError as e:
             raise HTTPException(409, str(e)) from None
         await hub.deliver(out)

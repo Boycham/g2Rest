@@ -196,8 +196,6 @@ function renderBoard() {
     return
   }
   const now = Date.now()
-  const move = (t, action) =>
-    act(`Task ${action}`, () => api(`/tasks/${encodeURIComponent(t.id)}/${action}`, {}))
   $('board').replaceChildren(
     h(
       'table',
@@ -205,7 +203,7 @@ function renderBoard() {
       h(
         'tr',
         {},
-        ['Card', 'Assigned to', 'State', 'Age', 'Glasses stand-in'].map((c) => h('th', {}, c)),
+        ['Card', 'Assigned to', 'State', 'Age'].map((c) => h('th', {}, c)),
       ),
       tasks.map((t) => {
         const allergies = allergyText(t.allergies ?? [])
@@ -228,13 +226,6 @@ function renderBoard() {
             t.backendState && t.backendState !== t.state ? h('span', { class: 'muted' }, ` ${t.backendState}`) : null,
           ),
           h('td', { class: 'muted' }, age),
-          h(
-            'td',
-            { class: 'row' },
-            h('button', { disabled: t.state !== 'assigned', onclick: () => move(t, 'accept') }, 'Accept'),
-            h('button', { disabled: t.state === 'done' || t.state === 'bounced', onclick: () => move(t, 'done') }, 'Done'),
-            h('button', { disabled: t.state !== 'assigned', onclick: () => move(t, 'bounce') }, 'Bounce'),
-          ),
         )
       }),
     ),

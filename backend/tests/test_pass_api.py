@@ -144,7 +144,7 @@ def test_two_hot_courses_pair_because_the_runner_was_busy(client: TestClient) ->
         assert state["holds"] == [] and state["runs"] == []
         assert [t["kind"] for t in client.get("/tasks", headers=H).json()] == ["RUN", "RUN"]
 
-        r = client.post(f"/tasks/{s1_task}/done", headers=H)
+        r = client.post(f"/tasks/{s1_task}/done?by=s1", headers=H)
         assert r.status_code == 200
         assert recv(org)["type"] == "task.updated"
         card = recv(org)
