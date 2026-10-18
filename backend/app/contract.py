@@ -245,6 +245,8 @@ class VoiceCommand(Strict):
         "handoff",
         "nevermind",
         "revert",
+        "menu",
+        "queue",
     ]
     name: str | None = None
 

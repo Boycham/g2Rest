@@ -25,8 +25,11 @@ COMMANDS = {
     "handoff": "handoff",
     "nevermind": "nevermind",
     "revert": "revert",
+    "menu": "menu",
+    "controls": "menu",
+    "queue": "queue",
 }
-INTENTS = tuple(COMMANDS.values())
+INTENTS = tuple(dict.fromkeys(COMMANDS.values()))
 # Scribe writes "hand off" / "hand-off" / "never mind" as two words.
 BIGRAMS = {("hand", "off"): "handoff", ("never", "mind"): "nevermind"}
 # Words after "verity" in the same sentence that are kept for Gemini; longer runs are talk.

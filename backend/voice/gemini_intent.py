@@ -21,11 +21,11 @@ GEMINI_TIMEOUT = 3.0
 
 PROMPT = """A restaurant server wearing smart glasses said "verity" (the wake word) and then: "{words}"
 Pick the one glasses action they meant, or "none" if it is not a request to the glasses.
-Actions: up (scroll up / show the queue), down (scroll down / take an order), back (previous
-screen), confirm (yes / send it), clip (clip the last minute of the order), accept (take the
-task), decline (refuse the task), done (finished the task), handoff (give the task to someone
-else; set name if they said who), nevermind (cancel what is pending), revert (undo the last
-action)."""
+Actions: up (swipe up), down (swipe down), menu (open the controls menu), queue (show the task
+queue), back (previous screen / close the menu), confirm (yes / send it / pick), clip (clip the
+last minute of the order), accept (take the task), decline (refuse the task), done (finished the
+task), handoff (give the task to someone else; set name if they said who), nevermind (cancel
+what is pending), revert (undo the last action)."""
 
 SCHEMA = {
     "type": "object",

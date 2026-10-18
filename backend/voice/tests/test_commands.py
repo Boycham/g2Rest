@@ -43,3 +43,8 @@ def test_short_unknown_words_after_the_wake_word_go_to_gemini():
 def test_long_talk_after_the_wake_word_is_not_a_command():
     assert parse_commands("Verity is my sister's name and she loves the halibut here.") == []
     assert parse_commands("Thanks, Verity.") == []
+
+
+def test_menu_controls_and_queue():
+    assert find_commands("Verity menu. Verity controls. Verity, queue.") == ["menu", "menu", "queue"]
+    assert find_commands("Is there a queue for the menu?") == []
