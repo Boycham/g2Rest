@@ -3,7 +3,7 @@
 Every helper here is a cheap no-op when Sentry is off, so the hub calls them unconditionally.
 Trace context travels as `{"sentryTrace": ..., "baggage": ...}`: the web pages send it as HTTP
 headers, a task keeps the context it was created in (so the glasses' accept continues the
-organizer's dispatch trace), and the optional `trace` field proposed in CONTRACT.md §8.11
+organizer's dispatch trace), and the optional `trace` field proposed in CONTRACT.md §8.12
 carries it over the WebSocket.
 """
 

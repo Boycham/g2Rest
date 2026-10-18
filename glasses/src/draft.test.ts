@@ -40,7 +40,7 @@ describe('formatDraft', () => {
 
   it('shows the pending proposal highlighted in the bar', () => {
     const v = formatDraft(state({ draft: draft({ pending: [{ id: 'p1', action: 'remove', text: 'REMOVE s2 salmon?' }] }) }))
-    expect(v.bar).toBe('REMOVE s2 salmon? tap=yes swipe up=no')
+    expect(v.bar).toBe('REMOVE s2 salmon? tap=yes swipe fwd=no')
     expect(v.highlight).toBe(true)
   })
 
@@ -76,7 +76,7 @@ describe('formatDraft', () => {
 describe('draftGesture', () => {
   const pending = (action: 'remove' | 'cancel' | 'confirm') => state({ draft: draft({ pending: [{ id: 'p7', action, text: 'x' }] }) })
 
-  it('swipe down sends the last minute again', () => {
+  it('swipe back sends the last minute again', () => {
     expect(draftGesture('down', state())).toEqual({ send: null, then: 'clip' })
   })
 
@@ -103,7 +103,7 @@ describe('draftGesture', () => {
     expect(draftGesture('tap', state({ draft: null })).send).toBeNull()
   })
 
-  it('swipe up rejects the pending proposal, else goes back keeping the draft', () => {
+  it('swipe fwd rejects the pending proposal, else goes back keeping the draft', () => {
     expect(draftGesture('up', pending('remove'))).toEqual({
       send: { type: 'order.reject', orderId: 'o1', proposalId: 'p7' },
       then: 'none',
@@ -122,7 +122,7 @@ describe('formatDraft for a clip', () => {
   it('shows TABLE? and how to give it when the draft has no table', () => {
     const v = formatDraft(state({ draft: draft({ table: null }) }))
     expect(v.main.split('\n')[1].startsWith('TABLE?')).toBe(true)
-    expect(v.bar).toBe('TABLE? say the table, then swipe down')
+    expect(v.bar).toBe('TABLE? say the table, then swipe back')
     expect(v.highlight).toBe(false)
   })
 
@@ -152,5 +152,69 @@ describe('closesDraft', () => {
   })
   it('ignores another order closing', () => {
     expect(closesDraft(d, 'o2')).toBe(false)
+  })
+})
+
+describe('formatDraft with the table talk', () => {
+  const answers = [
+    { seat: 2, q: 'risotto nuts?', a: 'no tree nuts listed for risotto', known: true },
+    { seat: 2, q: 'risotto vegetarian?', a: 'not in menu data', known: false },
+    { q: "we're in a rush", a: "I'll fire mains right away" },
+  ]
+
+  it('shows the order first, then the separator, summary and answers', () => {
+    const v = formatDraft(state({ draft: draft({ summary: 'Anniversary, in a rush', answers: answers.slice(0, 1) }) }))
+    const lines = v.main.split('\n')
+    expect(lines.slice(2, 4)).toEqual(['s1 halibut –no butter', 's2 salmon –no dill'])
+    expect(lines[4].startsWith('── table said')).toBe(true)
+    expect(lines.slice(5)).toEqual(['Anniversary, in a rush', 's2 risotto nuts? → no tree nuts listed for risotto'])
+    expect(v.pages).toBe(1)
+  })
+
+  it('shows summary and answers with no order and nothing to send', () => {
+    const d = draft({ table: null, lines: [], allergies: [], summary: 'Just browsing, in a rush', answers })
+    const v = formatDraft(state({ draft: d }))
+    const lines = v.main.split('\n')
+    expect(lines[0]).toBe('TABLE?')
+    expect(lines[1].startsWith('── table said')).toBe(true)
+    expect(lines.at(-1)).toBe("we're in a rush → I'll fire mains right away")
+    expect(v.bar).toBe('')
+    expect(draftGesture('tap', state({ draft: d }))).toEqual({ send: null, then: 'none' })
+  })
+
+  it('pages the talk when it does not fit, and swipe fwd turns the page, then goes back', () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({ seat: i + 1, qty: 1, dish: 'soup', alterations: [], flagged: [] }))
+    const d = draft({ lines: many, summary: 'Birthday at seat 3, relaxed', answers })
+    const p0 = formatDraft(state({ draft: d }))
+    expect(p0.pages).toBe(2)
+    expect(p0.bar).toBe('swipe fwd = more 1/2')
+    expect(p0.main.split('\n').length).toBeLessThanOrEqual(DRAFT_MAX_LINES)
+    expect(draftGesture('up', state({ draft: d }))).toEqual({ send: null, then: 'page' })
+    const p1 = formatDraft(state({ draft: d, page: 1 }))
+    const lines = p1.main.split('\n')
+    expect(lines[0].startsWith('T12')).toBe(true)
+    expect(lines.slice(1).some(l => l.startsWith('? s2 asks risotto vegetarian'))).toBe(true)
+    expect(p1.bar).toBe('2/2 swipe fwd = done')
+    for (const l of lines) expect(getTextWidth(l)).toBeLessThanOrEqual(DRAFT_TEXT_WIDTH)
+    expect(draftGesture('up', state({ draft: d, page: 1 }))).toEqual({ send: null, then: 'back' })
+  })
+
+  it('keeps the page count in the TABLE? bar so the rest of the talk is not hidden', () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({ seat: i + 1, qty: 1, dish: 'soup', alterations: [], flagged: [] }))
+    const d = draft({ table: null, lines: many, summary: 'Birthday at seat 3, relaxed', answers })
+    expect(formatDraft(state({ draft: d })).bar).toBe('TABLE? say the table, then swipe back · fwd 1/2')
+    expect(formatDraft(state({ draft: d, page: 1 })).bar).toBe('TABLE? say the table, then swipe back · fwd 2/2')
+  })
+
+  it('a tap sends only the order: the summary and answers are not in the message', () => {
+    const a = draftGesture('tap', state({ draft: draft({ summary: 'Anniversary', answers }) }))
+    expect(a.send).toEqual({ type: 'order.confirm', orderId: 'o1' })
+  })
+
+  it('a pending proposal still wins the bar and swipe fwd over paging', () => {
+    const many = Array.from({ length: 6 }, (_, i) => ({ seat: i + 1, qty: 1, dish: 'soup', alterations: [], flagged: [] }))
+    const d = draft({ lines: many, answers, pending: [{ id: 'p1', action: 'remove', text: 'REMOVE s2 soup?' }] })
+    expect(formatDraft(state({ draft: d })).bar.startsWith('REMOVE s2 soup?')).toBe(true)
+    expect(draftGesture('up', state({ draft: d }))).toEqual({ send: { type: 'order.reject', orderId: 'o1', proposalId: 'p1' }, then: 'none' })
   })
 })

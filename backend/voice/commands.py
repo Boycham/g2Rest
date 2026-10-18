@@ -28,6 +28,8 @@ COMMANDS = {
     "menu": "menu",
     "controls": "menu",
     "queue": "queue",
+    # "verity table 4" / "verity table four": binds the unsent draft to that table.
+    "table": "table",
     # Scribe writes the TTS "verity queue" as "Verity Q" (2/2 in the simulator run).
     "q": "queue",
     "cue": "queue",
@@ -38,12 +40,36 @@ BIGRAMS = {("hand", "off"): "handoff", ("never", "mind"): "nevermind"}
 # Words after "verity" in the same sentence that are kept for Gemini; longer runs are talk.
 MAX_UNKNOWN_WORDS = 5
 NAME_FILLERS = frozenset({"to"})
+# Table numbers as Scribe writes them: digits, or words (with the homophones "for", "to").
+NUMBER_WORDS = {
+    w: n
+    for n, ws in enumerate(
+        (
+            (),
+            ("one", "won"),
+            ("two", "to", "too"),
+            ("three",),
+            ("four", "for", "fore"),
+            ("five",),
+            ("six",),
+            ("seven",),
+            ("eight", "ate"),
+            ("nine",),
+            ("ten",),
+            ("eleven",),
+            ("twelve",),
+        )
+    )
+    for w in ws
+}
+TABLE_FILLERS = frozenset({"number", "no"})
 
 
 @dataclass(frozen=True)
 class Command:
     intent: str  # one of INTENTS, or "unknown"
     name: str | None = None  # handoff target
+    table: int | None = None  # "verity table 4"; None if no number followed
     words: str | None = None  # the unmatched words, for "unknown"
 
 
@@ -65,6 +91,34 @@ def command_of(word: str) -> str | None:
         if any(word == cmd + suf for suf in SUFFIXES):
             return intent
     return None
+
+
+def number_of(word: str) -> int | None:
+    if word.isdigit():
+        return int(word) if 1 <= int(word) <= 999 else None
+    return NUMBER_WORDS.get(word)
+
+
+HOMOPHONES = frozenset({"won", "to", "too", "for", "fore", "ate"})
+
+
+def _table_after(rest: list[str], strict: bool = False) -> tuple[int | None, int]:
+    """The table number in the words after "table" and how many words it took. `strict`
+    skips homophones, so "a table for two" in conversation is not table 4."""
+    skip = 1 if rest[:1] and rest[0] in TABLE_FILLERS else 0
+    word = rest[skip] if len(rest) > skip else ""
+    n = None if strict and word in HOMOPHONES else number_of(word)
+    return (n, skip + 1) if n is not None else (None, 0)
+
+
+def tables_said(text: str) -> list[int]:
+    """Every "table N" in a clip's transcript, in order ("that was table four" -> [4])."""
+    out: list[int] = []
+    for ws in _sentences(text):
+        for i, w in enumerate(ws):
+            if w == "table" and (n := _table_after(ws[i + 1 : i + 3], strict=True)[0]):
+                out.append(n)
+    return out
 
 
 def _sentences(text: str) -> list[list[str]]:
@@ -103,6 +157,11 @@ def parse_commands(text: str) -> list[Command]:
                 i = j + nxt
                 continue
             name = None
+            if intent == "table":
+                n, used = _table_after(ws[j + 1 : j + 3])
+                out.append(Command("table", table=n))
+                i = j + 1 + used
+                continue
             if intent == "handoff":
                 name = _name_after(ws[j + width : j + width + 2])
                 width += 2 if name and ws[j + width] in NAME_FILLERS else 1 if name else 0

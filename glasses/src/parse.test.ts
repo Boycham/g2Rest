@@ -3,6 +3,14 @@ import { parseBackendMessage, parseTaskList } from './parse'
 import { makeTask } from './fixtures.test-helpers'
 
 describe('parseBackendMessage', () => {
+  it('accepts verity table with its table, was and reason, and rejects bad fields', () => {
+    const ok = { type: 'voice.command', intent: 'table', table: 'T4', was: 'T3' }
+    expect(parseBackendMessage(JSON.stringify(ok))).toEqual(ok)
+    const refused = { type: 'voice.command', intent: 'table', table: 'T12', reason: 'no table 12' }
+    expect(parseBackendMessage(JSON.stringify(refused))).toEqual(refused)
+    expect(parseBackendMessage(JSON.stringify({ ...ok, table: 4 }))).toBeNull()
+  })
+
   it('accepts a valid task.assigned', () => {
     const msg = { type: 'task.assigned', task: makeTask() }
     expect(parseBackendMessage(JSON.stringify(msg))).toEqual(msg)

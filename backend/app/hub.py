@@ -40,7 +40,7 @@ class Hub:
         trace_wire: bool = False,
     ) -> None:
         self.store = store
-        self.trace_wire = trace_wire  # send `trace` on task.assigned (CONTRACT.md §8.11)
+        self.trace_wire = trace_wire  # send `trace` on task.assigned (CONTRACT.md §8.12)
         self.http = http or httpx.AsyncClient()  # the router's Gemini calls
         self.conns: dict[WebSocket, Conn] = {}
         self.last_capture: dict[WebSocket, str] = {}

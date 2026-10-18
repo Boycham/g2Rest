@@ -200,7 +200,7 @@ socket; accept/done = frame until `task.updated` comes back):
 - Real trace: organizer click "Dispatch" -> `POST /tasks` -> `task.dispatch` -> `hub.deliver` ->
   `task.accept` -> `task.done`, all trace `717adbb232aa415ba6f32d8fa5bd5687` (environment
   `devin-observability`); with `FS_TRACE_WIRE=1` the `task.assigned` frame carried that trace id too.
-- The full trace through the glasses needs the proposed `trace?` field (CONTRACT.md 8.11) in
+- The full trace through the glasses needs the proposed `trace?` field (CONTRACT.md 8.12) in
   `glasses/` (step 10b). Without it the backend already joins accept and done to the dispatch trace.
 
 ## Surprises

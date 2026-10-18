@@ -41,7 +41,7 @@ class Settings:
     sentry_dsn_web: str = ""  # empty: GET /config tells the pages Sentry is off
     sentry_environment: str = "dev"
     sentry_traces_rate: float = 1.0
-    trace_wire: bool = False  # send `trace` on task.assigned (proposed, CONTRACT.md §8.11)
+    trace_wire: bool = False  # send `trace` on task.assigned (proposed, CONTRACT.md §8.12)
 
     @classmethod
     def from_env(cls) -> Settings:

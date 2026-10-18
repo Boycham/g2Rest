@@ -157,7 +157,7 @@ export interface OrderCancelConfirm {
   proposalId?: string
 }
 
-/** Swipe up on a pending proposal drops it; nothing changes. */
+/** Swipe fwd on a pending proposal drops it; nothing changes. */
 export interface OrderReject {
   type: 'order.reject'
   orderId: string
@@ -201,6 +201,17 @@ export interface PendingProposal {
 export type VoiceState = 'idle' | 'connecting' | 'listening' | 'processing' | 'offline'
 
 /** Full replacement of the order being taken, sent after every change. */
+/** A suggested reply for the server to say; display only, never sent to the kitchen. */
+export interface Answer {
+  seat?: number
+  /** The guest's question or comment in a few words, e.g. "risotto vegetarian?". */
+  q: string
+  /** Written from data/menu.json, or "not in menu data" when `known` is false. */
+  a: string
+  /** false: the menu can't answer it; shown as a `?` line. */
+  known?: boolean
+}
+
 export interface OrderDraft {
   type: 'order.draft'
   orderId: string
@@ -210,7 +221,7 @@ export interface OrderDraft {
   allergies: Allergy[]
   /** `sent` / `cancelled` only after the server's tap. */
   status?: 'draft' | 'sent' | 'cancelled'
-  /** Oldest first; only the first is shown and answered by tap / swipe up. */
+  /** Oldest first; only the first is shown and answered by tap / swipe fwd. */
   pending?: PendingProposal[]
   /** Speech pipeline state, `offline` shows VOICE OFFLINE. */
   voice?: VoiceState
@@ -220,6 +231,10 @@ export interface OrderDraft {
   notes?: string[]
   /** Anything unclear, one line each, ready to show, e.g. "? s2 'the fish': halibut or salmon". */
   uncertain?: string[]
+  /** Clip only: 1-2 lines on what the table said (mood, pacing, occasion). Display only. */
+  summary?: string
+  /** Clip only: suggested replies to the guests' questions and comments. Display only. */
+  answers?: Answer[]
 }
 
 /** The agent proposes sending or cancelling; only a tap on the glasses does it. */
@@ -275,6 +290,7 @@ export type VoiceIntent =
   | 'revert'
   | 'menu'
   | 'queue'
+  | 'table'
 
 /**
  * "verity <command>" heard on the always-on command stream. The glasses act on it exactly
@@ -285,6 +301,12 @@ export interface VoiceCommand {
   intent: VoiceIntent
   /** "verity handoff Maya": who to hand the task to. */
   name?: string
+  /** "verity table 4": the table heard ("T4"); the draft itself comes as order.draft. */
+  table?: string
+  /** The table it replaced (an ORDER task's or an earlier one). */
+  was?: string
+  /** Why the relay refused it ("no table 12", "already sent"); shown as is. */
+  reason?: string
 }
 
 /** Coder A: a refused task.* frame, to the sending socket only. The card shows `reason` as is. */

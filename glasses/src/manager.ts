@@ -35,7 +35,7 @@ function boxContainer(view: BoxView, i: number): TextContainerProperty {
   })
 }
 
-/** The manager HUD: exceptions by default, swipe down for the floor minimap. */
+/** The manager HUD: exceptions by default, swipe back for the floor minimap. */
 export class ManagerHud implements Hud {
   readonly role = 'manager'
   exceptions: Exceptions

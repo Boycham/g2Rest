@@ -68,7 +68,7 @@ def test_an_organizer_dispatch_and_the_glasses_accept_share_one_trace(
             "/tasks", headers=h, json={"kind": "CHECK", "table": "T1", "assignee": "s1"}
         ).json()["id"]
         assigned = json.loads(ws.receive_text())
-        assert assigned["trace"]["sentryTrace"].startswith(TRACE_ID)  # proposed §8.11
+        assert assigned["trace"]["sentryTrace"].startswith(TRACE_ID)  # proposed §8.12
         ws.send_text(json.dumps({"type": "task.accept", "taskId": tid}))
         assert json.loads(ws.receive_text())["task"]["state"] == "accepted"
         ws.send_text(json.dumps({"type": "task.done", "taskId": tid}))

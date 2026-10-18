@@ -13,6 +13,18 @@ from pathlib import Path
 from typing import Any
 
 MENU_PATH = Path(__file__).resolve().parents[2] / "data" / "menu.json"  # one menu for both lanes
+FLOOR_PATH = MENU_PATH.with_name("floor.json")
+# Who gave the draft its table, weakest first: said in a clip, the ORDER task, "verity table N".
+TABLE_SOURCES = ("spoken", "task", "voice")
+KEPT_FROM = {"task": "the ORDER task", "voice": "verity table"}
+
+
+def floor_tables(path: Path = FLOOR_PATH) -> frozenset[int]:
+    """Table numbers on the floor plan ("T4" -> 4)."""
+    tables = json.loads(path.read_text())["tables"]
+    return frozenset(int(t["id"].removeprefix("T")) for t in tables)
+
+
 COURSES = ("appetizer", "main", "dessert")
 MAX_QTY = 20
 UNKNOWN_TABLE = 0  # the draft's key until a table is known (ORDER task or spoken)
@@ -123,6 +135,8 @@ class Table:
     status: str = "draft"  # draft -> sent | cancelled, only through a tap (accept/confirm)
     notes: list[str] = field(default_factory=list)
     uncertain: list[str] = field(default_factory=list)
+    summary: str = ""
+    answers: list[dict[str, Any]] = field(default_factory=list)
 
     def seat(self, n: int) -> Seat:
         return self.seats.setdefault(n, Seat())
@@ -195,13 +209,16 @@ class OrderBook:
     """Additions apply live. Removals, cancels and confirms only become pending proposals;
     `accept` (a tap on the glasses) applies one and `reject` (swipe up) drops it."""
 
-    def __init__(self, menu: Menu):
+    def __init__(self, menu: Menu, floor: frozenset[int] | None = None):
         self.menu = menu
+        self.floor = floor  # None: any table 1-999 (tests, run_spike)
         self.tables: dict[int, Table] = {}
         self.current_table: int | None = None
-        self.table_source: str | None = None  # "task" (ORDER task) or "spoken"; task wins
+        self.table_source: str | None = None  # one of TABLE_SOURCES; a stronger one wins
         # Words of the clip the agent is reading; set_order only keeps what was said.
         self.heard: set[str] | None = None
+        # The last set_order's guest entries, so set_talk numbers guests the same way.
+        self.clip_entries: list[dict[str, Any]] = []
         self._next_proposal = 1
 
     def hear(self, transcript: str) -> None:
@@ -222,20 +239,28 @@ class OrderBook:
         return self.current_table if self.current_table is not None else UNKNOWN_TABLE
 
     def bind_table(self, n: int, source: str) -> None:
-        """Give the draft its table. An ORDER task's table is final; a spoken one can't
-        override it (a bystander may name another table). Raises ToolError if refused."""
+        """Give the draft its table. A table said in a clip can't override the ORDER task's
+        (a bystander may name another table); "verity table N" overrides both. Only an
+        unsent draft can change. Raises ToolError if refused."""
         if not 1 <= n <= 999:
             raise ToolError(f"table must be 1 to 999, got {n}")
+        if self.floor is not None and n not in self.floor:
+            raise ToolError(f"no table {n}")
         cur = self.draft_table
-        if self.table_source == "task" and source == "spoken" and n != cur:
-            raise ToolError(f"heard table {n}, kept table {cur} from the ORDER task")
+        held = self.table_source
+        weaker = held is not None and TABLE_SOURCES.index(source) < TABLE_SOURCES.index(held)
+        if weaker and n != cur:
+            raise ToolError(f"heard table {n}, kept table {cur} from {KEPT_FROM[held]}")
+        mine = self.tables.get(cur)
+        if mine is not None and mine.status != "draft":
+            raise ToolError(f"already {mine.status}")
         existing = self.tables.get(n)
         if n != cur and existing is not None and existing.status != "draft":
             raise ToolError(f"table {n}'s order was already {existing.status}")
         if n != cur and cur in self.tables:
             self.tables[n] = self.tables.pop(cur)
         self.current_table = n
-        if self.table_source != "task":
+        if not weaker:
             self.table_source = source
 
     def dispatch(self, tool: str, params: Any) -> tuple[dict[str, Any], bool]:
@@ -427,6 +452,7 @@ class OrderBook:
         allergies = _list_of_objects(p, "allergies")
         unclear = _list_of_objects(p, "unclear")
         seat_of = self._seat_numbers([*items, *allergies, *unclear])
+        self.clip_entries = [*items, *allergies, *unclear]
 
         uncertain: list[str] = []
         flagged: list[str] = []
@@ -507,7 +533,7 @@ class OrderBook:
         table.uncertain = [_short(u) for u in uncertain[:MAX_UNCERTAIN]]
         notes = [n for n in _str_list_arg(p, "notes") if not is_question(n)]
         table.notes = [_short(n) for n in notes[:MAX_NOTES]]
-
+        table.summary, table.answers = "", []
         result: dict[str, Any] = {
             "status": "ok",
             "table": t or None,
@@ -537,6 +563,38 @@ class OrderBook:
             result["table_notice"] = notices[0]
         if conflicts := [c for s in table.seats.values() for c in self._allergy_conflicts(s)]:
             result["allergy_conflicts"] = conflicts
+        return result
+
+    def tool_set_talk(self, p: dict[str, Any]) -> dict[str, Any]:
+        """The clip's summary and the guests' questions, after set_order. Guests keep the
+        numbering of that set_order. Code writes every food answer from the menu (answers.py).
+        Display only: it never touches the order and works on a sent order too."""
+        from answers import answer_all, clean_summary
+
+        table = self.tables.setdefault(self.draft_table, Table())
+        questions = _list_of_objects(p, "questions")
+        asked_by = [q for q in questions if q.get("guest") or q.get("seat")]
+        seat_of = self._seat_numbers([*self.clip_entries, *asked_by])
+        table.answers, dropped = answer_all(
+            self.menu,
+            questions,
+            lambda q: seat_of(q) if q.get("guest") or q.get("seat") else None,
+            self.was_said,
+        )
+        table.summary = clean_summary(
+            self.menu,
+            str(p.get("summary") or ""),
+            {a for s in table.seats.values() for a in s.allergies},
+            {i.dish for s in table.seats.values() for i in s.items},
+        )
+        result: dict[str, Any] = {
+            "status": "ok",
+            "summary": table.summary,
+            "answers": [f"{a['q']} -> {a['a']}" for a in table.answers],
+            "note": "answers about food are written by code from the menu; reply ok",
+        }
+        if dropped:
+            result["dropped_questions"] = dropped
         return result
 
     def _guessed(self, raw: dict[str, Any], unclear_text: str, items_for_seat: int) -> bool:
@@ -652,6 +710,7 @@ class OrderBook:
 
 TOOL_NAMES = (
     "set_order",
+    "set_talk",
     "add_item",
     "remove_item",
     "modify_item",

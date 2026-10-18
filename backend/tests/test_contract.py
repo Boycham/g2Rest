@@ -231,5 +231,10 @@ def test_order_task_clip_capture_and_draft_notes_are_on_contract() -> None:
             "voice": "processing",
             "notes": ["anniversary"],
             "uncertain": ["? s3 'the fish': halibut or salmon"],
+            "summary": "Anniversary, in a rush",
+            "answers": [
+                {"seat": 2, "q": "risotto nuts?", "a": "no tree nuts listed for risotto"},
+                {"q": "gluten-free bread?", "a": "not in menu data", "known": False},
+            ],
         }
     )

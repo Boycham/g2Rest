@@ -13,7 +13,7 @@ import { tap, type Queue } from './tasks'
 import { log } from './log'
 import { CONTROLS, CONTROLS_HINT, MAIN_GESTURES, formatControls, moveSelection, type ControlAction } from './controls'
 import { handoffFrame, handoffPrompt } from './handoff'
-import { didntGet, voiceAction, type VoiceGesture } from './voice'
+import { didntGet, tableLine, voiceAction, type VoiceGesture } from './voice'
 
 /** How long `Heard: <command>` and refusal lines stay on the card. */
 const FLASH_MS = 3000
@@ -22,7 +22,7 @@ type Screen = 'card' | 'queue' | 'draft' | 'controls'
 
 /**
  * The server HUD: one task card, the queue, and the order draft. While the server role is on
- * the glasses the mic runs into a rolling buffer of the last 60 s (memory only); swipe down
+ * the glasses the mic runs into a rolling buffer of the last 60 s (memory only); swipe back
  * sends that minute as a clip and opens the draft the backend makes of it.
  */
 export class ServerHud implements Hud {
@@ -142,10 +142,11 @@ export class ServerHud implements Hud {
     return formatCard(this.queue, { offline, banner: this.banner(), hint: CONTROLS_HINT })
   }
 
-  /** What the main text container shows on the card and Controls screens (null elsewhere). */
+  /** What the main text container shows on the card, Controls and queue screens (null on the draft). */
   private slotView() {
     if (this.current === 'card') return this.currentCard()
     if (this.current === 'controls') return { text: formatControls(this.selected), brightness: 4 }
+    if (this.current === 'queue') return { text: formatQueue(this.queue), brightness: 4 }
     return null
   }
 
@@ -176,9 +177,9 @@ export class ServerHud implements Hud {
       this.ctx.syncPhone()
       return
     }
-    const view = this.slotView() ?? { text: formatQueue(this.queue), brightness: 4 }
+    const view = this.slotView() ?? { text: '', brightness: 4 }
     const page = new RebuildPageContainer({ containerTotalNum: 1, textObject: [fullTextPage(view.text, view.brightness)] })
-    if (next !== 'queue') this.card.shown(view)
+    this.card.shown(view)
     const t0 = performance.now()
     const ok = await this.ctx.bridge.rebuildPageContainer(page)
     log('rebuild', next, ok, `${(performance.now() - t0).toFixed(1)} ms`)
@@ -248,7 +249,7 @@ export class ServerHud implements Hud {
     return head?.kind === 'ORDER' && head.state === 'accepted' ? head.table : undefined
   }
 
-  /** Swipe down: clip the last minute, send it, show the draft. */
+  /** Swipe back: clip the last minute, send it, show the draft. */
   private async sendClip(): Promise<void> {
     const frames = this.buffer.clip()
     if (this.current !== 'draft') await this.showScreen('draft')
@@ -264,7 +265,8 @@ export class ServerHud implements Hud {
 
   /** "verity <command>": the same action as the gesture; task frames go out at once. */
   onVoiceCommand(cmd: VoiceCommand): void {
-    log('<- voice.command', cmd.intent, cmd.name ?? '')
+    log('<- voice.command', cmd.intent, cmd.name ?? cmd.table ?? '', cmd.reason ?? '')
+    if (cmd.intent === 'table') return this.flash(tableLine(cmd))
     const action = voiceAction(cmd.intent, this.queue[0], cmd.name)
     switch (action.kind) {
       case 'refuse':
@@ -347,6 +349,7 @@ export class ServerHud implements Hud {
     else if (action === 'decline' && this.queue[0]) this.sendTask({ type: 'task.bounce', taskId: this.queue[0].id })
     else if (action === 'revert') this.sendTask({ type: 'task.revert' })
     else if (action === 'controls') void this.openControls()
+    else if (action === 'table') this.flash('say verity table and a number')
   }
 
   /** What a gesture does on the main card (MAIN_GESTURES in controls.ts). */
@@ -408,8 +411,9 @@ export class ServerHud implements Hud {
     this.mainAction(MAIN_GESTURES.down)
   }
 
-  /** Long hold (LONG_PRESS_EVENT); HW-PENDING whether the simulator sends it. */
+  /** Long hold (LONG_PRESS_EVENT): handoff on the card; in Controls it goes back, like Close. */
   onLongPress(): void {
+    if (this.current === 'controls') return void this.showScreen('card')
     if (this.current === 'card') this.mainAction(MAIN_GESTURES.hold)
   }
 

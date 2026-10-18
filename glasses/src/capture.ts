@@ -31,8 +31,10 @@ const CLIP_TIMEOUT_MS = 30_000
 
 declare global {
   interface Window {
-    /** Dev measurement: swipe down -> draft from that clip shown on the glasses, ms. */
+    /** Dev measurement: swipe back -> draft from that clip shown on the glasses, ms. */
     __fsLatency?: number[]
+    /** Swipe -> the clip's summary/answers on the lens (they follow the order card). */
+    __fsTalkLatency?: number[]
   }
 }
 
@@ -61,6 +63,8 @@ export class CaptureScreen {
   private active = false
   private timer: ReturnType<typeof setTimeout> | null = null
   private clipAt: number | null = null
+  private talkAt: number | null = null
+  private page = 0
   private shown = ''
   private writing = false
   private dirty = false
@@ -76,7 +80,7 @@ export class CaptureScreen {
   }
 
   private state(): DraftState {
-    return { draft: this.draft, voice: this.voice, online: this.online, hint: this.hint }
+    return { draft: this.draft, voice: this.voice, online: this.online, hint: this.hint, page: this.page }
   }
 
   /** Switch to this screen (one rebuild), then every later change is an in-place upgrade. */
@@ -119,6 +123,8 @@ export class CaptureScreen {
     const id = `clip-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
     this.clipId = id
     this.clipAt = performance.now()
+    this.talkAt = this.clipAt
+    this.page = 0
     this.voice = 'processing'
     this.hint = null
     this.socket.send({ type: 'capture.start', captureId: id, mode: 'clip', ...(table ? { table } : {}) })
@@ -140,6 +146,7 @@ export class CaptureScreen {
   }
 
   onDraft(msg: OrderDraft): void {
+    if (msg.captureId !== this.draft?.captureId) this.page = 0
     if (msg.orderId) this.draft = msg
     if (msg.voice === 'offline') return this.offline(msg.notice ?? 'relay reported offline')
     if (msg.captureId === this.clipId && msg.voice) this.voice = msg.voice
@@ -155,6 +162,7 @@ export class CaptureScreen {
     if (!closesDraft(this.draft, msg.orderId)) return false
     log('order closed', msg.orderId, msg.status)
     this.draft = null
+    this.page = 0
     this.clipId = null
     this.voice = 'idle'
     this.changed()
@@ -172,6 +180,11 @@ export class CaptureScreen {
     const a = draftGesture(g, this.state())
     if (a.send) this.socket.send(a.send)
     if (a.then === 'clip' && this.voice === 'offline') this.voice = 'idle'
+    if (a.then === 'page') {
+      this.page++
+      this.changed()
+      return 'none'
+    }
     return a.then
   }
 
@@ -223,8 +236,14 @@ export class CaptureScreen {
         if (this.clipAt !== null && !this.processing && this.draft?.captureId === this.clipId) {
           const ms = Math.round(t1 - this.clipAt)
           ;(window.__fsLatency ??= []).push(ms)
-          log('latency swipe down -> draft on glasses', `${ms} ms`)
+          log('latency swipe back -> draft on glasses', `${ms} ms`)
           this.clipAt = null
+        }
+        if (this.talkAt !== null && this.draft?.captureId === this.clipId && (this.draft.summary || this.draft.answers?.length)) {
+          const ms = Math.round(t1 - this.talkAt)
+          ;(window.__fsTalkLatency ??= []).push(ms)
+          log('latency swipe back -> summary and answers on glasses', `${ms} ms`)
+          this.talkAt = null
         }
       } while (this.dirty && this.active)
     } finally {
