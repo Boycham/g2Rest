@@ -109,7 +109,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--live", action="store_true", help="drive a running backend at demo speed")
     ap.add_argument("--url", default="http://localhost:8787")
     ap.add_argument("--token", default="")
-    ap.add_argument("--speed", type=float, default=40.0, help="--live: sim seconds per second")
+    ap.add_argument(
+        "--speed", type=float, default=80.0, help="--live: simulated seconds per wall second"
+    )
     args = ap.parse_args(argv)
 
     scn = scenario.load(args.scenario)
