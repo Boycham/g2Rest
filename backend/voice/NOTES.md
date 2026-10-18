@@ -1,8 +1,8 @@
 # Voice spike notes (backend/voice)
 
-Status: code, menu, guards and tests are done. **Nothing has been run against ElevenLabs yet**:
-`ELEVENLABS_API_KEY` was not set in the Devin environment. Everything marked `TO-VERIFY` needs that
-first real run. Docs read 2026-10-17.
+Status: working end to end against the live ElevenLabs APIs (2026-10-18): Scribe realtime STT,
+then a text-only agent, then client tools, then `order.py`. Docs read 2026-10-17. Items still
+marked `TO-VERIFY` were not exercised by the run.
 
 ## What the docs say (checked)
 
@@ -32,7 +32,7 @@ Docs: [API ref](https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-spee
   used: we stream silence frames instead.
 - **There is no separate "close" message in the Scribe protocol.** Our close sequence is about 2 s
   of trailing silence, then a final chunk with `commit: true`, then wait up to 5 s for the
-  `committed_transcript`, then close the socket. TO-VERIFY: that `commit: true` is accepted when
+  `committed_transcript`, then close the socket. Verified live: `commit: true` is accepted with
   `commit_strategy=vad`.
 - `keyterms` (biasing toward dish names) exists, but the docs don't show how an array is encoded
   in the query string. Not used yet. TO-VERIFY before relying on it for rare dish names.
@@ -74,7 +74,7 @@ Docs: [client tools](https://elevenlabs.io/docs/eleven-agents/customization/tool
   endpoint or a tunnel. Client tools don't.
 - Parameter schema: each property has a `type` and a `description`; arrays have `items`. The doc
   doesn't list the allowed literal types, so we use `integer` for table, seat and qty.
-  TO-VERIFY at tool creation.
+  Verified: tool creation accepted it and the agent sends ints.
 
 ### Text to speech (fixtures)
 Docs: [create speech](https://elevenlabs.io/docs/api-reference/text-to-speech/convert)
@@ -86,15 +86,13 @@ Docs: [create speech](https://elevenlabs.io/docs/api-reference/text-to-speech/co
 
 ## Tool path
 
-- **Planned: client tools over the conversation WebSocket.** The docs say client tools work with
-  any conversation socket, and chat mode only removes audio. The docs don't say client tools are
-  excluded from chat mode, but they don't say they're supported there either. **TO-VERIFY** with
-  the first real run.
-- The fallbacks (webhook tool via a tunnel; Scribe plus a different tool-calling LLM) aren't built.
-  Only needed if client tools fail in text-only mode.
-- The whole pipeline (STT socket, agent socket, ping/pong, tool dispatch, results, latency timer)
-  has been exercised against a local fake server written from the shapes above. That proves our
-  side of the protocol, not ElevenLabs' behavior.
+- **Winner: client tools over the conversation WebSocket, with the agent in text-only mode.**
+  All six tools were created through the API, and the agent called them with the right arguments
+  in every clean run. No public URL or tunnel is needed, so webhook tools and the separate-LLM
+  fallback weren't built.
+- In fixture 1 the agent split the utterance into two `add_item` calls. In fixture 2 it mapped
+  "soup" to `Roasted Tomato Soup` and our code returned `not_found`. For "dessert" it sent
+  `cancel_order(items=["dessert"])`, which the code turns into a course-level proposal.
 
 ## Guards (in `order.py`, tested in `tests/test_order.py`, no network)
 
@@ -113,16 +111,30 @@ Docs: [create speech](https://elevenlabs.io/docs/api-reference/text-to-speech/co
 
 ## Latency (end of speech → first tool call)
 
-Not measured yet (no key). How to measure: `python run_spike.py --repeat 5 fixtures/0*.pcm`.
-"End of speech" is the send time of the last 100 ms frame above −40 dBFS. The time is taken when
-the `client_tool_call` arrives. The median goes here.
+Measured with `python run_spike.py --repeat 5 fixtures/0*.pcm` (5 fresh sessions × 4 fixtures).
+"End of speech" is the send time of the last 100 ms frame above −40 dBFS. The end time is when the
+`client_tool_call` arrives. Fixtures are streamed at real-time pace from a Devin VM. LLM is
+`gemini-2.5-flash`, VAD silence 0.8 s.
 
-| Run set | Median | Min | Max |
-|---|---|---|---|
-| clean TTS, 4 fixtures × 5 runs | TO-MEASURE | | |
-| white noise, 5 dB SNR (`make_fixtures.py --snr-db 5`) | TO-MEASURE | | |
+| Run set | n | Median | Min | Max |
+|---|---|---|---|---|
+| clean TTS, 4 fixtures × 5 runs | 20 | **1.90 s** | 1.75 s | 2.22 s |
+| white noise at 5 dB SNR (`make_fixtures.py --snr-db 5`), × 5 runs | 19 of 20 | 1.52 s* | 1.30 s | 2.67 s |
 
-The expected floor is the VAD silence threshold (0.8 s) plus STT commit plus one LLM turn.
+Per fixture (clean, median of 5): order 2.19 s, no soup 1.85 s, allergy 1.78 s, cancel dessert 1.88 s.
+
+\* The noisy number reads too low. With constant noise above −40 dBFS, the "last loud frame" is the end
+of the file, not the end of speech. Don't compare it with the clean number.
+
+### Noise result (the real risk)
+- Clean: all 5 runs ended in exactly the target order state.
+- At 5 dB SNR, Scribe heard "Actually, no **suit** for seat two" in all 5 runs. In 4 of 5 the agent
+  read that as removing seat 2's salmon, and the code allowed it because the salmon is a real item on
+  that seat. In the 5th run no tool was called for that utterance. The other fixtures transcribed
+  fine, apart from a stray `。`.
+- Next steps to try: Scribe `keyterms` with the menu names; a code rule that `remove_item` must
+  name a dish that actually appears in the utterance; and have removals show on the glasses as an
+  undoable line rather than happen silently.
 
 ## HW-PENDING
 
