@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Floor Sense · Organizer</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <span class="brand">Floor Sense</span>
+      <nav>
+        <a href="index.html" aria-current="page">Organizer</a>
+        <a href="kitchen.html">Kitchen</a>
+      </nav>
+      <span class="spacer"></span>
+      <span id="conn">connecting…</span>
+      <button id="reset" title="Clear every task, order and table status">Reset service</button>
+    </header>
+
+    <main class="organizer">
+      <section class="panel">
+        <h2>Floor</h2>
+        <div id="floor"></div>
+      </section>
+
+      <aside class="side">
+        <section class="panel">
+          <h2>Alerts</h2>
+          <div id="alerts"></div>
+        </section>
+
+        <section class="panel">
+          <h2 id="table-title">Pick a table</h2>
+          <div id="table-info" class="muted">Tap a table on the floor to seat a party or dispatch a task.</div>
+          <div id="status-row" class="row"></div>
+          <form id="dispatch" hidden>
+            <h2 class="sub">Dispatch a task</h2>
+            <div class="row" id="kinds"></div>
+            <label>
+              Assign to
+              <select id="assignee"></select>
+            </label>
+            <label>
+              Note for the card
+              <input id="note" maxlength="60" placeholder="e.g. VIP: anniversary, comp dessert" />
+            </label>
+            <button class="primary" type="submit">Dispatch</button>
+          </form>
+          <div id="table-orders"></div>
+        </section>
+      </aside>
+
+      <section class="panel board">
+        <h2>Dispatch board</h2>
+        <div id="board"></div>
+      </section>
+    </main>
+
+    <div id="toast" hidden></div>
+    <script type="module" src="organizer.js"></script>
+  </body>
+</html>
