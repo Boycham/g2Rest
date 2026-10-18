@@ -11,10 +11,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from app import router
 from app.config import Settings
 from app.data import DataError
 from app.hub import DEFAULT_STAFF, ROLES, Hub
@@ -54,6 +56,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     settings = settings or Settings.from_env()
     store = store or Store.from_settings(settings)
     hub = Hub(store, settings.voice_relay_url)
+    http = httpx.AsyncClient()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -61,6 +64,7 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
         log.info("[fs] backend up, token %s", "set" if settings.token else "EMPTY (dev)")
         yield
         ticker.cancel()
+        await http.aclose()
 
     async def tick_loop() -> None:
         while True:
@@ -161,14 +165,19 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
     @app.post("/tasks", dependencies=auth, status_code=201)
     async def create_task(body: TaskIn) -> dict[str, Any]:
         try:
+            table = store.floor.table(body.table).id
+        except DataError as e:
+            raise HTTPException(404, str(e)) from None
+        assignee = body.assignee or await router.pick(store, http, body.kind, table, body.notes)
+        try:
             task, out = store.book.create(
                 body.kind,
-                store.floor.table(body.table).id,
+                table,
                 store.now(),
                 items=body.items,
                 allergies=body.allergies,
                 notes=body.notes,
-                assignee=body.assignee,
+                assignee=assignee,
                 priority=body.priority,
             )
         except DataError as e:

@@ -157,7 +157,7 @@ Operations (used by the organizer page, the walkthrough script and the simulator
 | `GET /state` | tables, orders, tasks, open alerts |
 | `GET /events?since=<n>` | append-only event log (`seq`, `at`, `type`, `data`) |
 | `GET /menu`, `GET /floor` | the loaded `data/menu.json`, `data/floor.json` |
-| `POST /tasks` | create a task: `{kind, table, items?, allergies?, notes?, assignee?}`; without `assignee` the table's section server gets it |
+| `POST /tasks` | create a task: `{kind, table, items?, allergies?, notes?, assignee?}`; without `assignee` Gemini picks the server (`app/router.py`), falling back to the table's section server |
 | `POST /tasks/{id}/{accept|done|bounce}?by={staff}` | same as the glasses gestures, for the simulator and tests; `by` must be the assignee (409 otherwise), so only the server holding a task closes it, never the organizer |
 | `POST /tables/{id}/status` | `{status}`; broadcasts `floor.state` |
 | `POST /plates` | `{table, dish, seat?, orderId?}` registers a plate the kitchen is cooking |

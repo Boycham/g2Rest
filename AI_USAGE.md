@@ -26,6 +26,15 @@
   allergy warning to kitchen tickets and found a hub bug, which it reported to the backend-core
   Devin session; it relayed the web lane's requests to that session over the Devin API. A human
   directed and reviewed the work.
+- **Claude Code** also wrote the Gemini task router (`backend/app/router.py`) and its tests, and made
+  task accept/done/bounce the assigned server's action only. A human chose Gemini and reviewed the PR.
+
+## How Gemini is used in the product
+
+- **Task routing.** When a task is created without a named server, `backend/app/router.py` sends Gemini
+  the task, its table and every server's open tasks, and Gemini answers with one server id (the
+  answer is constrained to the real ids). If Gemini errors, takes longer than 1.5 s or has no key,
+  the fixed rules pick the table's section server. Every pick is logged as `router.pick`.
 
 ## How ElevenLabs is used in the product
 
