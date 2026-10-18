@@ -325,6 +325,12 @@ export interface VoiceUnknown {
   reason?: string
 }
 
+/** Gemini is mapping these words after "verity"; a voice.command or voice.unknown follows. */
+export interface VoiceMapping {
+  type: 'voice.mapping'
+  words: string
+}
+
 /** A full snapshot of every table (not a diff); sent on connect and on every change. */
 export interface FloorState {
   type: 'floor.state'
@@ -340,5 +346,6 @@ export type BackendMessage =
   | FloorState
   | OrderClosed
   | VoiceCommand
+  | VoiceMapping
   | VoiceUnknown
   | TaskRejected

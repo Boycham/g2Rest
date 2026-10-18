@@ -33,6 +33,7 @@ const BACKEND_TYPES: readonly BackendMessage['type'][] = [
   'floor.state',
   'order.closed',
   'voice.command',
+  'voice.mapping',
   'voice.unknown',
   'task.rejected',
 ]
@@ -127,6 +128,7 @@ export function parseBackendMessage(raw: string): BackendMessage | null {
   ) {
     return null
   }
+  if (v.type === 'voice.mapping' && !isStr(v.words)) return null
   if (v.type === 'voice.unknown' && !(isStr(v.words) && (v.reason === undefined || isStr(v.reason)))) return null
   return v as unknown as BackendMessage
 }

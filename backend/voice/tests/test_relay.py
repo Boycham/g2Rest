@@ -451,7 +451,10 @@ async def test_unknown_words_after_the_wake_word_go_to_gemini_or_show_didnt_get(
         assert sent[-1] == {"type": "voice.command", "intent": "handoff", "name": "Ben"}
         streams[0].on_committed("Verity, sing.", 0.0)
         await settle()
-        assert sent[-1] == {"type": "voice.unknown", "words": "sing"}
+        assert sent[-2:] == [
+            {"type": "voice.mapping", "words": "sing"},
+            {"type": "voice.unknown", "words": "sing"},
+        ]
         streams[0].on_committed("Verity, sing louder.", 0.0)
         await settle()
         assert sent[-1] == {"type": "voice.unknown", "words": "sing louder", "reason": "timeout"}

@@ -347,6 +347,7 @@ class RelaySession:
             return
         if intent == "unknown":
             words = cmd.words or ""
+            await self._send({"type": "voice.mapping", "words": words})
             try:
                 mapped = await map_words(words)
             except IntentUnavailable as e:
