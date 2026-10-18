@@ -203,7 +203,7 @@ Backend state -> what the glasses see (`Task.state` in `contract.ts`):
 
 ### `data/menu.json`
 
-Identical to `backend/voice/menu.json` on `origin/devin/voice-spike` so both lanes read one file.
+The one menu: the backend and `backend/voice` (order guards, agent prompt) both read this file.
 
 ```jsonc
 {
