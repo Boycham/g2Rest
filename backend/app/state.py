@@ -126,10 +126,14 @@ class Store:
         return plate
 
     def free_runners(self) -> dict[str, str]:
-        """Servers with no open RUN task, mapped to the section they run by default."""
+        """Servers with free hands, mapped to the section they run by default.
+
+        Busy means an open RUN (holding or about to hold plates) or any other task they have
+        accepted (taking an order, running a check): a RUN card would only sit and escalate.
+        """
         free: dict[str, str] = {}
         for server in self.floor.servers.values():
-            if any(t.kind == "RUN" for t in self.book.open_for(server.id)):
+            if any(t.kind == "RUN" or t.state == "accepted" for t in self.book.open_for(server.id)):
                 continue
             home = [sec for sec, srv in self.floor.sections.items() if srv == server.id]
             free[server.id] = home[0] if home else (server.sections[0] if server.sections else "")

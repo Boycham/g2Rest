@@ -167,6 +167,39 @@ def test_a_free_server_from_the_other_section_takes_the_run(client: TestClient) 
     assert [t["assignee"] for t in client.get("/tasks", headers=H).json()][-1] == "s2"
 
 
+def accepted_order(client: TestClient, table: str, server: str) -> str:
+    """`server` is at `table` taking an order: an accepted ORDER task."""
+    r = client.post("/tasks", json={"kind": "ORDER", "table": table}, headers=H)
+    assert r.status_code == 201 and r.json()["assignee"] == server
+    task_id = r.json()["id"]
+    assert client.post(f"/tasks/{task_id}/accept?by={server}", headers=H).status_code == 200
+    return task_id
+
+
+def test_a_server_taking_an_order_gets_no_run_card_it_goes_to_the_free_one(
+    client: TestClient,
+) -> None:
+    accepted_order(client, "T1", "s1")  # Ava is taking T1's order
+    soup = fire_order(client, "T4", [(1, "soup")])  # Ava's section
+    state = food_up(client, soup["orderId"], 0).json()
+    assert state["runs"][0]["assignees"] == ["s2"]
+    runs = [t for t in client.get("/tasks", headers=H).json() if t["kind"] == "RUN"]
+    assert [t["assignee"] for t in runs] == ["s2"]
+
+
+def test_the_run_waits_for_the_server_to_finish_the_order(client: TestClient) -> None:
+    order_task = accepted_order(client, "T1", "s1")
+    busy(client, "T5")  # Ben is out on a run
+    soup = fire_order(client, "T4", [(1, "soup")])
+    state = food_up(client, soup["orderId"], 0).json()
+    assert state["runs"] == [] and [p["status"] for p in state["plates"]] == ["up"]
+    r = client.post(f"/tasks/{order_task}/done?by=s1", headers=H)
+    assert r.status_code == 200
+    state = client.get("/pass", headers=H).json()
+    assert state["runs"][0]["assignees"] == ["s1"]
+    assert [p["status"] for p in state["plates"]] == ["running"]
+
+
 def test_http_cancel_tells_organizers_and_the_glasses(client: TestClient) -> None:
     with (
         client.websocket_connect("/ws?token=test-token&role=organizer&staff=organizer") as org,
