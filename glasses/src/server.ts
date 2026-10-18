@@ -92,7 +92,8 @@ export class ServerHud implements Hud {
     for (const name of debugSays()) {
       const frames = await loadFixture(name)
       await new Promise(r => setTimeout(r, 4000))
-      for (const f of [...frames, ...silence]) {
+      for (const [i, f] of [...frames, ...silence].entries()) {
+        if (i === frames.length) log('debug say spoken', name)
         if (this.commandId) this.ctx.socket.sendAudio(f)
         await new Promise(r => setTimeout(r, 100))
       }
