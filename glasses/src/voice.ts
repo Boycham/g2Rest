@@ -13,8 +13,9 @@ export type VoiceAction =
   | { kind: 'task'; send: GlassesJsonMessage }
   | { kind: 'handoff'; taskId: string; name?: string }
   | { kind: 'refuse'; line: string }
+  | { kind: 'ramp'; toggle?: 'on' | 'off' }
 
-export function voiceAction(intent: VoiceIntent, head: Task | undefined, name?: string): VoiceAction {
+export function voiceAction(intent: VoiceIntent, head: Task | undefined, name?: string, toggle?: 'on' | 'off'): VoiceAction {
   switch (intent) {
     case 'up':
     case 'down':
@@ -40,6 +41,10 @@ export function voiceAction(intent: VoiceIntent, head: Task | undefined, name?: 
     case 'handoff':
       if (!head) return { kind: 'refuse', line: 'No task to hand off' }
       return name ? { kind: 'handoff', taskId: head.id, name } : { kind: 'handoff', taskId: head.id }
+    case 'ramp':
+      if (toggle) return { kind: 'ramp', toggle }
+      if (!head?.items.length) return { kind: 'refuse', line: 'No dishes to ramp' }
+      return { kind: 'ramp' }
     case 'table':
       // The relay already bound the draft (or refused); the glasses only say what happened.
       return { kind: 'refuse', line: 'say verity table and a number' }

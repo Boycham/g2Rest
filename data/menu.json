@@ -7,7 +7,9 @@
       "course": "appetizer",
       "temperature": "cold",
       "allergens": ["shellfish", "citrus"],
-      "allowed_alterations": ["no chili", "no citrus", "extra olive oil"]
+      "allowed_alterations": ["no chili", "no citrus", "extra olive oil"],
+      "components": ["raw diver scallop", "blood orange", "Fresno chili", "shiso", "olive oil"],
+      "pairing": "Albariño, Rías Baixas"
     },
     {
       "name": "Roasted Tomato Soup",
@@ -15,7 +17,9 @@
       "course": "appetizer",
       "temperature": "hot",
       "allergens": ["dairy", "gluten"],
-      "allowed_alterations": ["no cream", "no croutons", "extra basil"]
+      "allowed_alterations": ["no cream", "no croutons", "extra basil"],
+      "components": ["roasted tomato", "cream", "sourdough croutons", "basil oil"],
+      "pairing": "Chianti Classico"
     },
     {
       "name": "Burrata",
@@ -23,7 +27,9 @@
       "course": "appetizer",
       "temperature": "room",
       "allergens": ["dairy", "tree nuts"],
-      "allowed_alterations": ["no pesto", "no bread", "extra tomato"]
+      "allowed_alterations": ["no pesto", "no bread", "extra tomato"],
+      "components": ["burrata", "heirloom tomato", "basil-pistachio pesto", "grilled bread"],
+      "pairing": "Vermentino, Sardinia"
     },
     {
       "name": "Crispy Pork Belly",
@@ -31,7 +37,9 @@
       "course": "appetizer",
       "temperature": "hot",
       "allergens": ["soy", "sesame"],
-      "allowed_alterations": ["no sesame", "sauce on the side", "extra pickles"]
+      "allowed_alterations": ["no sesame", "sauce on the side", "extra pickles"],
+      "components": ["glazed pork belly", "soy-ginger lacquer", "sesame", "pickled daikon"],
+      "pairing": "Off-dry Riesling, Mosel"
     },
     {
       "name": "Pan-Roasted Halibut",
@@ -39,7 +47,9 @@
       "course": "main",
       "temperature": "hot",
       "allergens": ["fish", "dairy"],
-      "allowed_alterations": ["no butter", "no capers", "sauce on the side"]
+      "allowed_alterations": ["no butter", "no capers", "sauce on the side"],
+      "components": ["halibut", "brown butter", "capers", "leeks", "fingerling potatoes"],
+      "pairing": "Sancerre, Loire"
     },
     {
       "name": "Cedar Plank Salmon",
@@ -47,7 +57,9 @@
       "course": "main",
       "temperature": "hot",
       "allergens": ["fish"],
-      "allowed_alterations": ["no dill", "sauce on the side", "well done"]
+      "allowed_alterations": ["no dill", "sauce on the side", "well done"],
+      "components": ["king salmon", "cedar smoke", "dill-caper relish", "charred lemon", "farro"],
+      "pairing": "Pinot Noir, Willamette"
     },
     {
       "name": "Dry-Aged Ribeye",
@@ -55,7 +67,9 @@
       "course": "main",
       "temperature": "hot",
       "allergens": ["dairy"],
-      "allowed_alterations": ["rare", "medium rare", "medium", "medium well", "well done", "no butter", "sauce on the side"]
+      "allowed_alterations": ["rare", "medium rare", "medium", "medium well", "well done", "no butter", "sauce on the side"],
+      "components": ["45-day dry-aged ribeye", "herb butter", "bone-marrow jus", "pommes purée"],
+      "pairing": "Cabernet Sauvignon, Napa"
     },
     {
       "name": "Wild Mushroom Risotto",
@@ -63,7 +77,9 @@
       "course": "main",
       "temperature": "hot",
       "allergens": ["dairy"],
-      "allowed_alterations": ["no parmesan", "no truffle oil"]
+      "allowed_alterations": ["no parmesan", "no truffle oil"],
+      "components": ["carnaroli rice", "wild mushrooms", "parmesan", "truffle oil"],
+      "pairing": "White Burgundy"
     },
     {
       "name": "Duck Breast",
@@ -71,7 +87,9 @@
       "course": "main",
       "temperature": "hot",
       "allergens": [],
-      "allowed_alterations": ["medium rare", "medium", "well done", "no cherry sauce"]
+      "allowed_alterations": ["medium rare", "medium", "well done", "no cherry sauce"],
+      "components": ["roast duck breast", "cherry gastrique", "parsnip", "chard"],
+      "pairing": "Pinot Noir, Burgundy"
     },
     {
       "name": "Nicoise Salad",
@@ -79,7 +97,9 @@
       "course": "main",
       "temperature": "cold",
       "allergens": ["fish", "egg"],
-      "allowed_alterations": ["no egg", "no olives", "no anchovy", "dressing on the side"]
+      "allowed_alterations": ["no egg", "no olives", "no anchovy", "dressing on the side"],
+      "components": ["seared tuna", "soft egg", "olives", "green beans", "anchovy vinaigrette"],
+      "pairing": "Provence rosé"
     },
     {
       "name": "Dark Chocolate Torte",
@@ -87,7 +107,9 @@
       "course": "dessert",
       "temperature": "warm",
       "allergens": ["dairy", "egg", "tree nuts"],
-      "allowed_alterations": ["no whipped cream", "no hazelnuts", "extra sauce"]
+      "allowed_alterations": ["no whipped cream", "no hazelnuts", "extra sauce"],
+      "components": ["dark chocolate", "hazelnut praline", "whipped cream", "espresso sauce"],
+      "pairing": "Tawny Port, 10-year"
     },
     {
       "name": "Lemon Sorbet",
@@ -95,7 +117,9 @@
       "course": "dessert",
       "temperature": "cold",
       "allergens": ["citrus"],
-      "allowed_alterations": ["no mint", "extra berries"]
+      "allowed_alterations": ["no mint", "extra berries"],
+      "components": ["lemon sorbet", "mint", "fresh berries"],
+      "pairing": "Moscato d'Asti"
     },
     {
       "name": "Cheese Plate",
@@ -103,7 +127,9 @@
       "course": "dessert",
       "temperature": "room",
       "allergens": ["dairy", "gluten", "tree nuts"],
-      "allowed_alterations": ["no walnuts", "no crackers", "extra honey"]
+      "allowed_alterations": ["no walnuts", "no crackers", "extra honey"],
+      "components": ["three cheeses", "honeycomb", "walnuts", "crackers", "fig jam"],
+      "pairing": "Sauternes"
     }
   ]
 }

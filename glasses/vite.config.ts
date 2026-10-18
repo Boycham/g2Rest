@@ -36,6 +36,7 @@ export default defineConfig({
   // Env vars live in the one root .env (see the root .env.example).
   envDir: '..',
   plugins: [devFixtures()],
-  server: { host: true, port: 5173 },
+  // The menu is bundled from ../data/menu.json (src/ramp.ts).
+  server: { host: true, port: 5173, fs: { allow: ['..'] } },
   build: { target: 'esnext' },
 })

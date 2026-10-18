@@ -29,7 +29,8 @@ the glasses. Actions: up (swipe up), down (swipe down), menu (open the controls 
 queue), back (previous screen / close the menu), confirm (yes / send it / pick), clip (clip the
 last 2 minutes of the order), accept (take the task), decline (refuse the task), done (finished the
 task), handoff (give the task to someone else; set name if they said who), nevermind (cancel
-what is pending), revert (undo the last action)."""
+what is pending), revert (undo the last action), ramp (show what is in the dishes on the current
+card: components, allergens and the wine pairing, e.g. "what's in it", "what's on the plate")."""
 
 SCHEMA = {
     "type": "object",

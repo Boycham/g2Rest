@@ -375,6 +375,8 @@ one line); `GESTURE_EVENTS` in `src/main.ts` maps OS events to gestures.
 | Long hold | handoff: `Confirm handoff?`, then tap | back to the Card | back to the Card | `verity handoff [name]` / `verity back` |
 | Double tap | exit (`shutDownPageContainer(1)`, Even Hub review rule) | exit | exit | none |
 | Voice only | decline (`task.bounce`), revert (`task.revert`), cancel a popup, bind the unsent draft to table N | | | `verity decline` / `revert` / `nevermind` / `table N` |
+| Nod (IMU, HW-PENDING) | accept the waiting task (`task.accept`), only while one waits | same | same | `verity revert` undoes it |
+| Voice only (ramp) | the ramp view of the card's dishes (tap = next, hold = back); ramp hints on RUN cards | | | `verity ramp` / `ramp on` / `ramp off` |
 
 Controls is a read-only reference (swipes switch tabs, so there's nothing to move a selection with): every
 gesture and its voice command, 4 rows a page, `1/3 ... tap: more · back: queue` on the last line. Queue was
@@ -492,3 +494,52 @@ with `--automation-port 9898`, role switched on the phone page.
   current Sentry chunk again for nothing about the glasses.
 - `app.json` whitelists the Sentry ingest host (`https://o4512224561594368.ingest.us.sentry.io`). HW-PENDING:
   events reaching Sentry from the real G2 WebView (CORS / whitelist), and the bridge wrapper in `watchLens` on hardware.
+
+## Ramp mode (new servers), checked in the simulator 0.9.5 against the real backend + relay
+
+- **What:** "verity ramp" (or Gemini for "verity what's in it"; no `GEMINI_API_KEY` on this VM, so that path
+  only shows `Didn't get: ... (no key)` here) opens a full-width page per distinct dish of the current card
+  (`src/ramp.ts`): `Pan-Roasted Halibut · s1+3  1/2`, the components (wrapped, 2 lines max), `allergens:` (a
+  table allergy is upper-cased with its seats and the line starts with `!`: `! allergens: fish, DAIRY s1`),
+  `wine: Sancerre, Loire`, footer `tap: next · hold: card` on the bottom line. Tap = next dish (wraps), hold or a
+  swipe = back to the Card, "verity back" too. Refused with `No dishes to ramp` when the card names no dishes.
+  A dish not in the menu shows `<dish>: not in menu data`.
+- **Data:** `data/menu.json` dishes gained `components` and `pairing` (fictional). The glasses bundle the menu
+  (`import ... from '../../data/menu.json'`, `server.fs.allow: ['..']` for Vite dev), so the card path never
+  waits on the network; both backend loaders ignore the new keys (order guards unchanged).
+- **Ramp hints:** "verity ramp on/off" (`voice.command {intent: "ramp", toggle}`) sets a per-staff flag in SDK
+  storage (`bridge.setLocalStorage`, key `fs.ramp.v1`, `{"s1": true}`). Ramp-on staff get one line under the RUN
+  line: `ramp · halibut: brown butter · salmon: cedar smoke` (two components each when they fit, else one;
+  components that repeat the dish name are skipped). RUN cards only. Measured with pretext against the tab width.
+- **Run** (`?debugPcm=silence_30&say=verity_ramp,silence_12,verity_ramp_on`, RUN T2 2× halibut s1+3 + salmon s2,
+  DAIRY s1): `voice.command ramp` → `rebuild ramp` (5.0 ms, 2.0 ms on the second run) → tap → `ramp page 2`
+  (upgrade 2 ms) → hold → `rebuild card` (1 ms) → "verity ramp on" → `ramp hints s1 on`, hint line on the card.
+- HW-PENDING: legibility of the 4 ramp lines on the lens; whether the new servers want the pairing on the hint.
+
+## Head nod to accept: IMU finding and detector (HW-PENDING)
+
+- **The SDK has an IMU.** `@evenrealities/even_hub_sdk` 0.0.16 `index.d.ts`: `bridge.imuControl(isOpen: boolean,
+  reportFrq?: ImuReportPace): Promise<boolean>` (`ImuReportPace` P100..P1000, "protocol pacing codes"),
+  `OsEventTypeList.IMU_DATA_REPORT = 8`, and `Sys_ItemEvent.imuData?: IMU_Report_Data { x?, y?, z? }` ("`double` on
+  wire"). README "IMU" section: `imuControl(true, ImuReportPace.P500)` then read `event.sysEvent.imuData` when
+  `eventType === IMU_DATA_REPORT`. Changelog: "Added IMU control and IMU data events".
+- **What it doesn't say:** no units, axis frame, sensor type (accelerometer, gyro or fused angles) or what the
+  pace codes mean in Hz/ms. The simulator can't help: its README says "`imuData` will always be null/None", and
+  0.9.5 rejects the call (`imu control failed unknown variant imuControl, expected one of getUserInfo, ...`).
+- **Detector (`src/nod.ts`):** one configurable axis against a slow EMA baseline (1.5 s): down past `threshold`,
+  then back up to `upLevel × threshold` (−0.5: back within half the dip, for an angle/gravity signal; +1: an
+  opposite swing, for an angular-rate signal) within `minMs`–`maxMs` (150–900 ms), then 1.5 s refractory. Held
+  down longer than `maxMs` (reading a plate) re-baselines and never fires; warm-up of 5 samples. All tunable at
+  build time with `VITE_FS_NOD` (`off`, or `axis=y,sign=1,threshold=0.25,...`). Defaults are guesses: HW-PENDING.
+- **Gating:** the IMU is on only while the head task is `assigned`, the server role is on, and neither the draft
+  nor the handoff popup is open (`nodWanted`); it turns off on accept, role switch and exit. A nod sends the same
+  `task.accept` as a tap (`taskTap`) and flashes `Heard: nod`; "verity revert" undoes it (`task.revert`).
+- **Tests:** `nod.test.ts`, 12 tests on synthetic 20 Hz samples (deliberate nod fires once; small bob, jitter,
+  slow drift, head held down, a 100 ms bump and an IMU turned on mid-nod don't; refractory; other axis/sign;
+  rate mode needs the opposite lobe; junk samples skipped). No recorded G2 samples exist yet.
+- **Simulator run:** `?debugImu=nod` feeds one synthetic nod through `onImu` 2.5 s after the IMU first turns on
+  (`imuControl` itself fails in the simulator, logged): `nod -> task.accept`, card `Heard: nod` / `ACCEPTED`, then
+  "verity revert" → `task.updated assigned`, `Heard: revert`.
+- HW-PENDING (tuning, needs a person with a G2): log `imu sample` lines (every 100th sample) while nodding and
+  while walking with plates; pick the axis, sign and threshold; check what `ImuReportPace.P100` means; check the
+  battery cost of the IMU while tasks wait; check that a nod is not triggered by looking down at the pass.

@@ -5,6 +5,7 @@ import type { Role } from './hud'
 import type { FloorTable } from './minimap'
 import { parseManagerCache, parseRole, parseTaskList } from './parse'
 import { log } from './log'
+import { parseRampPrefs, type RampPrefs } from './ramp'
 
 // The Even app reloads the plugin in a hidden WebView when it goes to the background,
 // so state is cached in SDK storage (not browser localStorage) for instant redraw.
@@ -13,6 +14,7 @@ import { log } from './log'
 const QUEUE_KEY = 'fs.queue.v1'
 const ROLE_KEY = 'fs.role.v1'
 const MANAGER_KEY = 'fs.manager.v1'
+const RAMP_KEY = 'fs.ramp.v1'
 
 export interface ManagerCache {
   exceptions: Exceptions
@@ -51,3 +53,7 @@ export const saveRole = (bridge: EvenAppBridge, role: Role) => save(bridge, ROLE
 export const loadManager = (bridge: EvenAppBridge): Promise<ManagerCache> =>
   load(bridge, MANAGER_KEY, parseManagerCache, { exceptions: EMPTY_EXCEPTIONS, tables: [] })
 export const saveManager = (bridge: EvenAppBridge, cache: ManagerCache) => save(bridge, MANAGER_KEY, cache)
+
+/** Ramp hints per staff id; off for everyone on a fresh install. */
+export const loadRamp = (bridge: EvenAppBridge): Promise<RampPrefs> => load(bridge, RAMP_KEY, parseRampPrefs, {})
+export const saveRamp = (bridge: EvenAppBridge, prefs: RampPrefs) => save(bridge, RAMP_KEY, prefs)

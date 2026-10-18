@@ -7,7 +7,7 @@ import { loadDone } from './reconcile'
 import { tableRows } from './minimap'
 import { ServerHud } from './server'
 import { BackendSocket, type SocketStatus } from './socket'
-import { loadManager, loadQueue, loadRole, saveRole } from './storage'
+import { loadManager, loadQueue, loadRamp, loadRole, saveRole } from './storage'
 import { log } from './log'
 import { mountUi, renderPhone } from './ui'
 import { MAIN_ID } from './render'
@@ -27,6 +27,7 @@ let role: Role = await loadRole(bridge)
 const restoredQueue = await loadQueue(bridge)
 const restoredManager = await loadManager(bridge)
 const restoredDone = await loadDone(bridge)
+const restoredRamp = await loadRamp(bridge)
 // Sentry starts on its own once GET /config answers; the app never waits for it.
 void telemetry.startTelemetry({ wsUrl: BACKEND_URL, token: FS_TOKEN, tags: { role, staff: staffOf(role) } })
 telemetry.watchLens(bridge, MAIN_ID)
@@ -62,7 +63,7 @@ const context = (r: Role): HudContext => ({
   active: () => role === r,
   syncPhone,
 })
-const server = new ServerHud(context('server'), restoredQueue, restoredDone)
+const server = new ServerHud(context('server'), restoredQueue, restoredDone, { staff: staffOf('server'), prefs: restoredRamp })
 const manager = new ManagerHud(context('manager'), restoredManager)
 const active = (): Hud => (role === 'server' ? server : manager)
 
@@ -152,6 +153,9 @@ bridge.onEvenHubEvent(event => {
     return hud.onLongPress()
   }
   switch (type) {
+    case OsEventTypeList.IMU_DATA_REPORT:
+      if (event.sysEvent?.imuData) server.onImu(event.sysEvent.imuData)
+      return
     case OsEventTypeList.FOREGROUND_ENTER_EVENT:
       log('foreground enter: reconnecting')
       telemetry.crumb('socket', 'reconnect (foreground)')

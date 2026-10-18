@@ -156,3 +156,19 @@ def test_a_sentence_about_someone_named_verity_is_not_an_unknown_command():
     for text in ("Verity is my sister's name.", "Verity was here earlier", "Verity said hi"):
         assert parse_commands(text) == [], text
     assert parse_commands("verity get the bill") == [Command("unknown", words="get the bill")]
+
+
+def test_ramp_opens_the_view_and_ramp_on_off_toggles_the_hint():
+    assert parse_commands("Verity, ramp.") == [Command("ramp")]
+    assert parse_commands("Verity ramp on.") == [Command("ramp", toggle="on")]
+    assert parse_commands("Verity, ramp off. Verity accept.") == [
+        Command("ramp", toggle="off"),
+        Command("accept"),
+    ]
+    assert find_commands("The ramp is on the left, the patio is off the bar.") == []
+
+
+def test_ramp_is_a_keyterm():
+    from commands import keyterms
+
+    assert "ramp" in keyterms() and "ramp" in keyterms(realtime=False)

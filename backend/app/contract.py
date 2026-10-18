@@ -261,6 +261,7 @@ class VoiceCommand(Strict):
         "menu",
         "queue",
         "table",
+        "ramp",
     ]
     name: str | None = None
     # "verity table N": the table heard ("T4"), the one it replaced, or why it was refused
@@ -268,6 +269,8 @@ class VoiceCommand(Strict):
     table: str | None = None
     was: str | None = None
     reason: str | None = None
+    # "verity ramp on" / "verity ramp off": the RUN-card ramp hint; without it "ramp" opens the view.
+    toggle: Literal["on", "off"] | None = None
 
 
 class VoiceMapping(Strict):

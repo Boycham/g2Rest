@@ -41,6 +41,7 @@ export interface ControlItem {
  */
 export const CONTROLS: readonly ControlItem[] = [
   { label: 'Accept / done', gesture: 'tap', voice: 'verity accept/done' },
+  { label: 'Accept hands-free', gesture: 'nod', voice: 'verity accept' },
   { label: 'Clip last 2 min', gesture: 'swipe back', voice: 'verity clip' },
   { label: 'Hand off', gesture: 'hold', voice: 'verity handoff' },
   { label: 'Queue, Controls', gesture: 'swipe fwd', voice: 'verity queue/menu' },
@@ -48,6 +49,8 @@ export const CONTROLS: readonly ControlItem[] = [
   { label: 'Decline', gesture: 'voice', voice: 'verity decline' },
   { label: 'Revert last', gesture: 'voice', voice: 'verity revert' },
   { label: 'Set table', gesture: 'voice', voice: 'verity table N' },
+  { label: 'Ramp', gesture: 'voice', voice: 'verity ramp' },
+  { label: 'Ramp hints', gesture: 'voice', voice: 'verity ramp on/off' },
   { label: 'Exit', gesture: 'double tap', voice: '-' },
 ]
 

@@ -24,6 +24,11 @@ export function debugSays(search = location.search): string[] {
   return raw ? raw.split(',').filter(n => /^[\w-]+$/.test(n)) : []
 }
 
+/** `?debugImu=nod`: a synthetic nod is fed through the IMU path when a task waits (simulator imuData is null). */
+export function debugNod(search = location.search): boolean {
+  return import.meta.env.DEV && new URLSearchParams(search).get('debugImu') === 'nod'
+}
+
 export function frames(pcm: Uint8Array): ArrayBuffer[] {
   const out: ArrayBuffer[] = []
   for (let i = 0; i < pcm.length; i += FRAME) {

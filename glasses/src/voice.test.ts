@@ -27,6 +27,13 @@ describe('voiceAction', () => {
     expect(voiceAction('nevermind', assigned)).toEqual({ kind: 'nevermind' })
   })
 
+  it('opens the ramp view only for a task naming dishes; on/off works without a task', () => {
+    expect(voiceAction('ramp', assigned)).toEqual({ kind: 'ramp' })
+    expect(voiceAction('ramp', { ...assigned, items: [] })).toEqual({ kind: 'refuse', line: 'No dishes to ramp' })
+    expect(voiceAction('ramp', undefined)).toEqual({ kind: 'refuse', line: 'No dishes to ramp' })
+    expect(voiceAction('ramp', undefined, undefined, 'on')).toEqual({ kind: 'ramp', toggle: 'on' })
+  })
+
   it('opens a handoff popup for the head task, with the name if one was said', () => {
     expect(voiceAction('handoff', accepted, 'Ben')).toEqual({ kind: 'handoff', taskId: 't1', name: 'Ben' })
     expect(voiceAction('handoff', assigned)).toEqual({ kind: 'handoff', taskId: 't1' })

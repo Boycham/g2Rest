@@ -253,7 +253,9 @@ The one menu: the backend and `backend/voice` (order guards, agent prompt) both 
       "course": "main",                     // appetizer | main | dessert
       "temperature": "hot",                 // hot | warm | room | cold
       "allergens": ["fish", "dairy"],       // lowercase
-      "allowed_alterations": ["no butter"]  // anything else is flagged, never applied
+      "allowed_alterations": ["no butter"], // anything else is flagged, never applied
+      "components": ["halibut", "brown butter"], // what's on the plate (glasses ramp view)
+      "pairing": "Sancerre, Loire"          // suggested wine (glasses ramp view)
     }
   ]
 }
@@ -352,3 +354,8 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
     (Gemini's own timeout is `FS_INTENT_TIMEOUT_SEC`, 2 s). The glasses animate `Verity: processing...`
     until then, and after 5 s show `Didn't get: <words> (timeout)`. Additive; `contract.py` has
     `VoiceMapping` in `BackendMessageExt`.
+15. **Ramp mode (glasses lane): additive.** `voice.command` + `intent: "ramp"` ("verity ramp", or Gemini
+    for "verity what's in it") opens the ramp view of the current card's dishes on the glasses, and
+    `toggle?: "on" | "off"` ("verity ramp on/off") turns the per-staff RUN-card dish hint on or off. Both
+    mirrors: `app/contract.py` `VoiceCommand`, `glasses/src/contract.ts`. `data/menu.json` dishes gain
+    `components: string[]` and `pairing: string` (§7); the glasses bundle the menu, nothing new on the wire.
