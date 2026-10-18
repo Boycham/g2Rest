@@ -93,6 +93,11 @@ export class ServerHud implements Hud {
       this.capture.onDraft(msg)
       return
     }
+    if (msg.type === 'order.closed') {
+      log('<-', msg.type, msg.orderId, msg.status)
+      if (this.capture.onClosed(msg) && this.current === 'draft') void this.showScreen('card')
+      return
+    }
     if (msg.type !== 'task.assigned' && msg.type !== 'task.updated') return
     log('<-', msg.type, msg.task.id, msg.task.state)
     const r = applyBackendTask(this.queue, this.done, msg.task)

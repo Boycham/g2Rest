@@ -1,7 +1,7 @@
 import { getTextWidth } from '@evenrealities/pretext'
 import { describe, expect, it } from 'vitest'
 import type { OrderDraft } from './contract'
-import { DRAFT_MAX_LINES, DRAFT_TEXT_WIDTH, draftGesture, formatDraft, orderLineText, type DraftState } from './draft'
+import { DRAFT_MAX_LINES, DRAFT_TEXT_WIDTH, closesDraft, draftGesture, formatDraft, orderLineText, type DraftState } from './draft'
 
 function draft(over: Partial<OrderDraft> = {}): OrderDraft {
   return {
@@ -107,5 +107,16 @@ describe('draftGesture', () => {
       then: 'none',
     })
     expect(draftGesture('up', state())).toEqual({ send: null, then: 'back' })
+  })
+})
+
+describe('closesDraft', () => {
+  const d = { type: 'order.draft', orderId: 'o1', captureId: 'c', table: 'T2', lines: [], allergies: [] } as const
+  it('closes the matching draft, or when there is none', () => {
+    expect(closesDraft({ ...d, lines: [] }, 'o1')).toBe(true)
+    expect(closesDraft(null, 'o1')).toBe(true)
+  })
+  it('ignores another order closing', () => {
+    expect(closesDraft({ ...d, lines: [] }, 'o2')).toBe(false)
   })
 })
