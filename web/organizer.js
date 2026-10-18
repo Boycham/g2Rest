@@ -12,7 +12,8 @@ import {
   liveSince,
 } from './state.js'
 
-const KINDS = ['RUN', 'CLEAR', 'CHECK', 'SEAT']
+const KINDS = ['RUN', 'CLEAR', 'CHECK', 'SEAT', 'ORDER']
+const KIND_LABEL = { ORDER: 'TAKE ORDER' }
 const STATUSES = [
   ['seated', 'Seat party'],
   ['ordered', 'Ordered'],
@@ -157,7 +158,7 @@ function buildDispatchForm() {
               renderKinds()
             },
           },
-          k,
+          KIND_LABEL[k] ?? k,
         ),
       ),
     )
