@@ -240,3 +240,130 @@ async def test_new_order_after_send(relay):
     await session.capture_start("c2")
     assert session.order_id != first and sent[-1]["lines"] == []
     await session.close()
+
+
+# ---- clip mode: the last minute from the glasses' rolling buffer ----
+
+
+class ClipAgent(FakeAgent):
+    """Answers every clip with one set_order call, like the clip agent."""
+
+    def __init__(self, book, on_tool, order):
+        super().__init__(book, on_tool, {})
+        self.order = order
+        self.heard: list[str] = []
+
+    async def say(self, text: str) -> None:
+        self.heard.append(text)
+        if self.order is not None:
+            result, err = self.book.dispatch("set_order", self.order)
+            self.on_tool("set_order", self.order, result, err, 0.0)
+
+
+CLIP_ORDER = {
+    "items": [
+        {"guest": 1, "dish": "halibut", "alterations": ["no butter"]},
+        {"guest": 2, "dish": "salmon", "alterations": ["no dill"]},
+    ],
+    "allergies": [{"guest": 2, "allergen": "shellfish"}],
+    "unclear": [{"guest": 3, "text": "'the fish': halibut or salmon"}],
+    "notes": ["anniversary"],
+}
+
+
+def clip_relay(order=CLIP_ORDER, turns=(("speaker_0", "I'll have the halibut"),)):
+    sent: list[dict[str, Any]] = []
+    made: dict[str, Any] = {"clips": []}
+
+    async def send(msg):
+        sent.append(msg)
+
+    def make_agent(book, on_tool):
+        made["agent"] = ClipAgent(book, on_tool, order)
+        return made["agent"]
+
+    async def transcribe(pcm: bytes):
+        made["clips"].append(pcm)
+        return list(turns)
+
+    session = RelaySession(send, lambda p, c: FakeStt(p, c), make_agent, transcribe)
+    return session, sent, made
+
+
+async def send_clip(session, frames: int = 3, table: str | None = "T3") -> None:
+    start = {"type": "capture.start", "captureId": "clip-1", "mode": "clip"}
+    if table:
+        start["table"] = table
+    await session.handle_text(json.dumps(start))
+    for _ in range(frames):
+        await session.audio(b"\x01" * FRAME_BYTES)
+    await session.handle_text('{"type": "capture.stop", "captureId": "clip-1"}')
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+
+@run
+async def test_clip_for_an_order_task_builds_the_draft_by_seat():
+    session, sent, made = clip_relay()
+    await send_clip(session)
+    assert sent[0]["voice"] == "processing" and sent[0]["table"] == "T3"
+    assert made["clips"] == [b"\x01" * FRAME_BYTES * 3] and session.clip == bytearray()
+    assert "table 3 (from the ORDER task)" in made["agent"].heard[0]
+    d = sent[-1]
+    assert d["voice"] == "idle" and d["table"] == "T3"
+    assert [(ln["seat"], ln["dish"], ln["alterations"]) for ln in d["lines"]] == [
+        (1, "halibut", ["no butter"]),
+        (2, "salmon", ["no dill"]),
+    ]
+    assert d["allergies"] == [{"allergen": "SHELLFISH", "seats": [2]}]
+    assert d["uncertain"] == ["? s3 'the fish': halibut or salmon"]
+    assert d["notes"] == ["anniversary"]
+    await session.handle_text(json.dumps({"type": "order.confirm", "orderId": d["orderId"]}))
+    assert sent[-1]["status"] == "sent"
+    await session.close()
+
+
+@run
+async def test_tableless_clip_cannot_be_sent_until_the_table_is_spoken():
+    session, sent, made = clip_relay()
+    await send_clip(session, table=None)
+    d = sent[-1]
+    assert d["table"] is None and d["lines"]
+    await session.handle_text(json.dumps({"type": "order.confirm", "orderId": d["orderId"]}))
+    assert sent[-1]["status"] == "draft" and "TABLE?" in sent[-1]["notice"]
+    made["agent"].order = {**CLIP_ORDER, "table": 2}
+    await send_clip(session, table=None)
+    assert sent[-1]["table"] == "T2"
+    await session.handle_text(json.dumps({"type": "order.confirm", "orderId": d["orderId"]}))
+    assert sent[-1]["status"] == "sent" and sent[-1]["table"] == "T2"
+    await session.close()
+
+
+@run
+async def test_small_talk_clip_adds_nothing_and_says_so():
+    session, sent, _ = clip_relay(order=None, turns=(("speaker_0", "How was the theater?"),))
+    await send_clip(session)
+    assert sent[-1]["lines"] == [] and sent[-1]["voice"] == "idle"
+    assert sent[-1]["notice"] == "no order heard in the last minute"
+    await session.close()
+
+
+@run
+async def test_clip_transcription_failure_shows_voice_offline():
+    session, sent, _ = clip_relay()
+
+    async def broken(pcm: bytes):
+        raise ConnectionError("scribe batch 503")
+
+    session.transcribe = broken
+    await send_clip(session)
+    assert sent[-1]["voice"] == "offline"
+    await session.close()
+
+
+def test_table_number_parses_labels():
+    from relay import table_number
+
+    assert [table_number(x) for x in ("T3", "12", "t2", "", None, "T0", "bar")] == [
+        3, 12, 2, None, None, None, None,
+    ]  # fmt: skip

@@ -22,12 +22,21 @@ from typing import Any, Protocol
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from order import Menu, OrderBook, ToolError
-from voice_session import FRAME_BYTES, AgentSession, ScribeStream, log, speech_end_offset
+from order import UNKNOWN_TABLE, Menu, OrderBook, ToolError
+from voice_session import (
+    FRAME_BYTES,
+    AgentSession,
+    ScribeStream,
+    log,
+    speech_end_offset,
+    transcribe_clip,
+)
 
 PORT = int(os.environ.get("VOICE_RELAY_PORT", "8790"))
 START_TIMEOUT = 8.0  # Scribe + agent connect, each already has its own timeout
 MAX_BUFFERED_FRAMES = 50  # 5 s of audio kept while the providers connect
+MAX_CLIP_FRAMES = 620  # a 60 s clip plus slack; anything past it is dropped
+Transcribe = Callable[[bytes], Awaitable[list[tuple[str, str]]]]
 
 
 class Stt(Protocol):
@@ -54,6 +63,19 @@ def dish_label(book: OrderBook, name: str) -> str:
     return dish.aliases[0] if dish and dish.aliases else name.lower()
 
 
+def table_number(label: str | None) -> int | None:
+    """'T3' / '3' -> 3; anything else -> None."""
+    raw = (label or "").strip().upper().removeprefix("T")
+    return int(raw) if raw.isdigit() and 1 <= int(raw) <= 999 else None
+
+
+def clip_message(turns: list[tuple[str, str]], book: OrderBook) -> str:
+    t = book.current_table
+    where = f"table {t} (from the ORDER task)" if book.table_source == "task" else "not known yet"
+    lines = "\n".join(f"{speaker}: {text}" for speaker, text in turns)
+    return f"CLIP, last minute at the table, oldest first. Table: {where}.\n{lines}"
+
+
 def proposal_text(book: OrderBook, p: dict[str, Any]) -> str:
     if p["action"] == "remove":
         return f"REMOVE s{p['seat']} {dish_label(book, p['dish'])}?"
@@ -66,16 +88,16 @@ def proposal_text(book: OrderBook, p: dict[str, Any]) -> str:
             else dish_label(book, i)
             for i in p["items"]
         ]
-        return f"CANCEL T{p['table']} {', '.join(names)}?"
-    return f"SEND T{p['table']} to kitchen?"
+        return f"CANCEL T{p['table'] or '?'} {', '.join(names)}?"
+    return f"SEND T{p['table'] or '?'} to kitchen?"
 
 
 def build_draft(
     book: OrderBook, order_id: str, capture_id: str, voice: str, notice: str | None
 ) -> dict[str, Any]:
     """order.draft for the table being ordered. Fields past `allergies` are PROPOSED."""
-    t = book.current_table
-    table = book.tables.get(t) if t is not None else None
+    t = book.draft_table
+    table = book.tables.get(t)
     lines: list[dict[str, Any]] = []
     allergies: dict[str, list[int]] = {}
     pending: list[dict[str, str]] = []
@@ -100,13 +122,15 @@ def build_draft(
         "type": "order.draft",
         "orderId": order_id,
         "captureId": capture_id,
-        "table": f"T{t}" if t is not None else None,
+        "table": f"T{t}" if t != UNKNOWN_TABLE else None,
         "lines": lines,
         "allergies": [{"allergen": k, "seats": v} for k, v in allergies.items()],
         "status": table.status if table else "draft",
         "pending": pending,
         "voice": voice,
         "notice": notice,
+        "notes": list(table.notes) if table else [],
+        "uncertain": list(table.uncertain) if table else [],
     }
 
 
@@ -129,6 +153,7 @@ class RelaySession:
         send: Callable[[dict[str, Any]], Awaitable[None]],
         make_stt: Callable[[Callable[[str], None], Callable[[str, float], None]], Stt],
         make_agent: Callable[[OrderBook, Callable[..., None]], Agent],
+        transcribe: Transcribe | None = None,
     ):
         self._send = send
         self.make_stt = make_stt
@@ -144,6 +169,12 @@ class RelaySession:
         self.segments: asyncio.Queue[str] = asyncio.Queue()
         self.tasks: set[asyncio.Task[None]] = set()
         self.speech_end = 0.0
+        self.transcribe = transcribe or transcribe_clip
+        self.mode = "stream"
+        self.clip = bytearray()
+        self.clip_stop = 0.0
+        self.got_order = False
+        self.agent_ready: asyncio.Task[None] | None = None
         self.worker = self._spawn(self._forward_segments())
 
     def _spawn(self, coro: Awaitable[None]) -> asyncio.Task[None]:
@@ -166,6 +197,12 @@ class RelaySession:
     ) -> None:
         log(f"tool {tool}({json.dumps(params)}) -> {'ERROR' if is_error else 'ok'}")
         self.notice = tool_notice(self.book, tool, params, result) if is_error else None
+        if tool == "set_order" and not is_error:
+            self.got_order = True
+            self.voice = "idle"
+            self.notice = result.get("table_notice")
+            if self.clip_stop:
+                log(f"latency clip stop -> set_order {time.monotonic() - self.clip_stop:.2f}s")
         self._spawn(self.draft())
 
     async def _forward_segments(self) -> None:
@@ -186,15 +223,31 @@ class RelaySession:
 
     # ---- capture ----
 
-    async def capture_start(self, capture_id: str) -> None:
-        table = self.book.tables.get(self.book.current_table or -1)
-        if table and table.status != "draft":
+    def _bind(self, table: str | None) -> None:
+        n = table_number(table)
+        if n is None:
+            return
+        try:
+            self.book.bind_table(n, "task")
+        except ToolError as e:
+            self.notice = str(e)[:60]
+
+    async def capture_start(
+        self, capture_id: str, table: str | None = None, mode: str | None = None
+    ) -> None:
+        current = self.book.tables.get(self.book.draft_table)
+        if current and current.status != "draft":
             self.book = OrderBook(Menu.load())
             self.order_id = uuid.uuid4().hex[:8]
             if self.agent:
                 await self.agent.close()
                 self.agent = None
         await self._close_stt()
+        if mode == "clip":
+            await self._clip_start(capture_id, table)
+            return
+        self.mode = "stream"
+        self._bind(table)
         self.capture_id = capture_id
         self.voice = "connecting"
         self.notice = None
@@ -229,7 +282,60 @@ class RelaySession:
         self.buffer = []
         await self.draft()
 
+    # ---- clip: the last minute from the glasses' rolling buffer ----
+
+    async def _clip_start(self, capture_id: str, table: str | None) -> None:
+        self.mode = "clip"
+        self.capture_id = capture_id
+        self.clip = bytearray()
+        self.notice = None
+        self.voice = "processing"
+        self._bind(table)
+        await self.draft()
+        if not self.agent or not self.agent.alive:
+            self.agent_ready = self._spawn(self._start_agent())
+
+    async def _start_agent(self) -> None:
+        self.agent = self.make_agent(self.book, self.on_tool)
+        await asyncio.wait_for(self.agent.start(), START_TIMEOUT)
+
+    async def _process_clip(self, capture_id: str, pcm: bytes) -> None:
+        self.clip_stop = time.monotonic()
+        try:
+            turns = await self.transcribe(pcm)
+            log(f"clip {len(pcm) / 32000:.1f}s -> {len(turns)} turns in "
+                f"{time.monotonic() - self.clip_stop:.2f}s")  # fmt: skip
+            if self.agent_ready:
+                await self.agent_ready
+            if not self.agent or not self.agent.alive:
+                await self._start_agent()
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - shown on the glasses
+            if capture_id == self.capture_id:
+                await self._offline(f"clip: {type(e).__name__}: {e}")
+            return
+        if capture_id != self.capture_id:
+            return
+        if not turns:
+            self.voice, self.notice = "idle", "heard nothing in the last minute"
+            await self.draft()
+            return
+        self.got_order = False
+        assert self.agent
+        try:
+            await self.agent.say(clip_message(turns, self.book))
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - shown on the glasses
+            await self._offline(f"agent: {type(e).__name__}: {e}")
+            return
+        if not self.got_order and capture_id == self.capture_id:
+            self.voice, self.notice = "idle", "no order heard in the last minute"
+            await self.draft()
+
     async def audio(self, frame: bytes) -> None:
+        if self.mode == "clip":
+            room = len(self.clip) < MAX_CLIP_FRAMES * FRAME_BYTES
+            if len(frame) == FRAME_BYTES and self.voice == "processing" and room:
+                self.clip += frame
+            return
         if len(frame) != FRAME_BYTES or self.voice not in ("connecting", "listening"):
             log(f"dropped audio frame ({len(frame)} bytes, voice {self.voice})")
             return
@@ -254,6 +360,10 @@ class RelaySession:
 
     async def capture_stop(self, capture_id: str) -> None:
         if capture_id != self.capture_id:
+            return
+        if self.mode == "clip":
+            pcm, self.clip = bytes(self.clip), bytearray()  # in memory only, then dropped
+            self._spawn(self._process_clip(capture_id, pcm))
             return
         stt, self.stt = self.stt, None
         if self.voice != "offline":
@@ -291,9 +401,9 @@ class RelaySession:
                 result = self.book.accept(proposal["id"])
                 update = f"The server tapped to cancel the whole order: {json.dumps(result)}."
             else:
-                t = self.book.current_table
-                if t is None:
-                    raise ToolError("no table yet")
+                t = self.book.draft_table
+                if t == UNKNOWN_TABLE:
+                    raise ToolError("say the table first (TABLE?)")
                 self.book.fire(t)
                 result = {"status": "sent", "table": t}
                 update = f"The server tapped to send table {t}'s order to the kitchen."
@@ -317,7 +427,9 @@ class RelaySession:
             return
         kind = msg.get("type") if isinstance(msg, dict) else None
         if kind == "capture.start" and isinstance(msg.get("captureId"), str):
-            await self.capture_start(msg["captureId"])
+            table = msg.get("table") if isinstance(msg.get("table"), str) else None
+            mode = msg.get("mode") if msg.get("mode") in ("stream", "clip") else None
+            await self.capture_start(msg["captureId"], table, mode)
         elif kind == "capture.stop" and isinstance(msg.get("captureId"), str):
             await self.capture_stop(msg["captureId"])
         elif kind in ("order.confirm", "order.cancel_confirm", "order.reject"):
