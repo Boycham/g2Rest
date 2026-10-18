@@ -14,7 +14,7 @@ export function fromSnapshot(snap, prev = emptyState(), now = Date.now()) {
   for (const t of snap.tables ?? []) s.tables[t.table] = { ...t, at: now }
   for (const t of snap.tasks ?? []) s.tasks[t.id] = t
   for (const o of snap.orders ?? []) s.orders[o.orderId] = o
-  for (const a of snap.alerts ?? []) s.alerts[a.id] = a
+  for (const a of snap.alerts ?? []) s.alerts[a.id] = { ...a, at: now }
   return s
 }
 
@@ -70,6 +70,11 @@ export function apply(state, msg, now = Date.now()) {
 /** Seconds since `sinceSec` was measured, ticking client-side between updates. */
 export function liveSince(entry, now = Date.now()) {
   return entry.sinceSec + Math.max(0, Math.floor((now - entry.at) / 1000))
+}
+
+/** Alert text with the hub's "{elapsed}" placeholder filled in. */
+export function alertText(alert, now = Date.now()) {
+  return alert.text.replace('{elapsed}', fmtSince(liveSince(alert, now)))
 }
 
 export function fmtSince(sec) {

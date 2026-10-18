@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
+  alertText,
   allergyText,
   apply,
   boardTasks,
@@ -73,6 +74,15 @@ test('order.closed for an unknown order is ignored', () => {
 test('fromSnapshot keeps the pass from the previous state', () => {
   const prev = apply(emptyState(), { type: 'pass.state', plates: [], holds: [] })
   assert.deepEqual(fromSnapshot({}, prev).pass, { plates: [], holds: [] })
+})
+
+test('alertText fills in the elapsed time and keeps ticking', () => {
+  const s = fromSnapshot(
+    { alerts: [{ id: 'a1', level: 'urgent', text: 'T4 run task unacknowledged {elapsed}', table: 'T4', sinceSec: 50 }] },
+    emptyState(),
+    0,
+  )
+  assert.equal(alertText(s.alerts.a1, 15_000), 'T4 run task unacknowledged 1m')
 })
 
 test('liveSince ticks forward from when the table was received', () => {
