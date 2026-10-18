@@ -479,18 +479,92 @@ def speaker_turns(words: list[dict[str, Any]]) -> list[tuple[str, str]]:
     return [(s, " ".join(t.split())) for s, t in turns if t.strip()]
 
 
+# Neighbouring tables: Scribe's diarization labels them as their own speakers, and they are
+# quieter at the glasses mic than the server and the table. A speaker is dropped from the clip
+# when its words are CLIP_QUIET_DB below the loudest speaker's, or CLIP_QUIET_DB / 2 below and
+# it said under a fifth as many words as the most talkative one. Few words alone never drop
+# a speaker: a guest saying "the salmon" is short but near. Picked from clip_test.py.
+CLIP_QUIET_DB = 8.0
+CLIP_FEW_WORDS = 0.2
+
+
+def span_dbfs(pcm: bytes, spans: list[tuple[float, float]]) -> float:
+    """RMS level in dBFS of 16 kHz s16le PCM over (start, end) second spans."""
+    samples = array.array("h", pcm[: len(pcm) // 2 * 2])
+    total, n = 0.0, 0
+    for a, b in spans:
+        part = samples[max(0, int(a * 16000)) : max(0, int(b * 16000))]
+        total += sum(x * x for x in part)
+        n += len(part)
+    if not n or not total:
+        return -120.0
+    return 20 * math.log10(math.sqrt(total / n) / 32768)
+
+
+def speaker_levels(words: list[dict[str, Any]], pcm: bytes) -> dict[str, tuple[int, float]]:
+    """speaker label -> (word count, level in dBFS over that speaker's words)."""
+    spans: dict[str, list[tuple[float, float]]] = {}
+    for w in words:
+        a, b = w.get("start"), w.get("end")
+        if (
+            w.get("type") != "word"
+            or not isinstance(a, int | float)
+            or not isinstance(b, int | float)
+        ):
+            continue
+        spans.setdefault(str(w.get("speaker_id") or "speaker"), []).append((float(a), float(b)))
+    return {s: (len(sp), span_dbfs(pcm, sp)) for s, sp in spans.items()}
+
+
+def other_tables(
+    levels: dict[str, tuple[int, float]],
+    quiet_db: float = CLIP_QUIET_DB,
+    few_words: float = CLIP_FEW_WORDS,
+) -> set[str]:
+    """Speakers to drop as another table's: much quieter, or quieter and far fewer words."""
+    if len(levels) < 2:
+        return set()
+    loudest = max(db for _, db in levels.values())
+    most = max(n for n, _ in levels.values())
+    return {
+        s
+        for s, (n, db) in levels.items()
+        if db < loudest - quiet_db or (db < loudest - quiet_db / 2 and n < few_words * most)
+    }
+
+
+def clip_turns(
+    body: dict[str, Any], pcm: bytes, *, drop_other_tables: bool = True
+) -> tuple[list[tuple[str, str]], set[str]]:
+    """A batch Scribe response -> (speaker turns for the clip agent, dropped speakers)."""
+    words = body.get("words") or []
+    dropped = other_tables(speaker_levels(words, pcm)) if drop_other_tables else set()
+    kept = [w for w in words if str(w.get("speaker_id") or "speaker") not in dropped]
+    turns = speaker_turns(kept)
+    if not turns and not words and body.get("text", "").strip():
+        turns = [("speaker", body["text"].strip())]
+    return turns, dropped
+
+
 async def transcribe_clip(
-    pcm: bytes, *, diarize: bool = True, timeout: float = CLIP_STT_TIMEOUT
+    pcm: bytes,
+    *,
+    diarize: bool = True,
+    keyterms: Sequence[str] = (),
+    drop_other_tables: bool = True,
+    timeout: float = CLIP_STT_TIMEOUT,
 ) -> list[tuple[str, str]]:
     """One batch Scribe call for a clip of raw 16 kHz s16le mono PCM (English pinned).
     The clip is sent from memory and never written to disk here."""
-    data = {
+    data: dict[str, str | list[str]] = {
         "model_id": BATCH_STT_MODEL,
         "language_code": STT_LANGUAGE,
         "file_format": "pcm_s16le_16",
         "tag_audio_events": "false",
         "diarize": "true" if diarize else "false",
     }
+    if keyterms:
+        data["keyterms"] = list(keyterms)  # one multipart field per term
     async with httpx.AsyncClient(timeout=timeout) as http:
         r = await http.post(
             f"{API}/v1/speech-to-text",
@@ -500,10 +574,9 @@ async def transcribe_clip(
         )
     if r.is_error:
         raise ConnectionError(f"scribe batch {r.status_code}: {r.text[:200]}")
-    body = r.json()
-    turns = speaker_turns(body.get("words") or [])
-    if not turns and body.get("text", "").strip():
-        turns = [("speaker", body["text"].strip())]
+    turns, dropped = clip_turns(r.json(), pcm, drop_other_tables=drop_other_tables and diarize)
+    if dropped:
+        log(f"clip: dropped {len(dropped)} quieter speaker(s) as another table")
     return turns
 
 

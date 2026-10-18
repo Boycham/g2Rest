@@ -240,7 +240,7 @@ class RelaySession:
         self.segments: asyncio.Queue[str] = asyncio.Queue()
         self.tasks: set[asyncio.Task[None]] = set()
         self.speech_end = 0.0
-        self.transcribe = transcribe or transcribe_clip
+        self.transcribe = transcribe or clip_transcriber()
         self.mode = "stream"
         self.clip = bytearray()
         self.clip_stop = 0.0
@@ -660,6 +660,17 @@ def agent_id() -> str:
 
 def live_stt(on_partial: Callable[[str], None], on_committed: Callable[[str, float], None]) -> Stt:
     return ScribeStream(on_partial, on_committed)
+
+
+def clip_transcriber() -> Transcribe:
+    """Batch Scribe for order clips: diarized, biased to the menu and staff, quieter
+    speakers dropped as another table (voice_session.other_tables)."""
+    terms = keyterms(realtime=False)
+
+    async def transcribe(pcm: bytes) -> list[tuple[str, str]]:
+        return await transcribe_clip(pcm, keyterms=terms)
+
+    return transcribe
 
 
 def live_cmd_stt(
