@@ -36,7 +36,7 @@ const BACKEND_TYPES: readonly BackendMessage['type'][] = [
   'voice.unknown',
   'task.rejected',
 ]
-const INTENTS = ['up', 'down', 'back', 'confirm', 'clip', 'accept', 'decline', 'done', 'handoff', 'nevermind', 'revert', 'menu', 'queue']
+const INTENTS = ['up', 'down', 'back', 'confirm', 'clip', 'accept', 'decline', 'done', 'handoff', 'nevermind', 'revert', 'menu', 'queue', 'table']
 const REJECTED_ACTIONS = ['accept', 'done', 'bounce', 'handoff', 'revert']
 const CLOSED_STATUSES = ['fired', 'cancelled']
 
@@ -114,7 +114,11 @@ export function parseBackendMessage(raw: string): BackendMessage | null {
   if (v.type === 'alert' && !isAlert(v)) return null
   if (v.type === 'floor.state' && !isFloorState(v)) return null
   if (v.type === 'order.closed' && !(isStr(v.orderId) && CLOSED_STATUSES.includes(v.status as string))) return null
-  if (v.type === 'voice.command' && !(INTENTS.includes(v.intent as string) && (v.name === undefined || isStr(v.name)))) {
+  const optStr = (x: unknown) => x === undefined || isStr(x)
+  if (
+    v.type === 'voice.command' &&
+    !(INTENTS.includes(v.intent as string) && optStr(v.name) && optStr(v.table) && optStr(v.was) && optStr(v.reason))
+  ) {
     return null
   }
   if (

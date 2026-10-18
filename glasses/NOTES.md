@@ -321,6 +321,36 @@ HW-PENDING (conversational capture):
 - Clip upload time over phone Bluetooth/LTE (600 frames, 1.9 MB) and the real-mic transcript quality in a
   noisy room with real, different guest voices.
 
+## Clip summary, answers and table by voice, checked in the simulator 0.9.5 against the real backend
+
+Real hub (`backend/app`, restarted after the `contract.py` change: the old process dropped
+`voice.command {intent: "table"}`) + relay with the order and talk agents. Each run is a fresh simulator.
+
+- **Layout (`src/draft.ts`, pretext-measured):** order lines, `── table said ──`, the summary (wrapped, 2 lines
+  max), then one line per answer: `s2 pork belly have sesame? → yes, pork belly has sesame`, or the menu-gap
+  line `? s1 asks gluten-free bread: not in menu data`. Overflow goes to pages: `swipe fwd = more 1/2`, then
+  `2/2 swipe fwd = done`. Tap sends only `order.confirm {orderId}`; summary and answers never reach the kitchen.
+- **Answers only** (`conv_answers_only`, 24 s, no dishes): `TABLE?`, separator, summary and four answers, no
+  order lines; draft 3.80 s, summary and answers 3.95 s after the swipe (1 run).
+- **Swipe back → card, median of 5** (`latency swipe back -> ...` in the console):
+
+| Clip | → order draft | → summary + answers |
+|---|---|---|
+| 60 s (`conv_questions`): 4048, 3363, 3582, 3746, 4149 / 4532, 4819, 4807, 4985, 4881 ms | **3.75 s** | **4.82 s** |
+| 120 s (`conv_2min`, held back on `devin/clip-2min`): 5734, 5177, 5463, 5821, 5289 / 6941, 6570, 6587, 6937, 6699 ms | 5.46 s | 6.70 s |
+
+  Relay split, 120 s vs 60 s: batch Scribe 2.32-2.80 s vs 1.45-1.59 s; clip stop → `set_order` 4.96-5.59 s vs
+  3.24-4.04 s (the agent reads 33 turns instead of 17). Old main (order only, 58.6 s): 4.02 s.
+- **Table by voice** (`?debugPcm=conv_notable&say=silence_20,verity_table_12,verity_table_four,silence_8,verity_table_two`):
+  `TABLE?` draft → "verity table twelve" → `? T12: no table 12` (still `TABLE?`) → "verity table four" →
+  `T4 … tap = send` with `? Heard: table T4` and no new clip → tap → `order.closed fired` → "verity table two"
+  → `T2: already sent` on the main card. The override of an ORDER task's table (`Table T3 → T4`) and the
+  table said last in a clip (`conv_table_last` → T4) were checked against the relay (`tests/test_relay.py`,
+  relay bench), not in the simulator.
+- Known: the talk agent numbers guests on its own, so an answer's `s2` can differ from the order's seat for
+  the same guest when the two agents count differently (seen once in the 120 s run).
+- HW-PENDING: the extra lines' legibility on the lens; "verity table N" with a real voice in the room.
+
 ## Voice commands, checked in the simulator 0.9.5 against the real backend
 
 `?debugPcm=conv_notable&say=verity_accept,verity_decline,verity_done` plays TTS command fixtures into
@@ -337,15 +367,15 @@ one line); `GESTURE_EVENTS` in `src/main.ts` maps OS events to gestures.
 
 | Gesture | Card (bottom) | Queue (middle) | Controls (top) | Voice |
 |---|---|---|---|---|
-| Tap | accept, then done; confirms a popup or sends the draft | back to the Card | next page (1/2 ↔ 2/2) | `verity accept` / `done` / `confirm` |
+| Tap | accept, then done; confirms a popup or sends the draft | back to the Card | next page (1/3 → 2/3 → 3/3 → 1/3) | `verity accept` / `done` / `confirm` |
 | Swipe fwd | to Queue | to Controls | nothing (top tab) | `verity up`; `verity queue` / `verity menu` jump to a tab |
 | Swipe back | clip the last minute | to the Card | to Queue | `verity down`; `verity clip` clips from any tab |
 | Long hold | handoff: `Confirm handoff?`, then tap | back to the Card | back to the Card | `verity handoff [name]` / `verity back` |
 | Double tap | exit (`shutDownPageContainer(1)`, Even Hub review rule) | exit | exit | none |
-| Voice only | decline (`task.bounce`), revert (`task.revert`), cancel a popup | | | `verity decline` / `revert` / `nevermind` |
+| Voice only | decline (`task.bounce`), revert (`task.revert`), cancel a popup, bind the unsent draft to table N | | | `verity decline` / `revert` / `nevermind` / `table N` |
 
 Controls is a read-only reference (swipes switch tabs, so there's nothing to move a selection with): every
-gesture and its voice command, 4 rows a page, `1/2 ... tap: more · back: queue` on the last line. Queue was
+gesture and its voice command, 4 rows a page, `1/3 ... tap: more · back: queue` on the last line. Queue was
 removed from it. The Queue tab shows only tasks (`> T12 · RUN · ! SHELLFISH`, current one marked) with
 `fwd: controls` bottom right; the Card's hint is `fwd: queue`, beside `+N queued`. All measured with pretext
 against the content width beside the rail (`controls.test.ts`, `card.test.ts`).

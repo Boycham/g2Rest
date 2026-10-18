@@ -13,7 +13,7 @@ import { tap, type Queue } from './tasks'
 import { log } from './log'
 import { CARD_GESTURES, CARD_HINT, formatControls, nextControlsPage, tabAfter, type CardAction, type Tab } from './controls'
 import { handoffFrame, handoffPrompt } from './handoff'
-import { didntGet, rejectionLine, voiceAction, type VoiceGesture } from './voice'
+import { didntGet, rejectionLine, tableLine, voiceAction, type VoiceGesture } from './voice'
 
 /** How long `Heard: <command>` and refusal lines stay on the card. */
 const FLASH_MS = 3000
@@ -267,7 +267,8 @@ export class ServerHud implements Hud {
 
   /** "verity <command>": the same action as the gesture; task frames go out at once. */
   onVoiceCommand(cmd: VoiceCommand): void {
-    log('<- voice.command', cmd.intent, cmd.name ?? '')
+    log('<- voice.command', cmd.intent, cmd.name ?? cmd.table ?? '', cmd.reason ?? '')
+    if (cmd.intent === 'table') return this.flash(tableLine(cmd))
     const action = voiceAction(cmd.intent, this.queue[0], cmd.name)
     switch (action.kind) {
       case 'refuse':

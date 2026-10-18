@@ -297,8 +297,23 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
      fast as possible, then `capture.stop`; the relay transcribes it in one batch and extracts the order.
    - `VoiceState` + `processing` (the clip is being transcribed and read), and `order.draft` +
      `notes?: string[]` (occasion, pacing) and `uncertain?: string[]` (`? s2 'the fish': halibut or salmon`).
+   - **Clip summary and answers (branch `devin/clip-summary`):** `order.draft` + `summary?: string`
+     (1-2 lines: what the table said, mood, pacing, occasion) and
+     `answers?: {seat?: number, q: string, a: string, known?: boolean}[]` (a suggested reply per guest
+     question or comment, e.g. `{seat: 2, q: "risotto nuts?", a: "no tree nuts listed for risotto"}`).
+     Code writes every food answer from `data/menu.json`; `known: false` means the menu can't answer it
+     (`a` is `not in menu data`, shown as a `?` line). Both are display only: they are never part of the
+     `Order`, never fired to the kitchen, and a clip with no dishes still carries them.
    - Organizer sockets get `{"type": "order.draft", ...Order}` (the `GET /state` order shape) while a voice
      draft builds, so the kitchen sees it forming before the fire.
 10. **Handoff and revert** (Coder A, for voice "handoff" / "revert" and the long-hold handoff):
     glasses -> backend `task.handoff {taskId, to?}` and `task.revert {taskId?}`; backend -> glasses
     `task.rejected {taskId, action, reason}`. Additive; `contract.ts` needs the three types.
+11. **Table by voice (glasses lane, branch `devin/clip-summary`):**
+    - Relay -> glasses `voice.command` + `intent: "table"` with `table?: string` (`"T4"`), `was?: string`
+      (the table it replaced, e.g. an ORDER task's `"T3"`) and `reason?: string` (refused: `"no table 12"`
+      (not in `data/floor.json`), `"already sent"`, `"no order to set the table for"`). On success the relay
+      also sends the rebound `order.draft`. "verity table N" overrides the ORDER task's table; a table said
+      inside a clip ("that was table four", even as the last words) binds only when no task or
+      "verity table" has set one. Only an unsent draft changes. Additive; `contract.py` `VoiceCommand`
+      has the three optional fields.

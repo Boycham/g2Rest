@@ -17,14 +17,15 @@ import os
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any, Protocol
 
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from commands import Command, parse_commands
+from commands import Command, parse_commands, tables_said
 from gemini_intent import IntentUnavailable, map_words
-from order import UNKNOWN_TABLE, Menu, OrderBook, ToolError
+from order import UNKNOWN_TABLE, Menu, OrderBook, ToolError, floor_tables
 from voice_session import (
     FRAME_BYTES,
     AgentSession,
@@ -73,7 +74,14 @@ def table_number(label: str | None) -> int | None:
 
 def clip_message(turns: list[tuple[str, str]], book: OrderBook) -> str:
     t = book.current_table
-    where = f"table {t} (from the ORDER task)" if book.table_source == "task" else "not known yet"
+    whence = {
+        "task": "from the ORDER task",
+        "voice": "set by the server",
+        "spoken": "said in a clip",
+    }
+    where = (
+        f"table {t} ({whence[book.table_source]})" if t and book.table_source else "not known yet"
+    )
     lines = "\n".join(f"{speaker}: {text}" for speaker, text in turns)
     return f"CLIP, last minute at the table, oldest first. Table: {where}.\n{lines}"
 
@@ -133,6 +141,16 @@ def build_draft(
         "notice": notice,
         "notes": list(table.notes) if table else [],
         "uncertain": list(table.uncertain) if table else [],
+        "summary": table.summary if table else "",
+        "answers": [
+            {
+                **({"seat": a["seat"]} if a.get("seat") else {}),
+                "q": a["q"],
+                "a": a["a"],
+                "known": a["answered"],
+            }
+            for a in (table.answers if table else [])
+        ],
     }
 
 
@@ -156,17 +174,22 @@ class RelaySession:
         make_stt: Callable[[Callable[[str], None], Callable[[str, float], None]], Stt],
         make_agent: Callable[[OrderBook, Callable[..., None]], Agent],
         transcribe: Transcribe | None = None,
+        make_talk_agent: Callable[[OrderBook, Callable[..., None]], Agent | None] | None = None,
     ):
         self._send = send
         self.make_stt = make_stt
         self.make_agent = make_agent
-        self.book = OrderBook(Menu.load())
+        self.book = OrderBook(Menu.load(), floor_tables())
         self.order_id = uuid.uuid4().hex[:8]
         self.capture_id = ""
         self.voice = "idle"  # PROPOSED: idle | connecting | listening | offline
         self.notice: str | None = None
         self.stt: Stt | None = None
         self.agent: Agent | None = None
+        # The clip's second agent (set_talk: summary and answers), run beside the order agent
+        # so the order card never waits for it. None: no talk agent configured.
+        self.make_talk_agent = make_talk_agent
+        self.talk_agent: Agent | None = None
         self.buffer: list[bytes] = []
         self.segments: asyncio.Queue[str] = asyncio.Queue()
         self.tasks: set[asyncio.Task[None]] = set()
@@ -201,6 +224,11 @@ class RelaySession:
     ) -> None:
         log(f"tool {tool}({json.dumps(params)}) -> {'ERROR' if is_error else 'ok'}")
         self.notice = tool_notice(self.book, tool, params, result) if is_error else None
+        if tool == "set_talk":
+            if not is_error and self.clip_stop:
+                log(f"latency clip stop -> set_talk {time.monotonic() - self.clip_stop:.2f}s")
+            self._spawn(self.draft())
+            return
         if tool == "set_order" and not is_error:
             self.got_order = True
             self.voice = "idle"
@@ -229,7 +257,7 @@ class RelaySession:
 
     def _bind(self, table: str | None) -> None:
         n = table_number(table)
-        if n is None:
+        if n is None or self.book.table_source == "voice":
             return
         try:
             self.book.bind_table(n, "task")
@@ -244,7 +272,7 @@ class RelaySession:
             return
         current = self.book.tables.get(self.book.draft_table)
         if current and current.status != "draft":
-            self.book = OrderBook(Menu.load())
+            self.book = OrderBook(Menu.load(), floor_tables())
             self.order_id = uuid.uuid4().hex[:8]
             if self.agent:
                 await self.agent.close()
@@ -314,6 +342,9 @@ class RelaySession:
         """A fixed-list intent goes straight out; other words after "verity" go to Gemini,
         and anything it can't map shows as `Didn't get: <words>` on the card."""
         intent, name = cmd.intent, cmd.name
+        if intent == "table":
+            await self._table_command(cmd.table)
+            return
         if intent == "unknown":
             words = cmd.words or ""
             try:
@@ -333,6 +364,28 @@ class RelaySession:
         msg: dict[str, Any] = {"type": "voice.command", "intent": intent}
         if name:
             msg["name"] = name
+        await self._send(msg)
+
+    async def _table_command(self, n: int | None) -> None:
+        """ "verity table N": bind the unsent draft to table N, over an ORDER task's table."""
+        msg: dict[str, Any] = {"type": "voice.command", "intent": "table"}
+        was = self.book.current_table
+        if n is None:
+            msg["reason"] = "say verity table and a number"
+        elif not self.book.tables and was is None:
+            msg["table"], msg["reason"] = f"T{n}", "no order to set the table for"
+        else:
+            msg["table"] = f"T{n}"
+            try:
+                self.book.bind_table(n, "voice")
+            except ToolError as e:
+                msg["reason"] = str(e)[:60]
+            else:
+                if was is not None and was != n:
+                    msg["was"] = f"T{was}"
+                self.notice = None
+                await self.draft()
+        log(f"voice command table {msg.get('table', '?')} {msg.get('reason', 'ok')}")
         await self._send(msg)
 
     async def _command_frame(self, frame: bytes) -> None:
@@ -362,6 +415,31 @@ class RelaySession:
         self.agent = self.make_agent(self.book, self.on_tool)
         await asyncio.wait_for(self.agent.start(), START_TIMEOUT)
 
+    async def _talk(self, capture_id: str, message: str) -> None:
+        """The summary and answers for a clip; any failure only means no talk lines."""
+        if not self.make_talk_agent or capture_id != self.capture_id:
+            return
+        try:
+            if not self.talk_agent or not self.talk_agent.alive:
+                self.talk_agent = self.make_talk_agent(self.book, self.on_tool)
+                if not self.talk_agent:
+                    return
+                await asyncio.wait_for(self.talk_agent.start(), START_TIMEOUT)
+            await self.talk_agent.say(message)
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - the order card is unaffected
+            log(f"talk agent: {type(e).__name__}: {e}")
+            self.talk_agent = None
+
+    def _bind_said(self, heard: str) -> None:
+        """The last floor table said anywhere in the clip ("that was table four", even as
+        its last words), unless the ORDER task or "verity table" already set one."""
+        said = [n for n in tables_said(heard) if self.book.floor is None or n in self.book.floor]
+        if said and self.book.table_source in (None, "spoken"):
+            try:
+                self.book.bind_table(said[-1], "spoken")
+            except ToolError as e:
+                self.notice = str(e)[:60]
+
     async def _process_clip(self, capture_id: str, pcm: bytes) -> None:
         self.clip_stop = time.monotonic()
         try:
@@ -384,9 +462,13 @@ class RelaySession:
             return
         self.got_order = False
         assert self.agent
-        self.book.hear(" ".join(text for _, text in turns))
+        heard = " ".join(text for _, text in turns)
+        self.book.hear(heard)
+        self._bind_said(heard)
+        message = clip_message(turns, self.book)
+        self._spawn(self._talk(capture_id, message))
         try:
-            await self.agent.say(clip_message(turns, self.book))
+            await self.agent.say(message)
         except (Exception, SystemExit) as e:  # noqa: BLE001 - shown on the glasses
             await self._offline(f"agent: {type(e).__name__}: {e}")
             return
@@ -515,6 +597,8 @@ class RelaySession:
             await self.cmd_stt.close()
         if self.agent:
             await self.agent.close()
+        if self.talk_agent:
+            await self.talk_agent.close()
         for task in list(self.tasks):
             task.cancel()
 
@@ -537,6 +621,16 @@ def live_agent(book: OrderBook, on_tool: Callable[..., None]) -> Agent:
     return AgentSession(aid, book, on_tool, lambda text: log(f"agent: {text}"))
 
 
+def live_talk_agent(book: OrderBook, on_tool: Callable[..., None]) -> Agent | None:
+    aid = os.environ.get("ELEVENLABS_TALK_AGENT_ID")
+    saved = Path(__file__).with_name(".talk_agent_id")
+    if not aid and saved.exists():
+        aid = saved.read_text().strip()
+    if not aid:
+        return None
+    return AgentSession(aid, book, on_tool, lambda text: log(f"talk agent: {text}"))
+
+
 async def handler(ws: ServerConnection) -> None:
     log(f"glasses connected via {ws.request.path if ws.request else '?'}")
 
@@ -546,7 +640,7 @@ async def handler(ws: ServerConnection) -> None:
         except (ConnectionClosed, TimeoutError):
             pass
 
-    session = RelaySession(send, live_stt, live_agent)
+    session = RelaySession(send, live_stt, live_agent, make_talk_agent=live_talk_agent)
     try:
         async for data in ws:
             if isinstance(data, bytes):

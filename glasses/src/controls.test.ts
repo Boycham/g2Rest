@@ -30,6 +30,11 @@ describe('tabs', () => {
   it('fits every tab label in the rail', () => {
     for (const t of TABS) expect(getTextWidth(TAB_LABELS[t])).toBeLessThanOrEqual(TAB_RAIL_WIDTH - 2 * CARD_PADDING - 2)
   })
+
+  it('lists Set table with its voice command', () => {
+    const row = CONTROLS.find(c => c.label === 'Set table')
+    expect(row).toMatchObject({ label: 'Set table', voice: 'verity table N' })
+  })
 })
 
 describe('Card gestures', () => {
@@ -47,7 +52,7 @@ describe('Controls tab', () => {
   })
 
   it('pages by tap and wraps, the footer on the last line', () => {
-    expect(CONTROLS_PAGES).toBe(2)
+    expect(CONTROLS_PAGES).toBe(3)
     expect(nextControlsPage(0)).toBe(1)
     expect(nextControlsPage(CONTROLS_PAGES - 1)).toBe(0)
     for (let p = 0; p < CONTROLS_PAGES; p++) {

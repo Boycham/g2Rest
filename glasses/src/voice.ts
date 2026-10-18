@@ -1,4 +1,4 @@
-import type { GlassesJsonMessage, Task, TaskRejected, VoiceIntent } from './contract'
+import type { GlassesJsonMessage, Task, TaskRejected, VoiceCommand, VoiceIntent } from './contract'
 
 // "verity <command>" from the relay -> what the glasses do. Task intents send the same frames
 // as the gestures; the backend decides and answers task.updated or task.rejected (its reason
@@ -40,6 +40,9 @@ export function voiceAction(intent: VoiceIntent, head: Task | undefined, name?: 
     case 'handoff':
       if (!head) return { kind: 'refuse', line: 'No task to hand off' }
       return name ? { kind: 'handoff', taskId: head.id, name } : { kind: 'handoff', taskId: head.id }
+    case 'table':
+      // The relay already bound the draft (or refused); the glasses only say what happened.
+      return { kind: 'refuse', line: 'say verity table and a number' }
   }
 }
 
@@ -56,6 +59,13 @@ export function rejectionLine(msg: Pick<TaskRejected, 'action' | 'reason'>, task
   if (msg.action === 'bounce' && (task?.state === 'accepted' || /accepted/i.test(msg.reason)))
     return "Can't decline: already accepted"
   return `Can't ${REJECTED_VERB[msg.action]}: ${msg.reason}`
+}
+
+/** "verity table 4": `Table T3 → T4`, `Heard: table T4`, or the relay's reason. */
+export function tableLine(cmd: Pick<VoiceCommand, 'table' | 'was' | 'reason'>): string {
+  if (cmd.reason) return cmd.table ? `${cmd.table}: ${cmd.reason}` : cmd.reason
+  if (cmd.was) return `Table ${cmd.was} → ${cmd.table}`
+  return `Heard: table ${cmd.table ?? '?'}`
 }
 
 /** `Didn't get: <words>`, plus why when Gemini wasn't reachable. */

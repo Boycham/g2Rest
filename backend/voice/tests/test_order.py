@@ -1,6 +1,6 @@
 import pytest
 
-from order import Menu, OrderBook, ToolError
+from order import Menu, OrderBook, Table, ToolError
 
 
 @pytest.fixture
@@ -375,3 +375,26 @@ def test_set_order_keeps_only_what_was_said_in_the_clip(book):
 def test_unclear_label_the_agent_repeats_is_stripped(book):
     book.dispatch("set_order", {"unclear": [{"guest": 1, "text": "unclear 'the fish': halibut"}]})
     assert book.tables[0].uncertain == ["? s1 'the fish': halibut"]
+
+
+def test_table_must_be_on_the_floor_and_verity_table_overrides_the_task():
+    book = OrderBook(Menu.load(), frozenset(range(1, 9)))
+    book.bind_table(3, "task")
+    with pytest.raises(ToolError, match="no table 12"):
+        book.bind_table(12, "voice")
+    with pytest.raises(ToolError, match="kept table 3 from the ORDER task"):
+        book.bind_table(4, "spoken")
+    book.bind_table(4, "voice")
+    assert (book.current_table, book.table_source) == (4, "voice")
+    with pytest.raises(ToolError, match="kept table 4 from verity table"):
+        book.bind_table(3, "task")  # the next clip's ORDER task can't take it back
+    with pytest.raises(ToolError, match="kept table 4 from verity table"):
+        book.bind_table(5, "spoken")
+
+
+def test_a_sent_order_keeps_its_table():
+    book = OrderBook(Menu.load(), frozenset(range(1, 9)))
+    book.bind_table(2, "spoken")
+    book.tables.setdefault(2, Table()).status = "sent"
+    with pytest.raises(ToolError, match="already sent"):
+        book.bind_table(4, "voice")
