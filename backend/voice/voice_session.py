@@ -13,7 +13,7 @@ import json
 import math
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -284,6 +284,15 @@ def api_key() -> str:
     return key
 
 
+def frame_dbfs(frame: bytes) -> float:
+    """RMS level of one PCM frame in dBFS (-120 for digital silence)."""
+    samples = array.array("h", frame[: len(frame) // 2 * 2])
+    if not samples:
+        return -120.0
+    rms = math.sqrt(sum(x * x for x in samples) / len(samples))
+    return 20 * math.log10(rms / 32768) if rms else -120.0
+
+
 def speech_end_offset(pcm: bytes, threshold_dbfs: float = -40.0) -> float:
     """Seconds from the start of the clip to the end of the last voiced 100 ms frame."""
     pcm = pcm[: len(pcm) // 2 * 2]
@@ -305,12 +314,18 @@ class ScribeStream:
         on_committed: Callable[[str, float], None],
         *,
         vad_silence_secs: float = 0.8,
+        vad_threshold: float | None = None,
+        keyterms: Sequence[str] = (),
+        filter_background: bool = False,
         open_timeout: float = 5.0,
         send_timeout: float = 2.0,
     ):
         self.on_partial = on_partial
         self.on_committed = on_committed
         self.vad_silence_secs = vad_silence_secs
+        self.vad_threshold = vad_threshold
+        self.keyterms = tuple(keyterms)
+        self.filter_background = filter_background
         self.open_timeout = open_timeout
         self.send_timeout = send_timeout
         self.ws: ClientConnection | None = None
@@ -325,15 +340,20 @@ class ScribeStream:
         return self.ws is not None and self._reader is not None and not self._reader.done()
 
     async def open(self) -> None:
-        query = urlencode(
-            {
-                "model_id": STT_MODEL,
-                "audio_format": "pcm_16000",
-                "language_code": STT_LANGUAGE,
-                "commit_strategy": "vad",
-                "vad_silence_threshold_secs": self.vad_silence_secs,
-            }
-        )
+        params: list[tuple[str, str | float]] = [
+            ("model_id", STT_MODEL),
+            ("audio_format", "pcm_16000"),
+            ("language_code", STT_LANGUAGE),
+            ("commit_strategy", "vad"),
+            ("vad_silence_threshold_secs", self.vad_silence_secs),
+        ]
+        if self.vad_threshold is not None:
+            params.append(("vad_threshold", self.vad_threshold))
+        if self.filter_background:
+            params.append(("filter_background_audio", "true"))
+        # Repeated `keyterms=` params: the session_started config echoes them back as a list.
+        params += [("keyterms", k) for k in self.keyterms]
+        query = urlencode(params)
         url = f"{WSS}/v1/speech-to-text/realtime?{query}"
         headers = {"xi-api-key": api_key()}
         self.ws = await connect(url, additional_headers=headers, open_timeout=self.open_timeout)
