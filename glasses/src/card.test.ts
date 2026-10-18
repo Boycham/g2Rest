@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { getTextWidth } from '@evenrealities/pretext'
-import { CARD_MAX_LINES, CARD_TEXT_WIDTH, fitBytes, formatCard, formatQueue, queueRow, taskLine, ORDER_HINT } from './card'
+import { CARD_MAX_LINES, CARD_TEXT_WIDTH, fitBytes, formatCard, formatQueue, queueRow, taskLine, ORDER_HINT, QUEUE_FOOTER } from './card'
 import { makeTask } from './fixtures.test-helpers'
 
 const lines = (text: string) => text.split('\n')
@@ -91,7 +91,8 @@ describe('queueRow', () => {
       makeTask({ allergies: [{ allergen: 'shellfish', seats: [3] }], items: [{ qty: 2, dish: 'halibut '.repeat(10), seats: [1] }] }),
       CARD_TEXT_WIDTH,
     )
-    expect(row.startsWith('! SHELLFISH RUN · T12')).toBe(true)
+    expect(row.startsWith('T12 · RUN · ! SHELLFISH')).toBe(true)
+    expect(row).not.toContain('halibut')
     expect(new TextEncoder().encode(row).length).toBeLessThanOrEqual(63)
   })
 
@@ -104,29 +105,37 @@ describe('queueRow', () => {
 })
 
 describe('formatQueue', () => {
-  it('says the queue is empty', () => {
-    expect(formatQueue([])).toBe('Queue empty')
+  it('says the queue is empty, with only the back footer', () => {
+    const l = lines(formatQueue([]))
+    expect(l[0]).toBe('Queue empty')
+    expect(l).toHaveLength(CARD_MAX_LINES)
+    expect(l.at(-1)?.trim()).toBe(QUEUE_FOOTER)
   })
 
-  it('lists every task, the current one marked, allergies first', () => {
+  it('lists table and kind per task, the current one marked, then the back footer', () => {
     const q = [
       makeTask({ id: 'a', allergies: [{ allergen: 'shellfish', seats: [3] }] }),
       makeTask({ id: 'b', kind: 'CLEAR', table: 'T7', items: [] }),
     ]
-    expect(lines(formatQueue(q))).toEqual(['> ! SHELLFISH RUN · T12 · 2× halibut s1+3', '  CLEAR · T7'])
+    const l = lines(formatQueue(q))
+    expect(l.slice(0, 2)).toEqual(['> T12 · RUN · ! SHELLFISH', '  T7 · CLEAR'])
+    expect(l.slice(2, -1).every(x => x === '')).toBe(true)
+    expect(l.at(-1)?.trim()).toBe(QUEUE_FOOTER)
+    expect(l.join('\n')).not.toMatch(/controls|verity|queued/)
   })
 
   it('caps the screen and counts the rest', () => {
     const q = Array.from({ length: 9 }, (_, i) => makeTask({ id: `t${i}` }))
     const l = lines(formatQueue(q))
     expect(l).toHaveLength(CARD_MAX_LINES)
-    expect(l[CARD_MAX_LINES - 1]).toBe(`  +${9 - (CARD_MAX_LINES - 1)} more`)
+    expect(l[CARD_MAX_LINES - 2]).toBe(`  +${9 - (CARD_MAX_LINES - 2)} more`)
+    expect(l[CARD_MAX_LINES - 1].trim()).toBe(QUEUE_FOOTER)
     for (const line of l) expect(getTextWidth(line)).toBeLessThanOrEqual(CARD_TEXT_WIDTH)
   })
 })
 
 describe('ORDER task card', () => {
-  it('names the table and, once accepted, says to swipe down after the order', () => {
+  it('names the table and, once accepted, says to swipe back after the order', () => {
     const task = makeTask({ kind: 'ORDER', table: 'T3', items: [], notes: [] })
     expect(formatCard([task], { offline: false }).text).toBe('ORDER · T3')
     const accepted = formatCard([{ ...task, state: 'accepted' }], { offline: false }).text.split('\n')

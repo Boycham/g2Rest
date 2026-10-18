@@ -66,7 +66,7 @@ Every field name is camelCase on the wire. Times are seconds (`sinceSec`) or ISO
 | `capture.stop` | `captureId` | closes the capture (trailing silence is the backend's job) |
 | `order.confirm` | `orderId`, `proposalId?` | without `proposalId`: fires the draft to the kitchen (the agent only proposed it); with it: applies that pending voice proposal |
 | `order.cancel_confirm` | `orderId`, `proposalId?` | without `proposalId`: cancels the draft (the agent only proposed it); with it: applies that pending cancel proposal |
-| `order.reject` | `orderId`, `proposalId` | swipe up on a pending voice proposal: drops it, nothing changes |
+| `order.reject` | `orderId`, `proposalId` | swipe fwd on a pending voice proposal: drops it, nothing changes |
 
 ```json
 { "type": "task.accept", "taskId": "task-1a2b" }

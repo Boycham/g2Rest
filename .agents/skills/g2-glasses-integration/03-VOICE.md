@@ -2,7 +2,7 @@
 
 ## The flow
 
-(Since conversational capture, see `AGENTS.md`: the mic keeps a rolling minute and a swipe down sends it as one
+(Since conversational capture, see `AGENTS.md`: the mic keeps a rolling minute and a swipe back sends it as one
 clip, transcribed in one batch call.) Original flow: server swipes down → the glasses app starts streaming mic PCM to our backend → backend streams it to ElevenLabs
 Scribe (realtime speech-to-text) → each committed transcript segment goes to an ElevenLabs agent in text-only
 mode → the agent calls our order tools → the backend validates and applies them → the glasses card shows the
@@ -54,6 +54,6 @@ send transcripts to any tool-calling LLM instead. Record which path worked in `b
 ## Privacy
 
 The mic records into a rolling 60 s buffer in WebView memory while the Server role is on; older audio is dropped
-continuously and only a clipped minute leaves the device, on a swipe down. The backend transcribes it and keeps
+continuously and only a clipped minute leaves the device, on a swipe back. The backend transcribes it and keeps
 nothing of the audio or transcript afterwards. Never stored or committed.
 Observability tools never receive audio, transcripts or prompts.

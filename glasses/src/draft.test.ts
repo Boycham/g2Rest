@@ -40,7 +40,7 @@ describe('formatDraft', () => {
 
   it('shows the pending proposal highlighted in the bar', () => {
     const v = formatDraft(state({ draft: draft({ pending: [{ id: 'p1', action: 'remove', text: 'REMOVE s2 salmon?' }] }) }))
-    expect(v.bar).toBe('REMOVE s2 salmon? tap=yes swipe up=no')
+    expect(v.bar).toBe('REMOVE s2 salmon? tap=yes swipe fwd=no')
     expect(v.highlight).toBe(true)
   })
 
@@ -76,7 +76,7 @@ describe('formatDraft', () => {
 describe('draftGesture', () => {
   const pending = (action: 'remove' | 'cancel' | 'confirm') => state({ draft: draft({ pending: [{ id: 'p7', action, text: 'x' }] }) })
 
-  it('swipe down sends the last minute again', () => {
+  it('swipe back sends the last minute again', () => {
     expect(draftGesture('down', state())).toEqual({ send: null, then: 'clip' })
   })
 
@@ -103,7 +103,7 @@ describe('draftGesture', () => {
     expect(draftGesture('tap', state({ draft: null })).send).toBeNull()
   })
 
-  it('swipe up rejects the pending proposal, else goes back keeping the draft', () => {
+  it('swipe fwd rejects the pending proposal, else goes back keeping the draft', () => {
     expect(draftGesture('up', pending('remove'))).toEqual({
       send: { type: 'order.reject', orderId: 'o1', proposalId: 'p7' },
       then: 'none',
@@ -122,7 +122,7 @@ describe('formatDraft for a clip', () => {
   it('shows TABLE? and how to give it when the draft has no table', () => {
     const v = formatDraft(state({ draft: draft({ table: null }) }))
     expect(v.main.split('\n')[1].startsWith('TABLE?')).toBe(true)
-    expect(v.bar).toBe('TABLE? say the table, then swipe down')
+    expect(v.bar).toBe('TABLE? say the table, then swipe back')
     expect(v.highlight).toBe(false)
   })
 

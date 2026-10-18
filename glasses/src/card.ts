@@ -9,7 +9,7 @@ export const CARD_TEXT_WIDTH = DISPLAY_WIDTH - 2 * CARD_PADDING
 export const CARD_MAX_LINES = 5
 
 /** Shown under an accepted ORDER task: the table is bound, the clip does the rest. */
-export const ORDER_HINT = 'swipe down once they have ordered'
+export const ORDER_HINT = 'swipe back once they have ordered'
 
 export interface CardView {
   text: string
@@ -23,7 +23,7 @@ export interface CardOptions {
   maxLines?: number
   /** A transient line under the allergies, e.g. `Heard: accept`. */
   banner?: string
-  /** Always-on corner hint (bottom right), e.g. `↑ controls`. */
+  /** Always-on corner hint (bottom right), e.g. `fwd: controls`. */
   hint?: string
 }
 
@@ -117,21 +117,25 @@ export function fitBytes(text: string, maxBytes: number): string {
   return out + '...'
 }
 
-/** One row of the queue list screen: allergies first, like the card. */
+/** Bottom right of the queue screen; any tap or swipe goes back to the card. */
+export const QUEUE_FOOTER = 'tap: back'
+
+/** One row of the queue screen: table and kind, then any allergy. No dishes; the card has those. */
 export function queueRow(task: Task, width: number): string {
-  const allergy = task.allergies.length ? `! ${task.allergies.map(a => a.allergen.toUpperCase()).join(',')} ` : ''
-  return fitBytes(fit(`${allergy}${taskLine(task)}`, width), LIST_ITEM_MAX_BYTES)
+  const allergy = task.allergies.length ? ` · ! ${task.allergies.map(a => a.allergen.toUpperCase()).join(',')}` : ''
+  return fitBytes(fit(`${task.table} · ${task.kind}${allergy}`, width), LIST_ITEM_MAX_BYTES)
 }
 
 /**
- * The queue screen, as text in one container. A list container would swallow swipe up
- * (the firmware moves the selection instead of sending us the event), so "swipe up again
- * to return" only works if the queue is plain text.
+ * The queue screen, as text in one container: one row per task, the current one marked, and
+ * `tap: back` on the last line. A list container would swallow swipes (the firmware moves the
+ * selection instead of sending us the event), so the queue is plain text.
  */
 export function formatQueue(queue: readonly Task[], width = CARD_TEXT_WIDTH): string {
-  if (!queue.length) return 'Queue empty'
+  const footer = spread('', QUEUE_FOOTER, width)
+  if (!queue.length) return atBottom(['Queue empty'], footer, CARD_MAX_LINES)
+  const room = CARD_MAX_LINES - 1
   const rows = queue.map((t, i) => (i === 0 ? '> ' : '  ') + queueRow(t, width - getTextWidth('> ')))
-  if (rows.length <= CARD_MAX_LINES) return rows.join('\n')
-  const shown = rows.slice(0, CARD_MAX_LINES - 1)
-  return [...shown, `  +${queue.length - shown.length} more`].join('\n')
+  const shown = rows.length <= room ? rows : [...rows.slice(0, room - 1), `  +${queue.length - (room - 1)} more`]
+  return atBottom(shown, footer, CARD_MAX_LINES)
 }
