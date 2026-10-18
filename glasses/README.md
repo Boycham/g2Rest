@@ -1,56 +1,50 @@
-# asr
+# Floor Sense: G2 glasses app
 
-Live speech-to-text demo on G2. Mic audio → your chosen STT provider → transcript rendered on the glasses and mirrored in the companion WebView. Includes double-tap-to-exit wiring.
+The Even Hub app for Even Realities G2 glasses. It shows the restaurant floor on the glasses and stays blank
+when nothing needs the wearer. Pick the role on the phone screen with the Server / Manager select. The role is
+saved in SDK storage, and Server is the default.
 
-**The STT client itself is a blank stub.** This template has zero vendor code baked in. You pick your own provider (Deepgram, AssemblyAI, Whisper, Soniox, self-hosted, etc.) and wire it up in `src/asr/stt.ts`.
+- **Server:** one task card at a time (`RUN · T12 · 2× halibut s1+3`), allergies on the top line, and
+  `+N queued` in the corner.
+- **Manager:** a list of exceptions only, most urgent first (`! T4 waiting 14m on mains`, `T3 task unacked 60s`).
+  Timers tick on the glasses. Swipe down for a minimap of 8 tables: each box shows a status glyph and minutes,
+  and the brightest box is the one that needs you.
 
-## Run
+The glasses talk to the backend over one WebSocket using the message contract in `src/contract.ts`. The URL
+comes from `VITE_BACKEND_URL` in the root `.env` (see the root `.env.example`) and defaults to
+`ws://localhost:8787/ws`.
 
-```bash
-cp .env.example .env.local   # paste your STT provider's API key into VITE_STT_API_KEY
-npm install
-npm run dev
+## Run against the fake backend and the simulator
+
+```sh
+cd glasses && npm install
+npx tsx dev/fake-backend.ts          # FAKE backend: ws://localhost:8787/ws, state page http://localhost:8787/
+npx vite                             # app on http://localhost:5173
+npx evenhub-simulator http://localhost:5173 --automation-port 9898   # restart after every app/backend restart
+npm test && npm run build
 ```
 
-Then `npm run simulate` (desktop simulator) or `npx evenhub qr --url http://<your-ip>:5173` to test on real glasses.
+The fake backend replays a server task script and loops a 60 s manager script: 8 tables, T4 goes late, and
+alerts appear and clear. `POST /late?table=T2` makes any table late, and `POST /reset` starts over. On Linux,
+if `npx evenhub-simulator` can't find the package or won't start, see the setup notes in [NOTES.md](NOTES.md).
 
-## First-run expectation
+On real glasses: `npx evenhub qr --url http://<your-ip>:5173`. To pack: `npm run pack` (writes
+`floor-sense.ehpk`; add the real backend host to `app.json` first).
 
-Until you implement `src/asr/stt.ts`, the companion WebView shows a red error chip: *"STT provider not implemented — open src/asr/stt.ts and wire up your chosen STT service."* That's by design — the scaffold compiles and runs, but the STT handoff throws on startup so you know exactly where to go.
+## Gestures
 
-## What's in here
+| Gesture | Server | Manager |
+|---|---|---|
+| Tap | accept the task; tap again when it's done | dismiss the top exception (on this device only); on the minimap, back to exceptions |
+| Swipe up | queue (swipe up or tap to go back) | back to exceptions from the minimap |
+| Swipe down | take an order; swipe down again to stop | floor minimap |
+| Double tap | exit (`shutDownPageContainer(1)`) | exit (`shutDownPageContainer(1)`) |
 
-| File | Purpose |
-|---|---|
-| `src/main.ts` | App entry. Creates the transcript container, starts the mic, routes PCM chunks to `stt.ts`, renders snapshots with a 120ms debounce, handles double-tap exit. |
-| `src/asr/stt.ts` | **Blank stub.** Provider-agnostic `SttClient` interface + `startSttStream()` function. Implement your STT provider here. |
-| `src/ui.ts` | Companion-app UI — status chip, live transcript mirror, dark theme. |
-| `index.html` | WebView host with zoom-locked viewport. |
-| `app.json` | Manifest with `g2-microphone` permission. **No `network` permission by default** — add yours when you pick a provider. |
-| `.env.example` | `VITE_STT_API_KEY=` placeholder for your provider's key. |
+Minimap glyphs: `!` needs you, `S` seated, `O` ordered, `W` waiting on food, `E` eating (mains out),
+`C` check, `-` empty.
 
-## Wiring your STT provider
+## More
 
-1. Open `src/asr/stt.ts`. Replace the `throw` inside `startSttStream` with your provider's logic:
-   - Connect to the provider (WebSocket for streaming, HTTP for batch).
-   - Send the authentication / session-start message.
-   - On each inbound transcript message, build a `SttSnapshot { finalText, interimText, finished }` and call `onSnapshot()`.
-   - Implement `sendPcm(chunk)` to forward each mic chunk. The input is PCM s16le @ 16 kHz, mono — most providers accept this directly; resample if yours doesn't.
-   - Implement `close()` to signal end-of-stream.
-
-2. Paste your API key into `.env.local` as `VITE_STT_API_KEY=...`.
-
-3. Add a `network` permission to `app.json` with your provider's hosts:
-
-   ```json
-   { "name": "network", "desc": "Stream audio to STT.", "whitelist": ["https://api.yourprovider.com", "wss://stream.yourprovider.com"] }
-   ```
-
-   `evenhub pack` rejects an empty whitelist, which is why this entry isn't in `app.json` by default.
-
-## G2 specifics
-
-- Mic format: PCM s16le, 16 kHz, mono. Delivered via `event.audioEvent.audioPcm` as `Uint8Array`.
-- Glasses render is debounced to 120 ms — the BLE queue can't keep up with per-token writes.
-- Transcript is trimmed to the last 240 characters to fit the 576x288 text container at default font.
-- **Double-tap the temple** → `shutDownPageContainer(1)` → system exit confirmation dialog.
+[NOTES.md](NOTES.md) has what was checked in the simulator, the surprises, what's not done yet and the
+`HW-PENDING` list for real hardware. The SDK and simulator details are in
+`.agents/skills/g2-glasses-integration/`.
