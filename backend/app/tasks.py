@@ -200,6 +200,16 @@ class TaskBook:
         self._move(task, "accepted", now, "task.accept")
         return [Outbound(task.assignee, {"type": "task.updated", "task": task.wire()})]
 
+    def unaccept(self, task_id: str, now: float, by: str | None = None) -> list[Outbound]:
+        """Undo an accept: back to `sent`, and the escalation timer starts again."""
+        task = self.get(task_id)
+        if task.state != "accepted":
+            raise TaskError(f"{task.id} is {task.state}, cannot unaccept")
+        self._check_owner(task, by)
+        task.sent_at = now
+        self._move(task, "sent", now, "task.unaccept")
+        return [Outbound(task.assignee, {"type": "task.updated", "task": task.wire()})]
+
     def done(self, task_id: str, now: float, by: str | None = None) -> list[Outbound]:
         task = self.get(task_id)
         if not task.open:

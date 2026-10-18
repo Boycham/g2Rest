@@ -166,3 +166,15 @@ def test_task_queued_for_an_offline_server_escalates_after_two_minutes(book: Tas
     ]
     out = book.tick(now=360)  # end of the chain: the manager gets the alert
     assert [(o.staff, o.message["type"]) for o in out] == [("m1", "alert")]
+
+
+def test_unaccept_puts_an_accepted_task_back_for_its_owner_only(book: TaskBook) -> None:
+    task, _ = book.create("RUN", "T2", now=0)
+    book.mark_sent(task.id, now=1)
+    book.accept(task.id, now=2, by="s1")
+    with pytest.raises(TaskError):
+        book.unaccept(task.id, now=3, by="s2")
+    assert types(book.unaccept(task.id, now=4, by="s1")) == [("s1", "task.updated", "assigned")]
+    assert task.state == "sent" and task.sent_at == 4
+    with pytest.raises(TaskError):
+        book.unaccept(task.id, now=5, by="s1")
