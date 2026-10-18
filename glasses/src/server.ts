@@ -1,5 +1,5 @@
 import { RebuildPageContainer } from '@evenrealities/even_hub_sdk'
-import type { BackendMessage, GlassesJsonMessage, VoiceIntent } from './contract'
+import type { BackendMessage, GlassesJsonMessage, VoiceCommand } from './contract'
 import { formatCard, formatQueue } from './card'
 import { CaptureScreen } from './capture'
 import { RollingBuffer } from './clip'
@@ -11,9 +11,14 @@ import { MAIN_ID, MAIN_NAME, TextSlot, fullTextPage } from './render'
 import { saveQueue } from './storage'
 import { tap, type Queue } from './tasks'
 import { log } from './log'
-import { UNDO_MS, voiceAction } from './voice'
+import { CONTROLS, CONTROLS_HINT, MAIN_GESTURES, formatControls, moveSelection, type ControlAction } from './controls'
+import { handoffFrame, handoffPrompt } from './handoff'
+import { didntGet, voiceAction, type VoiceGesture } from './voice'
 
-type Screen = 'card' | 'queue' | 'draft'
+/** How long `Heard: <command>` and refusal lines stay on the card. */
+const FLASH_MS = 3000
+
+type Screen = 'card' | 'queue' | 'draft' | 'controls'
 
 /**
  * The server HUD: one task card, the queue, and the order draft. While the server role is on
@@ -33,7 +38,11 @@ export class ServerHud implements Hud {
   private readonly fixtures = debugFixtures()
   private nextFixture = 0
   private commandId: string | null = null
-  private heard: { text: string; timer: ReturnType<typeof setTimeout>; pending: boolean } | null = null
+  private heard: { text: string; timer: ReturnType<typeof setTimeout> } | null = null
+  private popup: { taskId: string; name?: string } | null = null
+  private selected = 0
+  /** task.revert is in flight: the next task update is its answer. */
+  private revertSent = false
 
   constructor(
     private readonly ctx: HudContext,
@@ -43,7 +52,7 @@ export class ServerHud implements Hud {
     this.queue = restored
     this.done = restoredDone
     this.card = new TextSlot(ctx.bridge, MAIN_ID, MAIN_NAME, 'card', () =>
-      ctx.active() && this.current === 'card' ? this.currentCard() : null,
+      ctx.active() ? this.slotView() : null,
     )
     this.capture = new CaptureScreen(ctx.bridge, ctx.socket, () => ctx.syncPhone())
     this.mic = new Mic(ctx.bridge)
@@ -123,8 +132,21 @@ export class ServerHud implements Hud {
     return this.current
   }
 
+  private banner(): string | undefined {
+    if (this.popup && this.queue[0]?.id === this.popup.taskId) return handoffPrompt(this.popup.name)
+    return this.heard?.text
+  }
+
   private currentCard() {
-    return formatCard(this.queue, { offline: this.ctx.status() !== 'online', banner: this.heard?.text })
+    const offline = this.ctx.status() !== 'online'
+    return formatCard(this.queue, { offline, banner: this.banner(), hint: CONTROLS_HINT })
+  }
+
+  /** What the main text container shows on the card and Controls screens (null elsewhere). */
+  private slotView() {
+    if (this.current === 'card') return this.currentCard()
+    if (this.current === 'controls') return { text: formatControls(this.selected), brightness: 4 }
+    return null
   }
 
   startPage(): PageSpec {
@@ -154,11 +176,9 @@ export class ServerHud implements Hud {
       this.ctx.syncPhone()
       return
     }
-    const card = this.currentCard()
-    const text = next === 'queue' ? formatQueue(this.queue) : card.text
-    const brightness = next === 'card' ? card.brightness : 4
-    const page = new RebuildPageContainer({ containerTotalNum: 1, textObject: [fullTextPage(text, brightness)] })
-    if (next === 'card') this.card.shown(card)
+    const view = this.slotView() ?? { text: formatQueue(this.queue), brightness: 4 }
+    const page = new RebuildPageContainer({ containerTotalNum: 1, textObject: [fullTextPage(view.text, view.brightness)] })
+    if (next !== 'queue') this.card.shown(view)
     const t0 = performance.now()
     const ok = await this.ctx.bridge.rebuildPageContainer(page)
     log('rebuild', next, ok, `${(performance.now() - t0).toFixed(1)} ms`)
@@ -172,7 +192,16 @@ export class ServerHud implements Hud {
   }
 
   onMessage(msg: BackendMessage): void {
-    if (msg.type === 'voice.command') return this.onVoiceCommand(msg.intent)
+    if (msg.type === 'voice.command') return this.onVoiceCommand(msg)
+    if (msg.type === 'voice.unknown') {
+      log('<- voice.unknown', msg.reason ?? '')
+      return this.flash(didntGet(msg.words, msg.reason))
+    }
+    if (msg.type === 'task.rejected') {
+      if (msg.action === 'revert') this.revertSent = false
+      log('<- task.rejected', msg.action, msg.taskId ?? '', msg.reason)
+      return this.flash(msg.reason)
+    }
     if (msg.type === 'order.draft') {
       log('<-', msg.type, msg.orderId, msg.voice ?? '', `${msg.lines.length} lines`, `${msg.pending?.length ?? 0} pending`)
       this.capture.onDraft(msg)
@@ -185,7 +214,9 @@ export class ServerHud implements Hud {
     }
     if (msg.type !== 'task.assigned' && msg.type !== 'task.updated') return
     log('<-', msg.type, msg.task.id, msg.task.state)
-    const r = applyBackendTask(this.queue, this.done, msg.task)
+    const reverted = this.revertSent
+    this.revertSent = false
+    const r = applyBackendTask(this.queue, this.done, msg.task, reverted)
     this.queue = r.queue
     this.done = r.done
     for (const m of r.resend) this.ctx.socket.send(m)
@@ -231,64 +262,110 @@ export class ServerHud implements Hud {
     if (then === 'clip') void this.sendClip()
   }
 
-  /**
-   * "verity <command>": the same action as the gesture. Task actions and confirm wait 3 s
-   * behind `Heard: <command>`; a tap or "verity back" in that time undoes them.
-   */
-  onVoiceCommand(intent: VoiceIntent): void {
-    log('<- voice.command', intent)
-    if (this.heard?.pending && intent === 'back') return this.undoHeard()
-    const head = this.queue[0]
-    const action = voiceAction(intent, head)
-    if (action.kind === 'refuse') return this.showHeard(action.line, null)
-    if (intent === 'confirm' && this.current !== 'draft') return this.showHeard('Nothing to confirm', null)
-    if (action.kind === 'gesture' && intent !== 'confirm') {
-      this.showHeard(`Heard: ${intent}`, null)
-      return this.runGesture(action.gesture)
+  /** "verity <command>": the same action as the gesture; task frames go out at once. */
+  onVoiceCommand(cmd: VoiceCommand): void {
+    log('<- voice.command', cmd.intent, cmd.name ?? '')
+    const action = voiceAction(cmd.intent, this.queue[0], cmd.name)
+    switch (action.kind) {
+      case 'refuse':
+        return this.flash(action.line)
+      case 'confirm':
+        this.flash('Heard: confirm')
+        return this.onTap()
+      case 'nevermind':
+        if (!this.popup) return this.flash('Nothing to cancel')
+        this.popup = null
+        return this.flash('Cancelled')
+      case 'handoff':
+        this.flash(`Heard: handoff${action.name ? ` ${action.name}` : ''}`)
+        return this.openHandoff(action.name)
+      case 'task':
+        this.flash(`Heard: ${cmd.intent}`)
+        return this.sendTask(action.send)
+      case 'gesture':
+        this.flash(`Heard: ${cmd.intent}`)
+        return this.voiceGesture(action.gesture)
     }
-    this.showHeard(`Heard: ${intent}`, () => {
-      if (action.kind === 'gesture') this.onDraftGesture('tap')
-      else if (this.queue[0]?.id === head?.id) this.sendTask(action.send)
-    })
   }
 
-  private runGesture(g: 'tap' | 'up' | 'down' | 'back' | 'clip'): void {
-    if (g === 'tap') this.onTap()
-    else if (g === 'up') this.onSwipeUp()
-    else if (g === 'down') this.onSwipeDown()
-    else if (g === 'clip') void this.sendClip()
-    else if (this.current !== 'card') void this.showScreen('card')
+  private voiceGesture(g: VoiceGesture): void {
+    if (g === 'up') return this.onSwipeUp()
+    if (g === 'down') return this.onSwipeDown()
+    if (g === 'clip') return void this.sendClip()
+    if (g === 'menu') return void this.openControls()
+    if (g === 'queue') return void this.showScreen('queue')
+    if (this.popup) {
+      this.popup = null
+      return this.refreshHeard()
+    }
+    if (this.current !== 'card') void this.showScreen('card')
   }
 
+  /** Task frames from voice or the menu; the backend answers task.updated or task.rejected. */
   private sendTask(send: GlassesJsonMessage): void {
     const head = this.queue[0]
     const viaTap =
-      (send.type === 'task.accept' && head?.state === 'assigned') ||
-      (send.type === 'task.done' && head?.state === 'accepted')
+      (send.type === 'task.accept' && head?.state === 'assigned' && head.id === send.taskId) ||
+      (send.type === 'task.done' && head?.state === 'accepted' && head.id === send.taskId)
     if (viaTap) return this.taskTap()
+    if (send.type === 'task.revert') this.revertSent = true
     this.ctx.socket.send(send)
-    if (send.type === 'task.done' || send.type === 'task.bounce') {
-      const id = send.taskId
-      this.queue = this.queue.filter(t => t.id !== id)
-      if (send.type === 'task.done') this.done = markDone(this.done, id)
-    }
-    this.changed()
   }
 
-  private showHeard(text: string, run: (() => void) | null): void {
-    this.clearHeard()
-    const timer = setTimeout(() => {
-      this.heard = null
-      run?.()
-      this.refreshHeard()
-    }, UNDO_MS)
-    this.heard = { text, timer, pending: run !== null }
+  /** Long hold or "verity handoff [name]": a Confirm popup on the card first. */
+  private openHandoff(name?: string): void {
+    const head = this.queue[0]
+    if (!head) return this.flash('No task to hand off')
+    if (this.current !== 'card') void this.showScreen('card')
+    this.popup = name ? { taskId: head.id, name } : { taskId: head.id }
     this.refreshHeard()
   }
 
-  private undoHeard(): void {
-    const what = this.heard?.text.replace('Heard: ', '') ?? ''
-    this.showHeard(`Undone: ${what}`, null)
+  private confirmHandoff(): void {
+    const popup = this.popup
+    this.popup = null
+    if (!popup) return
+    log('-> task.handoff', popup.taskId, popup.name ?? '(router picks)')
+    this.ctx.socket.send(handoffFrame(popup.taskId, popup.name))
+    this.flash(popup.name ? `Handing off to ${popup.name}` : 'Handing off')
+  }
+
+  private async openControls(): Promise<void> {
+    this.selected = 0
+    await this.showScreen('controls')
+  }
+
+  /** A tap (or "verity confirm") on the selected Controls row. */
+  private pick(action: ControlAction): void {
+    log('controls pick', action)
+    if (action === 'queue') return void this.showScreen('queue')
+    if (action === 'clip') return void this.sendClip()
+    if (action === 'exit') return void this.ctx.bridge.shutDownPageContainer(1)
+    void this.showScreen('card')
+    if (action === 'task') this.taskTap()
+    else if (action === 'handoff') this.openHandoff()
+    else if (action === 'decline' && this.queue[0]) this.sendTask({ type: 'task.bounce', taskId: this.queue[0].id })
+    else if (action === 'revert') this.sendTask({ type: 'task.revert' })
+    else if (action === 'controls') void this.openControls()
+  }
+
+  /** What a gesture does on the main card (MAIN_GESTURES in controls.ts). */
+  private mainAction(action: 'task' | 'controls' | 'queue' | 'clip' | 'handoff'): void {
+    if (action === 'task') return this.taskTap()
+    if (action === 'controls') return void this.openControls()
+    if (action === 'queue') return void this.showScreen('queue')
+    if (action === 'clip') return void this.sendClip()
+    this.openHandoff()
+  }
+
+  private flash(text: string): void {
+    this.clearHeard()
+    const timer = setTimeout(() => {
+      this.heard = null
+      this.refreshHeard()
+    }, FLASH_MS)
+    this.heard = { text, timer }
+    this.refreshHeard()
   }
 
   private clearHeard(): void {
@@ -302,13 +379,11 @@ export class ServerHud implements Hud {
   }
 
   onTap(): void {
-    if (this.heard?.pending) return this.undoHeard()
+    if (this.popup) return this.confirmHandoff()
     if (this.current === 'draft') return this.onDraftGesture('tap')
-    if (this.current === 'queue') {
-      void this.showScreen('card')
-      return
-    }
-    this.taskTap()
+    if (this.current === 'controls') return this.pick(CONTROLS[this.selected].action)
+    if (this.current === 'queue') return void this.showScreen('card')
+    this.mainAction(MAIN_GESTURES.tap)
   }
 
   private taskTap(): void {
@@ -320,14 +395,27 @@ export class ServerHud implements Hud {
   }
 
   onSwipeUp(): void {
-    if (this.current === 'draft') this.onDraftGesture('up')
-    else if (this.current === 'card') void this.showScreen('queue')
-    else void this.showScreen('card')
+    if (this.current === 'draft') return this.onDraftGesture('up')
+    if (this.current === 'controls') return this.move('up')
+    if (this.current === 'queue') return void this.showScreen('card')
+    this.mainAction(MAIN_GESTURES.up)
   }
 
   onSwipeDown(): void {
-    if (this.current === 'card') void this.sendClip()
-    else if (this.current === 'draft') this.onDraftGesture('down')
+    if (this.current === 'draft') return this.onDraftGesture('down')
+    if (this.current === 'controls') return this.move('down')
+    if (this.current === 'queue') return void this.showScreen('card')
+    this.mainAction(MAIN_GESTURES.down)
+  }
+
+  /** Long hold (LONG_PRESS_EVENT); HW-PENDING whether the simulator sends it. */
+  onLongPress(): void {
+    if (this.current === 'card') this.mainAction(MAIN_GESTURES.hold)
+  }
+
+  private move(dir: 'up' | 'down'): void {
+    this.selected = moveSelection(this.selected, dir)
+    void this.card.render()
   }
 
   save(): void {

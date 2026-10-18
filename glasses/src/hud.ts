@@ -35,6 +35,8 @@ export interface Hud {
   onTap(): void
   onSwipeUp(): void
   onSwipeDown(): void
+  /** Long hold (SDK LONG_PRESS_EVENT). */
+  onLongPress(): void
   save(): void
   cleanup(): void
 }

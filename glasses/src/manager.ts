@@ -172,6 +172,8 @@ export class ManagerHud implements Hud {
     if (this.current === 'exceptions') void this.showScreen('minimap')
   }
 
+  onLongPress(): void {}
+
   save(): void {
     void saveManager(this.ctx.bridge, { exceptions: this.exceptions, tables: this.tables })
   }
