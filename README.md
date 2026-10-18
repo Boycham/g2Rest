@@ -13,7 +13,7 @@ beforehand for working with the G2 glasses ([`.agents/skills/g2-glasses-integrat
 Everything else (code, fictional menu and floor data, designs) was built during LA Hacks by two humans directing
 Devin (Cognition) and Claude Code (Anthropic). Who and what wrote each part is in [AI_USAGE.md](AI_USAGE.md).
 
-- **Glasses HUD** (`glasses/`): three tabs (Controls, Queue, Card), tap / swipe / long press / double tap
+- **Glasses HUD** (`glasses/`): three tabs (Controls, Queue, Task), tap / swipe / long press / double tap
   gestures, "verity" voice commands, the 2-minute order clip, ramp mode for new servers, nod to accept
   (HW-PENDING), and a manager view with exceptions and a minimap.
 - **Backend hub** (`backend/`): FastAPI + WebSocket hub, task state machine with escalation, run priority for
@@ -56,6 +56,7 @@ local run; empty values turn the feature off.
 |---|---|
 | `VITE_BACKEND_URL` | Hub WebSocket URL baked into the glasses bundle (default `ws://localhost:8787/ws`) |
 | `FS_TOKEN` | Shared HTTP + WebSocket token on the backend; empty = open dev mode |
+| `FS_FLOOR` | `demo` = `data/floor.demo.json` (Ava + 3 mock servers, see step 6); empty = `data/floor.json` |
 | `VITE_FS_TOKEN` | The same token, baked into the glasses bundle |
 | `VITE_FS_STAFF` | Which server id the glasses sign in as (default `s1`) |
 | `VITE_FS_NOD` | Nod-to-accept tuning, or `off` (HW-PENDING) |
@@ -115,6 +116,22 @@ Restart the simulator after every app or backend restart. Pick Server or Manager
 `npx tsx dev/fake-backend.ts` is a no-backend fallback on port 8787. Details:
 [glasses/README.md](glasses/README.md), [glasses/NOTES.md](glasses/NOTES.md).
 
+### 6. Routing demo: mock servers next to the real G2
+
+The real glasses are `s1` (Ava). For the router to have choices, start the backend on the four-server demo
+floor and let `sim/mock_staff.py` play Ben, Cam and Dee over real staff sockets:
+
+```sh
+cd backend && FS_FLOOR=demo FS_TOKEN= .venv/bin/uvicorn app.main:app --port 8787
+cd sim && ../backend/.venv/bin/python mock_staff.py --staff s2,s3,s4 --dispatch-every 20
+cd web/verity && npm run dev                     # http://localhost:5176/dashboard.html
+```
+
+The mocks show online on the dashboard, accept after 3-10 s, finish after a per-kind time at their own speed
+(so `/stats` differs), sometimes bounce or run slow to show re-routing, and `--dispatch-every 20` posts a demo
+task through the router every 20 s. They never use `s1` or touch its cards; Ctrl-C takes them offline. Pass
+`--api http://host:port --token ...` for another backend. Details: [sim/README.md](sim/README.md).
+
 ## Install on real G2 glasses
 
 1. Whitelist the backend host in `glasses/app.json` (`https://` and `wss://`); the phone blocks any host not
@@ -132,14 +149,14 @@ Source and hardware findings: [glasses/NOTES.md](glasses/NOTES.md).
 ## Gestures and voice commands (Server)
 
 Swipe fwd = toward the eyes, swipe back = toward the ear. The HUD is three stacked tabs: Controls (top), Queue,
-Card (home).
+Task (home).
 
-| Gesture | Card (bottom) | Queue (middle) | Controls (top) | Voice |
+| Gesture | Task (bottom) | Queue (middle) | Controls (top) | Voice |
 |---|---|---|---|---|
-| Tap | accept, then done; confirms a popup or sends the draft | back to the Card | next page (1/3 → 2/3 → 3/3 → 1/3) | `verity accept` / `done` / `confirm` |
+| Tap | accept, then done; confirms a popup or sends the draft | back to the Task tab | next page (1/3 → 2/3 → 3/3 → 1/3) | `verity accept` / `done` / `confirm` |
 | Swipe fwd | to Queue | to Controls | nothing (top tab) | `verity up`; `verity queue` / `verity menu` jump to a tab |
-| Swipe back | clip the last 2 minutes as an order | to the Card | to Queue | `verity down`; `verity clip` clips from any tab |
-| Long hold | handoff: `Confirm handoff?`, then tap | back to the Card | back to the Card | `verity handoff [name]` / `verity back` |
+| Swipe back | clip the last 2 minutes as an order | to the Task tab | to Queue | `verity down`; `verity clip` clips from any tab |
+| Long hold | handoff: `Confirm handoff?`, then tap | back to the Task tab | back to the Task tab | `verity handoff [name]` / `verity back` |
 | Double tap | exit (`shutDownPageContainer(1)`, Even Hub review rule) | exit | exit | none |
 | Voice only | decline (`task.bounce`), revert (`task.revert`), cancel a popup, bind the unsent draft to table N | | | `verity decline` / `revert` / `nevermind` / `table N` |
 | Nod (IMU, HW-PENDING) | accept the waiting task (`task.accept`), only while one waits | same | same | `verity revert` undoes it |
@@ -156,7 +173,7 @@ cd backend/voice && .venv/bin/python -m pytest -q           # relay, guards, com
 cd glasses && npm test                                      # vitest
 cd web && node --test                                       # page state
 cd web/verity && npm test                                   # keyframes, dashboard view model
-cd sim && ../backend/.venv/bin/python -m pytest -q tests    # metrics + a tiny service
+cd sim && ../backend/.venv/bin/python -m pytest -q tests    # metrics, a tiny service, mock servers
 ```
 
 ## Repo map

@@ -1,0 +1,26 @@
+{
+  "restaurant": "Floor Sense demo kitchen (fictional)",
+  "sections": [
+    { "id": "A", "name": "Window", "server": "s1" },
+    { "id": "B", "name": "Garden", "server": "s2" },
+    { "id": "C", "name": "Bar", "server": "s3" },
+    { "id": "D", "name": "Patio", "server": "s4" }
+  ],
+  "servers": [
+    { "id": "s1", "name": "Ava", "sections": ["A"] },
+    { "id": "s2", "name": "Ben", "sections": ["B", "C", "D"] },
+    { "id": "s3", "name": "Cam", "sections": ["C", "B", "D"] },
+    { "id": "s4", "name": "Dee", "sections": ["D", "B", "C"] }
+  ],
+  "manager": { "id": "m1", "name": "Dana" },
+  "tables": [
+    { "id": "T1", "section": "A", "seats": 2, "x": 0, "y": 0 },
+    { "id": "T2", "section": "A", "seats": 4, "x": 3, "y": 0 },
+    { "id": "T3", "section": "C", "seats": 4, "x": 6, "y": 0 },
+    { "id": "T4", "section": "C", "seats": 6, "x": 9, "y": 0 },
+    { "id": "T5", "section": "B", "seats": 2, "x": 0, "y": 4 },
+    { "id": "T6", "section": "B", "seats": 4, "x": 3, "y": 4 },
+    { "id": "T7", "section": "D", "seats": 4, "x": 6, "y": 4 },
+    { "id": "T8", "section": "D", "seats": 6, "x": 9, "y": 4 }
+  ]
+}

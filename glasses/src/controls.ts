@@ -1,7 +1,7 @@
 import { CARD_MAX_LINES, TAB_TEXT_WIDTH, spread } from './card'
 
 // The gesture map in one place. The server HUD is a vertical stack of three tabs, top to bottom
-// TABS; swipe fwd (SDK `up`) goes one tab up and swipe back (SDK `down`) one tab down. The Card is
+// TABS; swipe fwd (SDK `up`) goes one tab up and swipe back (SDK `down`) one tab down. The Task tab is
 // the bottom tab, so its swipe back is free for clip: CARD_GESTURES says what each gesture does there.
 // On the G2 touchpad SDK `up` is a swipe fwd (toward the eyes) and `down` a swipe back (toward the
 // ear). Double tap is always exit (Even Hub review rule) and lives in main.ts.
@@ -9,9 +9,9 @@ import { CARD_MAX_LINES, TAB_TEXT_WIDTH, spread } from './card'
 export const TABS = ['controls', 'queue', 'card'] as const
 export type Tab = (typeof TABS)[number]
 
-export const TAB_LABELS: Record<Tab, string> = { controls: 'Controls', queue: 'Queue', card: 'Card' }
+export const TAB_LABELS: Record<Tab, string> = { controls: 'Controls', queue: 'Queue', card: 'Task' }
 
-/** The tab a swipe moves to; null past the ends (swipe back on the Card is clip instead). */
+/** The tab a swipe moves to; null past the ends (swipe back on the Task tab is clip instead). */
 export function tabAfter(tab: Tab, dir: 'up' | 'down'): Tab | null {
   const i = TABS.indexOf(tab) + (dir === 'up' ? -1 : 1)
   return TABS[i] ?? null
@@ -26,7 +26,7 @@ export const CARD_GESTURES: Record<'tap' | 'up' | 'down' | 'hold', CardAction> =
   hold: 'handoff',
 }
 
-/** The Card's corner hint (bottom right): the Queue tab is above it. */
+/** The Task tab's corner hint (bottom right): the Queue tab is above it. */
 export const CARD_HINT = 'fwd: queue'
 
 export interface ControlItem {
@@ -45,7 +45,7 @@ export const CONTROLS: readonly ControlItem[] = [
   { label: 'Clip last 2 min', gesture: 'swipe back', voice: 'verity clip' },
   { label: 'Hand off', gesture: 'hold', voice: 'verity handoff' },
   { label: 'Queue, Controls', gesture: 'swipe fwd', voice: 'verity queue/menu' },
-  { label: 'Back to the card', gesture: 'hold', voice: 'verity back' },
+  { label: 'Back to Task', gesture: 'hold', voice: 'verity back' },
   { label: 'Decline', gesture: 'voice', voice: 'verity decline' },
   { label: 'Revert last', gesture: 'voice', voice: 'verity revert' },
   { label: 'Set table', gesture: 'voice', voice: 'verity table N' },

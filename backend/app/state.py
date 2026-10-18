@@ -63,7 +63,7 @@ class Store:
         return cls(
             settings,
             Menu.load(settings.data_dir / "menu.json"),
-            Floor.load(settings.data_dir / "floor.json"),
+            Floor.load(settings.data_dir / settings.floor_file),
             clock=clock,
         )
 

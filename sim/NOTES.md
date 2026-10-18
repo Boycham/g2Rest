@@ -189,3 +189,23 @@ x200, about 3 min at the default x80. Not rerun after the fix; not watched in th
 - Tables are not pushed together; 5-6 tops wait for one of the two 6-tops.
 - `pass.run` is when the pass hands the run to a server, not when the plates are lifted;
   "plate to table" covers the rest.
+
+## Mock servers (`mock_staff.py`), dev VM check
+
+Backend on the demo floor (`FS_FLOOR=demo FS_DONE_SEC=60`, Gemini off, so the rules route), mocks
+`--staff s2,s3,s4 --dispatch-every 6 --time-scale 0.5 --seed 3`, about 4 minutes, dashboard open:
+
+| Server | speed | done | avg accept-to-done | CHECK | ORDER | RUN |
+|---|---|---|---|---|---|---|
+| Ben s2 | x0.7 | 10 | 10 s | 5 s | 14 s | 11 s |
+| Cam s3 | x1 | 13 | 12 s | 8 s | 20 s | 19 s |
+| Dee s4 | x1.4 | 13 | 15 s | 11 s | 25 s | 19 s |
+
+`GET /health` `online` = `[s2, s3, s4]` while running, `[]` within a second of Ctrl-C. In that
+run: 5 bounces (each card went to the next mock), 2 slow holds (Ben held a CHECK past 60 s: the
+manager alert "running long" showed and the backend moved it on). `--time-scale` doesn't scale
+the slow hold (`doneSec` + 15 s), since the backend times that on its real clock.
+
+HW-PENDING: a dispatched task the router (Gemini especially) gives to `s1` lands on the real
+glasses; the mocks never touch it. Pass `--tables` with only mock-section tables if Ava should
+only get what the owner sends by hand. Not checked with Gemini on (no `GEMINI_API_KEY` on the VM).
