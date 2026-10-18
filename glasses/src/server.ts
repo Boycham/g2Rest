@@ -8,11 +8,12 @@ import { debugFixtures, debugNod, debugSays, loadFixture } from './debug-pcm'
 import { FrameChunker, Mic, toBytes } from './mic'
 import type { Hud, HudContext, PageSpec } from './hud'
 import { applyBackendTask, markDone, saveDone, type DoneIds } from './reconcile'
-import { MAIN_ID, MAIN_NAME, TextSlot, fullTextPage, tabsPage } from './render'
+import { MAIN_ID, MAIN_NAME, TextSlot, blankPage, fullTextPage, tabsPage } from './render'
 import { saveQueue, saveRamp } from './storage'
 import { formatRamp, rampHint, rampOn, rampPages, withRamp, type RampPrefs } from './ramp'
 import { NodDetector, nodWanted, parseNodConfig, syntheticNod, type ImuSample } from './nod'
 import { tap, type Queue } from './tasks'
+import { DONE_BEAT_MS, IdleBlank } from './idle'
 import { log } from './log'
 import { CARD_GESTURES, CARD_HINT, formatControls, nextControlsPage, tabAfter, type CardAction, type Tab } from './controls'
 import { handoffFrame, handoffPrompt } from './handoff'
@@ -23,6 +24,8 @@ import { didntGet, rejectionLine, tableLine, voiceAction, type VoiceGesture } fr
 const FLASH_MS = 3000
 /** Gemini's own timeout is 2 s; past this the relay is gone and the words show as not got. */
 const MAPPING_TIMEOUT_MS = 5000
+/** The Card's top line on a tap wake with nothing to do. */
+const NO_TASKS = 'No tasks'
 
 type Screen = Tab | 'draft' | 'ramp'
 
@@ -69,6 +72,9 @@ export class ServerHud implements Hud {
   private imuOn = false
   private imuSamples = 0
   private debugNodPlayed = false
+  private readonly idle = new IdleBlank(awake => this.onIdle(awake))
+  /** The blank page is on the glasses (idle.ts): nothing renders until a wake rebuilds. */
+  private blankShown = false
 
   constructor(
     private readonly ctx: HudContext,
@@ -155,8 +161,55 @@ export class ServerHud implements Hud {
     this.ctx.syncPhone()
   }
 
-  screen(): Screen {
-    return this.current
+  screen(): Screen | 'blank' {
+    return this.blankShown ? 'blank' : this.current
+  }
+
+  /** Something on the glasses needs the screen, so it must not blank. */
+  private held(): boolean {
+    return (
+      this.queue.length > 0 ||
+      this.current === 'draft' ||
+      this.current === 'ramp' ||
+      this.popup !== null ||
+      this.mapping !== null ||
+      this.capture.processing
+    )
+  }
+
+  private syncIdle(): void {
+    if (this.ctx.active()) this.idle.update(this.held())
+  }
+
+  /** Idle timer: blank the glasses, or bring the Card back from blank. */
+  private onIdle(awake: boolean): void {
+    if (!this.ctx.active()) return
+    if (awake) {
+      if (this.blankShown) void this.showScreen(this.current)
+      return
+    }
+    void this.showBlank()
+  }
+
+  private async showBlank(): Promise<void> {
+    if (this.current === 'draft') this.capture.leave()
+    this.current = 'card'
+    this.popup = null
+    this.blankShown = true
+    const t0 = performance.now()
+    const ok = await this.ctx.bridge.rebuildPageContainer(new RebuildPageContainer(blankPage()))
+    log('rebuild blank (idle)', ok, `${(performance.now() - t0).toFixed(1)} ms`)
+    this.syncImu()
+    this.ctx.syncPhone()
+  }
+
+  /** While blank, a tap (or swipe fwd, long press) only brings the Card back. */
+  private wokeByGesture(): boolean {
+    this.idle.touch()
+    if (!this.blankShown) return false
+    log('wake: gesture')
+    this.idle.wake()
+    return true
   }
 
   private banner(): string | undefined {
@@ -172,6 +225,7 @@ export class ServerHud implements Hud {
       banner: this.banner(),
       eightySix: this.out86.line(),
       hint: CARD_HINT,
+      empty: NO_TASKS,
       width: TAB_TEXT_WIDTH,
       detail: rampOn(this.ramp.prefs, this.ramp.staff) ? rampHint(this.queue[0], TAB_TEXT_WIDTH) : undefined,
     })
@@ -179,6 +233,7 @@ export class ServerHud implements Hud {
 
   /** What the tab content shows (null on the draft). */
   private slotView() {
+    if (this.blankShown) return null
     if (this.current === 'card') return this.currentCard()
     if (this.current === 'controls') return { text: formatControls(this.controlsPage), brightness: 4 }
     if (this.current === 'queue') return { text: formatQueue(this.queue), brightness: 4 }
@@ -188,8 +243,11 @@ export class ServerHud implements Hud {
 
   startPage(): PageSpec {
     this.current = 'card'
+    this.blankShown = false
     const card = this.currentCard()
     this.card.shown(card)
+    // Starts awake (the wearer sees the app is up), then blanks after IDLE_MS if idle.
+    if (this.ctx.active()) this.syncIdle()
     return tabsPage('card', card)
   }
 
@@ -203,6 +261,8 @@ export class ServerHud implements Hud {
     this.capture.leave()
     this.stopRecording()
     this.current = 'card'
+    this.idle.reset()
+    this.blankShown = false
     this.syncImu()
   }
 
@@ -210,6 +270,11 @@ export class ServerHud implements Hud {
     if (this.current === 'draft' && next !== 'draft') this.capture.leave()
     if (next !== 'card') this.popup = null
     this.current = next
+    this.blankShown = false
+    if (this.ctx.active()) {
+      if (this.held()) this.idle.update(true)
+      else this.idle.wake()
+    }
     if (next === 'draft') {
       await this.capture.enter()
       this.ctx.syncPhone()
@@ -231,7 +296,10 @@ export class ServerHud implements Hud {
     this.save()
     // The head task left or names no dishes any more: the ramp view has nothing to show.
     if (this.current === 'ramp' && !rampPages(this.queue[0]).length) void this.showScreen('card')
-    else void this.card.render()
+    else {
+      this.syncIdle()
+      void this.card.render()
+    }
     this.syncImu()
     this.ctx.syncPhone()
   }
@@ -281,11 +349,14 @@ export class ServerHud implements Hud {
     if (msg.type === 'voice.command' || msg.type === 'voice.unknown') this.setMapping(null)
     if (msg.type === 'voice.command') return this.onVoiceCommand(msg)
     if (msg.type === 'alert') {
-      if (this.out86.apply(msg)) void this.card.render()
+      if (!this.out86.apply(msg)) return
+      if (this.ctx.active()) this.idle.wake()
+      void this.card.render()
       return
     }
     if (msg.type === 'voice.unknown') {
       log('<- voice.unknown', msg.reason ?? '')
+      if (this.ctx.active()) this.idle.wake()
       return this.flash(didntGet(msg.words, msg.reason))
     }
     if (msg.type === 'task.rejected') {
@@ -296,6 +367,9 @@ export class ServerHud implements Hud {
     if (msg.type === 'order.draft') {
       log('<-', msg.type, msg.orderId, msg.voice ?? '', `${msg.lines.length} lines`, `${msg.pending?.length ?? 0} pending`)
       this.capture.onDraft(msg)
+      // A clip result while blank (the wearer had left the draft): bring the draft back.
+      if (this.blankShown && this.ctx.active()) void this.showScreen('draft')
+      else this.syncIdle()
       return
     }
     if (msg.type === 'order.closed') {
@@ -356,6 +430,9 @@ export class ServerHud implements Hud {
   /** "verity <command>": the same action as the gesture; task frames go out at once. */
   onVoiceCommand(cmd: VoiceCommand): void {
     log('<- voice.command', cmd.intent, cmd.name ?? cmd.table ?? '', cmd.reason ?? '')
+    this.idle.touch()
+    // "verity ramp" needs a screen even to say `No dishes to ramp`: wake first (menu and queue wake by opening their tab).
+    if (cmd.intent === 'ramp' && this.blankShown && this.ctx.active()) this.idle.wake()
     if (cmd.intent === 'table') return this.flash(tableLine(cmd))
     const action = voiceAction(cmd.intent, this.queue[0], cmd.name, cmd.toggle)
     switch (action.kind) {
@@ -475,6 +552,7 @@ export class ServerHud implements Hud {
       }, MAPPING_TIMEOUT_MS)
       this.mapping = { words, timer }
     }
+    this.syncIdle()
     this.mappingTicker.set(this.mapping !== null)
     this.capture.setMapping(this.mapping !== null)
     if (this.current !== 'draft') void this.card.render()
@@ -501,6 +579,7 @@ export class ServerHud implements Hud {
   }
 
   onTap(): void {
+    if (this.wokeByGesture()) return
     if (this.popup) return this.confirmHandoff()
     if (this.current === 'draft') return this.onDraftGesture('tap')
     if (this.current === 'controls') return this.flipControls()
@@ -515,15 +594,23 @@ export class ServerHud implements Hud {
     if (r.send) this.ctx.socket.send(r.send)
     if (r.send?.type === 'task.done') this.done = markDone(this.done, r.send.taskId)
     this.changed()
+    // The last task done: a short beat on `Done`, then blank.
+    if (r.send?.type === 'task.done' && !this.held() && this.ctx.active()) {
+      this.flash('Done')
+      this.idle.wake(DONE_BEAT_MS)
+    }
   }
 
   onSwipeUp(): void {
+    if (this.wokeByGesture()) return
     if (this.current === 'draft') return this.onDraftGesture('up')
     if (this.current === 'card') return this.cardAction(CARD_GESTURES.up)
     this.switchTab('up')
   }
 
+  /** Swipe back while blank still clips (the draft and its processing indicator come up). */
   onSwipeDown(): void {
+    this.idle.touch()
     if (this.current === 'draft') return this.onDraftGesture('down')
     if (this.current === 'card') return this.cardAction(CARD_GESTURES.down)
     this.switchTab('down')
@@ -531,6 +618,7 @@ export class ServerHud implements Hud {
 
   /** Long hold (LONG_PRESS_EVENT): handoff on the Card; on Queue, Controls or the ramp view back to the Card. */
   onLongPress(): void {
+    if (this.wokeByGesture()) return
     if (this.current === 'card') return this.cardAction(CARD_GESTURES.hold)
     if (this.current !== 'draft') void this.showScreen('card')
   }
@@ -559,6 +647,7 @@ export class ServerHud implements Hud {
     this.stopRecording()
     if (this.imuOn) void this.ctx.bridge.imuControl(false)
     this.imuOn = false
+    this.idle.reset()
     this.save()
   }
 }
