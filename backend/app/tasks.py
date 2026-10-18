@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 from app.data import Floor
 from app.events import EventLog
+from app.telemetry import Trace, current_trace
 
 TaskState = Literal["queued", "sent", "accepted", "done", "bounced", "escalated"]
 TaskKind = Literal["RUN", "CLEAR", "CHECK", "SEAT", "ORDER"]
@@ -52,6 +53,7 @@ class Task:
     done_at: float | None = None
     tried: list[str] = field(default_factory=list)
     history: list[dict[str, Any]] = field(default_factory=list)
+    trace: Trace | None = None  # the Sentry trace it was created in: accept and done continue it
 
     @property
     def open(self) -> bool:
@@ -149,7 +151,9 @@ class TaskBook:
 
     # ---------- transitions ----------
 
-    def _move(self, task: Task, to: TaskState, now: float, reason: str) -> None:
+    def _move(self, task: Task, to: TaskState, now: float, reason: str, **timing: float) -> None:
+        """`timing` (acceptSec, ticketSec) goes to the event log only: the Tiger Data
+        aggregates (app/schema.sql) read it, the task history stays as it was."""
         entry = {
             "from": task.state,
             "to": to,
@@ -159,7 +163,9 @@ class TaskBook:
         }
         task.history.append(entry)
         task.state = to
-        self.events.append("task." + to, taskId=task.id, **entry)
+        self.events.append(
+            "task." + to, taskId=task.id, kind=task.kind, table=task.table, **entry, **timing
+        )
 
     def create(
         self,
@@ -188,6 +194,7 @@ class TaskBook:
             created_at=datetime.now(UTC).isoformat(timespec="seconds"),
             assigned_at=now,
             tried=[who],
+            trace=current_trace(),
         )
         self.tasks[task.id] = task
         self._move(task, "queued", now, "created")
@@ -207,7 +214,8 @@ class TaskBook:
         self._check_owner(task, by)
         self.last_action[task.assignee] = (task.id, "accept", task.state)
         task.accepted_at = now
-        self._move(task, "accepted", now, "task.accept")
+        timing = {"acceptSec": round(now - task.sent_at, 3)} if task.sent_at is not None else {}
+        self._move(task, "accepted", now, "task.accept", **timing)
         return [Outbound(task.assignee, {"type": "task.updated", "task": task.wire()})]
 
     def done(self, task_id: str, now: float, by: str | None = None) -> list[Outbound]:
@@ -217,7 +225,8 @@ class TaskBook:
         self._check_owner(task, by)
         self.last_action[task.assignee] = (task.id, "done", task.state)
         task.done_at = now
-        self._move(task, "done", now, "task.done")
+        start = task.accepted_at if task.accepted_at is not None else task.assigned_at
+        self._move(task, "done", now, "task.done", ticketSec=round(now - start, 3))
         out = [Outbound(task.assignee, {"type": "task.updated", "task": task.wire()})]
         return out + self._clear_unacked_alert(task)
 

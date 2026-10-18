@@ -1,5 +1,5 @@
 // Organizer page: floor plan, seat a party, dispatch a task, live dispatch board.
-import { api, chrome, h, live } from './client.js'
+import { api, chrome, h, live, startSentry, traced } from './client.js'
 import {
   alertText,
   allergyText,
@@ -41,7 +41,7 @@ function sectionServer(table) {
 
 async function act(label, fn) {
   try {
-    await fn()
+    await traced(label, fn)
   } catch (e) {
     ui.error(`${label}: ${e.message}`)
   }
@@ -272,4 +272,5 @@ async function start() {
   setInterval(render, 1000)
 }
 
+startSentry('organizer')
 start()

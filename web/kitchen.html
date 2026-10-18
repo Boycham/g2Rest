@@ -41,6 +41,12 @@
     </main>
 
     <div id="toast" hidden></div>
+    <!-- Sentry browser SDK, pinned; off unless the backend's GET /config returns a DSN -->
+    <script
+      src="https://browser.sentry-cdn.com/10.76.2/bundle.tracing.replay.min.js"
+      integrity="sha384-1KvSykr79onKBsrUyneB8irCOGYqRc8GjSHsZikp1tHhdXpc/1Eshn9N6WVgF6Yy"
+      crossorigin="anonymous"
+    ></script>
     <script type="module" src="kitchen.js"></script>
   </body>
 </html>

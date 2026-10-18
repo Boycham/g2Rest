@@ -30,6 +30,12 @@
   task accept/done/bounce the assigned server's action only, plus task handoff
   and one-level revert. A human chose Gemini and reviewed the PR.
 
+- **Devin (Cognition)** added observability to `backend/` and `web/`: the Tiger Data event-log writer
+  and schema (hypertable, continuous aggregates), Sentry for the backend (spans for dispatch, delivery,
+  accept, done and food up) and the pages (tracing, replay, DSN from `GET /config`), the tests, and the
+  latency measurements in `backend/NOTES.md`. It proposed the optional `trace` field for the glasses
+  lane. A human briefed it and reviews the PR.
+
 ## How Gemini is used in the product
 
 - **Task routing.** When a task is created without a named server, `backend/app/router.py` sends Gemini

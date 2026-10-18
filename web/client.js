@@ -8,7 +8,13 @@
 const params = new URLSearchParams(location.search)
 const defaultApi = location.protocol === 'https:' ? location.origin : 'http://localhost:8787'
 export const API = (params.get('api') ?? defaultApi).replace(/\/$/, '')
-export const TOKEN = params.get('token') ?? ''
+export const TOKEN = params.get('token') ?? sessionStorage.getItem('fs-token') ?? ''
+// Keep the token out of the address bar (and so out of Sentry's page URLs and replays).
+if (params.has('token')) {
+  sessionStorage.setItem('fs-token', TOKEN)
+  params.delete('token')
+  history.replaceState(null, '', `${location.pathname}${params.size ? `?${params}` : ''}${location.hash}`)
+}
 const TIMEOUT_MS = 4000
 
 export class ApiError extends Error {
@@ -36,6 +42,43 @@ export async function api(path, body) {
   const data = await res.json().catch(() => null)
   if (!res.ok) throw new ApiError(res.status, data?.detail ?? res.statusText)
   return data
+}
+
+/**
+ * Sentry for this page (the SDK comes from the pinned CDN script tag). The DSN comes from the
+ * backend's GET /config, so none is committed; no DSN there, or the CDN blocked, means off.
+ * Fetches to the backend carry sentry-trace/baggage, so a click joins its backend span.
+ */
+export async function startSentry(page) {
+  const Sentry = globalThis.Sentry
+  if (!Sentry) return false
+  let cfg
+  try {
+    cfg = (await api('/config')).sentry
+  } catch (e) {
+    console.warn('[fs] no /config, Sentry off:', e.message)
+    return false
+  }
+  if (!cfg?.dsn) return false
+  Sentry.init({
+    dsn: cfg.dsn,
+    environment: cfg.environment,
+    integrations: [Sentry.browserTracingIntegration(), Sentry.replayIntegration({ maskAllText: false })],
+    tracesSampleRate: cfg.tracesSampleRate ?? 1,
+    tracePropagationTargets: [API],
+    replaysSessionSampleRate: 1, // fictional demo data only; every session is worth replaying
+    replaysOnErrorSampleRate: 1,
+    initialScope: { tags: { page } },
+  })
+  console.info('[fs] Sentry on')
+  return true
+}
+
+/** Run a user action as its own Sentry trace (op ui.action); just runs fn when Sentry is off. */
+export function traced(name, fn) {
+  const Sentry = globalThis.Sentry
+  if (!Sentry?.getClient?.()) return fn()
+  return Sentry.startSpan({ name, op: 'ui.action', forceTransaction: true }, fn)
 }
 
 /**
