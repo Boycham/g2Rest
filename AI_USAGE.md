@@ -43,6 +43,10 @@
   realtime speech-to-text** (English) is used only to spot "verity" + a fixed command word (accept, done,
   clip, ...). Plain code matches the word list (no LLM); the transcript is never logged or stored. Devin
   built this and its noise test (ElevenLabs TTS commands mixed with conversation and noise).
+- **Gemini (Google) for unknown command words:** only when the words right after "verity" are not on the
+  fixed list (at most 5 words), the relay sends that short phrase, and nothing else, to Gemini
+  (`gemini-2.5-flash-lite`, server-side key, 3 s timeout) to map it onto one of the same fixed actions.
+  Code checks the answer; anything else shows `Didn't get: <words>` on the glasses. Devin built it.
 - **ElevenLabs text to speech** generates test audio for development only. No real audio is
   recorded or stored.
 - The glasses never call ElevenLabs and never hold the key: they stream G2 mic PCM to the voice
