@@ -307,6 +307,7 @@ export type VoiceIntent =
   | 'menu'
   | 'queue'
   | 'table'
+  | 'ramp'
 
 /**
  * "verity <command>" heard on the always-on command stream. The glasses act on it exactly
@@ -323,6 +324,8 @@ export interface VoiceCommand {
   was?: string
   /** Why the relay refused it ("no table 12", "already sent"); shown as is. */
   reason?: string
+  /** "verity ramp on" / "verity ramp off": the RUN-card dish hint; without it "ramp" opens the view. */
+  toggle?: 'on' | 'off'
 }
 
 /** Coder A: a refused task.* frame, to the sending socket only. The card shows `reason` as is. */

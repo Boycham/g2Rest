@@ -8,8 +8,9 @@ import { debugFixtures, debugSays, loadFixture } from './debug-pcm'
 import { FrameChunker, Mic, toBytes } from './mic'
 import type { Hud, HudContext, PageSpec } from './hud'
 import { applyBackendTask, markDone, saveDone, type DoneIds } from './reconcile'
-import { MAIN_ID, MAIN_NAME, TextSlot, tabsPage } from './render'
-import { saveQueue } from './storage'
+import { MAIN_ID, MAIN_NAME, TextSlot, fullTextPage, tabsPage } from './render'
+import { saveQueue, saveRamp } from './storage'
+import { formatRamp, rampHint, rampOn, rampPages, withRamp, type RampPrefs } from './ramp'
 import { tap, type Queue } from './tasks'
 import { log } from './log'
 import { CARD_GESTURES, CARD_HINT, formatControls, nextControlsPage, tabAfter, type CardAction, type Tab } from './controls'
@@ -22,7 +23,13 @@ const FLASH_MS = 3000
 /** Gemini's own timeout is 2 s; past this the relay is gone and the words show as not got. */
 const MAPPING_TIMEOUT_MS = 5000
 
-type Screen = Tab | 'draft'
+type Screen = Tab | 'draft' | 'ramp'
+
+/** Who wears the glasses (for their ramp-hint setting) and the saved settings. */
+export interface RampSettings {
+  staff: string
+  prefs: RampPrefs
+}
 
 /**
  * The server HUD: three stacked tabs (Controls, Queue, Card; it starts on the Card) and the
@@ -53,11 +60,13 @@ export class ServerHud implements Hud {
   /** task.revert is in flight: the next task update is its answer. */
   private revertSent = false
   private readonly out86 = new EightySix()
+  private rampPage = 0
 
   constructor(
     private readonly ctx: HudContext,
     restored: Queue,
     restoredDone: DoneIds,
+    private ramp: RampSettings = { staff: '', prefs: {} },
   ) {
     this.queue = restored
     this.done = restoredDone
@@ -156,6 +165,7 @@ export class ServerHud implements Hud {
       eightySix: this.out86.line(),
       hint: CARD_HINT,
       width: TAB_TEXT_WIDTH,
+      detail: rampOn(this.ramp.prefs, this.ramp.staff) ? rampHint(this.queue[0], TAB_TEXT_WIDTH) : undefined,
     })
   }
 
@@ -164,6 +174,7 @@ export class ServerHud implements Hud {
     if (this.current === 'card') return this.currentCard()
     if (this.current === 'controls') return { text: formatControls(this.controlsPage), brightness: 4 }
     if (this.current === 'queue') return { text: formatQueue(this.queue), brightness: 4 }
+    if (this.current === 'ramp' && this.queue[0]) return formatRamp(this.queue[0], this.rampPage)
     return null
   }
 
@@ -196,7 +207,9 @@ export class ServerHud implements Hud {
       return
     }
     const view = this.slotView() ?? { text: '', brightness: 4 }
-    const page = new RebuildPageContainer(tabsPage(next, view))
+    // The ramp view is full width, without the tab rail: it is the card's detail, not a tab.
+    const spec = next === 'ramp' ? { containerTotalNum: 1, textObject: [fullTextPage(view.text, view.brightness)] } : tabsPage(next, view)
+    const page = new RebuildPageContainer(spec)
     this.card.shown(view)
     const t0 = performance.now()
     const ok = await this.ctx.bridge.rebuildPageContainer(page)
@@ -206,7 +219,9 @@ export class ServerHud implements Hud {
 
   private changed(): void {
     this.save()
-    void this.card.render()
+    // The head task left or names no dishes any more: the ramp view has nothing to show.
+    if (this.current === 'ramp' && !rampPages(this.queue[0]).length) void this.showScreen('card')
+    else void this.card.render()
     this.ctx.syncPhone()
   }
 
@@ -291,8 +306,12 @@ export class ServerHud implements Hud {
   onVoiceCommand(cmd: VoiceCommand): void {
     log('<- voice.command', cmd.intent, cmd.name ?? cmd.table ?? '', cmd.reason ?? '')
     if (cmd.intent === 'table') return this.flash(tableLine(cmd))
-    const action = voiceAction(cmd.intent, this.queue[0], cmd.name)
+    const action = voiceAction(cmd.intent, this.queue[0], cmd.name, cmd.toggle)
     switch (action.kind) {
+      case 'ramp':
+        if (action.toggle) return this.setRampHints(action.toggle === 'on')
+        this.flash('Heard: ramp')
+        return void this.openRamp()
       case 'refuse':
         return this.flash(action.line)
       case 'confirm':
@@ -356,6 +375,21 @@ export class ServerHud implements Hud {
     this.flash(popup.name ? `Handing off to ${popup.name}` : 'Handing off')
   }
 
+  /** "verity ramp": the head task's dishes, one per page. */
+  private async openRamp(): Promise<void> {
+    if (!rampPages(this.queue[0]).length) return this.flash('No dishes to ramp')
+    this.rampPage = 0
+    await this.showScreen('ramp')
+  }
+
+  /** "verity ramp on/off" for the wearer only, kept in SDK storage across reloads. */
+  private setRampHints(on: boolean): void {
+    this.ramp = { ...this.ramp, prefs: withRamp(this.ramp.prefs, this.ramp.staff, on) }
+    log('ramp hints', this.ramp.staff, on ? 'on' : 'off')
+    void saveRamp(this.ctx.bridge, this.ramp.prefs)
+    this.flash(`Ramp hints ${on ? 'on' : 'off'}`)
+  }
+
   private async openControls(): Promise<void> {
     this.controlsPage = 0
     await this.showScreen('controls')
@@ -364,6 +398,7 @@ export class ServerHud implements Hud {
   /** A swipe on a tab: one tab up or down; null past the ends. */
   private switchTab(dir: 'up' | 'down'): void {
     if (this.current === 'draft') return
+    if (this.current === 'ramp') return void this.showScreen('card')
     const next = tabAfter(this.current, dir)
     if (next === 'controls') return void this.openControls()
     if (next) void this.showScreen(next)
@@ -418,6 +453,7 @@ export class ServerHud implements Hud {
     if (this.popup) return this.confirmHandoff()
     if (this.current === 'draft') return this.onDraftGesture('tap')
     if (this.current === 'controls') return this.flipControls()
+    if (this.current === 'ramp') return this.flipRamp()
     if (this.current === 'queue') return void this.showScreen('card')
     this.cardAction(CARD_GESTURES.tap)
   }
@@ -442,10 +478,17 @@ export class ServerHud implements Hud {
     this.switchTab('down')
   }
 
-  /** Long hold (LONG_PRESS_EVENT): handoff on the Card; on Queue or Controls back to the Card. */
+  /** Long hold (LONG_PRESS_EVENT): handoff on the Card; on Queue, Controls or the ramp view back to the Card. */
   onLongPress(): void {
     if (this.current === 'card') return this.cardAction(CARD_GESTURES.hold)
     if (this.current !== 'draft') void this.showScreen('card')
+  }
+
+  /** A tap on the ramp view shows the next dish, wrapping around. */
+  private flipRamp(): void {
+    this.rampPage = (this.rampPage + 1) % Math.max(1, rampPages(this.queue[0]).length)
+    log('ramp page', this.rampPage + 1)
+    void this.card.render()
   }
 
   /** A tap on Controls (or "verity confirm") shows its next page. */

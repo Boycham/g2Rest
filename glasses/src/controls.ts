@@ -48,6 +48,8 @@ export const CONTROLS: readonly ControlItem[] = [
   { label: 'Decline', gesture: 'voice', voice: 'verity decline' },
   { label: 'Revert last', gesture: 'voice', voice: 'verity revert' },
   { label: 'Set table', gesture: 'voice', voice: 'verity table N' },
+  { label: 'Ramp', gesture: 'voice', voice: 'verity ramp' },
+  { label: 'Ramp hints', gesture: 'voice', voice: 'verity ramp on/off' },
   { label: 'Exit', gesture: 'double tap', voice: '-' },
 ]
 

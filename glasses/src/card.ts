@@ -31,6 +31,8 @@ export interface CardOptions {
   eightySix?: string
   /** Always-on corner hint (bottom right), e.g. `fwd: controls`. */
   hint?: string
+  /** A line under the task line, before the notes: the ramp dish hint (`ramp.ts`). */
+  detail?: string
 }
 
 export function seatsLabel(seats: readonly number[]): string {
@@ -89,6 +91,7 @@ export function formatCard(queue: readonly Task[], opts: CardOptions): CardView 
   if (opts.eightySix) lines.push(fit(opts.eightySix, width))
   if (opts.banner) lines.push(fit(opts.banner, width))
   lines.push(fit(taskLine(head), width))
+  if (opts.detail) lines.push(fit(opts.detail, width))
 
   const status = [head.state === 'accepted' ? 'ACCEPTED' : '', opts.offline ? 'OFFLINE' : '']
     .filter(Boolean)

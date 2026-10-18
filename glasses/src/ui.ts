@@ -47,6 +47,7 @@ export function mountUi(backendUrl: string, onRole: (role: Role) => void): void 
           <li><b>Swipe back</b> (toward your ear) send the last 2 minutes: the order shows as a draft (tap = send)</li>
           <li><b>Hold</b> hand the task off (tap to confirm)</li>
           <li><b>Double tap</b> exit</li>
+          <li><b>"verity ramp"</b> what's on each plate of the card: components, allergens, wine (tap = next dish, hold = back); <b>"verity ramp on/off"</b> a one-line dish hint on every RUN card</li>
         </ul>
       </section>
       <section data-role="server">
