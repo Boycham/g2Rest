@@ -33,6 +33,8 @@ declare global {
   interface Window {
     /** Dev measurement: swipe down -> draft from that clip shown on the glasses, ms. */
     __fsLatency?: number[]
+    /** Swipe -> the clip's summary/answers on the lens (they follow the order card). */
+    __fsTalkLatency?: number[]
   }
 }
 
@@ -61,6 +63,7 @@ export class CaptureScreen {
   private active = false
   private timer: ReturnType<typeof setTimeout> | null = null
   private clipAt: number | null = null
+  private talkAt: number | null = null
   private page = 0
   private shown = ''
   private writing = false
@@ -120,6 +123,7 @@ export class CaptureScreen {
     const id = `clip-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
     this.clipId = id
     this.clipAt = performance.now()
+    this.talkAt = this.clipAt
     this.page = 0
     this.voice = 'processing'
     this.hint = null
@@ -234,6 +238,12 @@ export class CaptureScreen {
           ;(window.__fsLatency ??= []).push(ms)
           log('latency swipe down -> draft on glasses', `${ms} ms`)
           this.clipAt = null
+        }
+        if (this.talkAt !== null && this.draft?.captureId === this.clipId && (this.draft.summary || this.draft.answers?.length)) {
+          const ms = Math.round(t1 - this.talkAt)
+          ;(window.__fsTalkLatency ??= []).push(ms)
+          log('latency swipe down -> summary and answers on glasses', `${ms} ms`)
+          this.talkAt = null
         }
       } while (this.dirty && this.active)
     } finally {
