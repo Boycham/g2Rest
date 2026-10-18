@@ -6,7 +6,7 @@ import { LINE_PX } from './draft'
 import { wrap } from './talk'
 
 // New-server ramp mode: what is on each plate of the current card, its allergens and the wine
-// to pour, one dish per page (tap = next, hold = back to the Card). Ramp-on staff also get a
+// to pour, one dish per page (tap = next, hold = back to the Task tab). Ramp-on staff also get a
 // one-line dish hint on RUN cards. The menu is bundled from data/menu.json, so nothing here
 // waits on the network or a model.
 
@@ -39,8 +39,8 @@ export const MENU = new RampMenu(menuJson.dishes)
 /** Lines on a ramp page, footer included: the full-screen text height in 27 px lines, so the footer sits at the bottom. */
 export const RAMP_MAX_LINES = Math.floor((DISPLAY_HEIGHT - 2 * CARD_PADDING) / LINE_PX)
 export const RAMP_COMPONENT_LINES = 2
-export const RAMP_NEXT = 'tap: next · hold: card'
-export const RAMP_ONLY = 'hold: card'
+export const RAMP_NEXT = 'tap: next · hold: task'
+export const RAMP_ONLY = 'hold: task'
 export const NOT_IN_MENU = 'not in menu data'
 
 export interface RampPage {

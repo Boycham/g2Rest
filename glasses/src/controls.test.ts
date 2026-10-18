@@ -17,7 +17,7 @@ import {
 import { makeTask } from './fixtures.test-helpers'
 
 describe('tabs', () => {
-  it('stacks Controls, Queue, Card top to bottom; swipe fwd goes up, swipe back down', () => {
+  it('stacks Controls, Queue, Task top to bottom; swipe fwd goes up, swipe back down', () => {
     expect(TABS).toEqual(['controls', 'queue', 'card'])
     expect(tabAfter('card', 'up')).toBe('queue')
     expect(tabAfter('queue', 'up')).toBe('controls')
@@ -37,7 +37,7 @@ describe('tabs', () => {
   })
 })
 
-describe('Card gestures', () => {
+describe('Task tab gestures', () => {
   it('keeps clip on swipe back (SDK down), the bottom tab', () => {
     expect(CARD_GESTURES).toEqual({ tap: 'task', up: 'queue', down: 'clip', hold: 'handoff' })
   })
@@ -66,7 +66,7 @@ describe('Controls tab', () => {
   })
 })
 
-describe('Card corner hint', () => {
+describe('Task tab corner hint', () => {
   it('sits bottom right on its own line and never overlaps the card text', () => {
     const queue = [makeTask({ id: 'a' }), makeTask({ id: 'b' })]
     const lines = formatCard(queue, { offline: false, hint: CARD_HINT, width: TAB_TEXT_WIDTH }).text.split('\n')

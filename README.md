@@ -13,7 +13,7 @@ beforehand for working with the G2 glasses ([`.agents/skills/g2-glasses-integrat
 Everything else (code, fictional menu and floor data, designs) was built during LA Hacks by two humans directing
 Devin (Cognition) and Claude Code (Anthropic). Who and what wrote each part is in [AI_USAGE.md](AI_USAGE.md).
 
-- **Glasses HUD** (`glasses/`): three tabs (Controls, Queue, Card), tap / swipe / long press / double tap
+- **Glasses HUD** (`glasses/`): three tabs (Controls, Queue, Task), tap / swipe / long press / double tap
   gestures, "verity" voice commands, the 2-minute order clip, ramp mode for new servers, nod to accept
   (HW-PENDING), and a manager view with exceptions and a minimap.
 - **Backend hub** (`backend/`): FastAPI + WebSocket hub, task state machine with escalation, run priority for
@@ -132,14 +132,14 @@ Source and hardware findings: [glasses/NOTES.md](glasses/NOTES.md).
 ## Gestures and voice commands (Server)
 
 Swipe fwd = toward the eyes, swipe back = toward the ear. The HUD is three stacked tabs: Controls (top), Queue,
-Card (home).
+Task (home).
 
-| Gesture | Card (bottom) | Queue (middle) | Controls (top) | Voice |
+| Gesture | Task (bottom) | Queue (middle) | Controls (top) | Voice |
 |---|---|---|---|---|
-| Tap | accept, then done; confirms a popup or sends the draft | back to the Card | next page (1/3 → 2/3 → 3/3 → 1/3) | `verity accept` / `done` / `confirm` |
+| Tap | accept, then done; confirms a popup or sends the draft | back to the Task tab | next page (1/3 → 2/3 → 3/3 → 1/3) | `verity accept` / `done` / `confirm` |
 | Swipe fwd | to Queue | to Controls | nothing (top tab) | `verity up`; `verity queue` / `verity menu` jump to a tab |
-| Swipe back | clip the last 2 minutes as an order | to the Card | to Queue | `verity down`; `verity clip` clips from any tab |
-| Long hold | handoff: `Confirm handoff?`, then tap | back to the Card | back to the Card | `verity handoff [name]` / `verity back` |
+| Swipe back | clip the last 2 minutes as an order | to the Task tab | to Queue | `verity down`; `verity clip` clips from any tab |
+| Long hold | handoff: `Confirm handoff?`, then tap | back to the Task tab | back to the Task tab | `verity handoff [name]` / `verity back` |
 | Double tap | exit (`shutDownPageContainer(1)`, Even Hub review rule) | exit | exit | none |
 | Voice only | decline (`task.bounce`), revert (`task.revert`), cancel a popup, bind the unsent draft to table N | | | `verity decline` / `revert` / `nevermind` / `table N` |
 | Nod (IMU, HW-PENDING) | accept the waiting task (`task.accept`), only while one waits | same | same | `verity revert` undoes it |

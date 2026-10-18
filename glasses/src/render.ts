@@ -24,6 +24,11 @@ export function fullTextPage(content: string, brightness = 4): TextContainerProp
   })
 }
 
+/** Idle (idle.ts): one empty, dimmest text container. It still captures input, so tap and swipes work. */
+export function blankPage(): { containerTotalNum: number; textObject: TextContainerProperty[] } {
+  return { containerTotalNum: 1, textObject: [fullTextPage('', 0)] }
+}
+
 /** The tab rail's boxes, one per tab, top to bottom like TABS. */
 export const TAB_IDS: Record<Tab, number> = { controls: 11, queue: 12, card: 13 }
 const TAB_HEIGHT = DISPLAY_HEIGHT / TABS.length
