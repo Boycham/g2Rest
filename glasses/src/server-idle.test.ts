@@ -50,7 +50,7 @@ describe('server HUD idle blank', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
-  it('starts on the Card, then blanks after IDLE_MS with nothing to do', () => {
+  it('starts on the Task tab, then blanks after IDLE_MS with nothing to do', () => {
     const f = fakeHud()
     f.hud.startPage()
     expect(f.hud.screen()).toBe('card')
@@ -59,7 +59,7 @@ describe('server HUD idle blank', () => {
     expect(f.isBlank(f.last())).toBe(true)
   })
 
-  it('a tap wakes to the Card with No tasks, then blanks again', () => {
+  it('a tap wakes to the Task tab with No tasks, then blanks again', () => {
     const f = fakeHud()
     f.hud.startPage()
     vi.advanceTimersByTime(IDLE_MS)
@@ -67,6 +67,7 @@ describe('server HUD idle blank', () => {
     expect(f.hud.screen()).toBe('card')
     expect(f.last().containerTotalNum).toBe(4)
     expect(f.last().textObject.at(-1)!.content.split('\n')[0]).toBe('No tasks')
+    expect(f.last().textObject.map(t => t.content).slice(0, 3)).toEqual(['Controls', 'Queue', 'Task'])
     expect(f.sent).toEqual([])
     vi.advanceTimersByTime(IDLE_MS)
     expect(f.hud.screen()).toBe('blank')

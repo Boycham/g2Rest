@@ -24,7 +24,7 @@ import { didntGet, rejectionLine, tableLine, voiceAction, type VoiceGesture } fr
 const FLASH_MS = 3000
 /** Gemini's own timeout is 2 s; past this the relay is gone and the words show as not got. */
 const MAPPING_TIMEOUT_MS = 5000
-/** The Card's top line on a tap wake with nothing to do. */
+/** The Task tab's top line on a tap wake with nothing to do. */
 const NO_TASKS = 'No tasks'
 
 type Screen = Tab | 'draft' | 'ramp'
@@ -39,7 +39,7 @@ export interface RampSettings {
 }
 
 /**
- * The server HUD: three stacked tabs (Controls, Queue, Card; it starts on the Card) and the
+ * The server HUD: three stacked tabs (Controls, Queue, Task; it starts on the Task tab) and the
  * order draft. While the server role is on
  * the glasses the mic runs into a rolling buffer of the last 120 s (memory only); swipe back
  * sends that minute as a clip and opens the draft the backend makes of it.
@@ -181,7 +181,7 @@ export class ServerHud implements Hud {
     if (this.ctx.active()) this.idle.update(this.held())
   }
 
-  /** Idle timer: blank the glasses, or bring the Card back from blank. */
+  /** Idle timer: blank the glasses, or bring the Task tab back from blank. */
   private onIdle(awake: boolean): void {
     if (!this.ctx.active()) return
     if (awake) {
@@ -203,7 +203,7 @@ export class ServerHud implements Hud {
     this.ctx.syncPhone()
   }
 
-  /** While blank, a tap (or swipe fwd, long press) only brings the Card back. */
+  /** While blank, a tap (or swipe fwd, long press) only brings the Task tab back. */
   private wokeByGesture(): boolean {
     this.idle.touch()
     if (!this.blankShown) return false
@@ -532,7 +532,7 @@ export class ServerHud implements Hud {
     if (next) void this.showScreen(next)
   }
 
-  /** What a gesture does on the Card (CARD_GESTURES in controls.ts). */
+  /** What a gesture does on the Task tab (CARD_GESTURES in controls.ts). */
   private cardAction(action: CardAction): void {
     if (action === 'task') return this.taskTap()
     if (action === 'queue') return this.switchTab('up')
@@ -616,7 +616,7 @@ export class ServerHud implements Hud {
     this.switchTab('down')
   }
 
-  /** Long hold (LONG_PRESS_EVENT): handoff on the Card; on Queue, Controls or the ramp view back to the Card. */
+  /** Long hold (LONG_PRESS_EVENT): handoff on the Task tab; on Queue, Controls or the ramp view back to the Task tab. */
   onLongPress(): void {
     if (this.wokeByGesture()) return
     if (this.current === 'card') return this.cardAction(CARD_GESTURES.hold)
