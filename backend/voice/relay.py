@@ -391,7 +391,7 @@ class RelaySession:
     async def _command(self, cmd: Command) -> None:
         """A fixed-list intent goes straight out; other words after "verity" go to Gemini,
         and anything it can't map shows as `Didn't get: <words>` on the card."""
-        intent, name = cmd.intent, cmd.name
+        intent, name, toggle = cmd.intent, cmd.name, cmd.toggle
         if intent == "table":
             await self._table_command(cmd.table)
             return
@@ -415,6 +415,8 @@ class RelaySession:
         msg: dict[str, Any] = {"type": "voice.command", "intent": intent}
         if name:
             msg["name"] = name
+        if toggle:
+            msg["toggle"] = toggle
         await self._send(msg)
 
     async def _table_command(self, n: int | None) -> None:

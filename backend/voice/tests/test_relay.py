@@ -419,6 +419,9 @@ async def test_command_stream_sends_only_matched_intents_and_pauses_for_a_clip(m
     await settle()
     assert sent[-1] == {"type": "voice.command", "intent": "accept"}
     assert all("done" not in json.dumps(m) for m in sent)
+    streams[0].on_committed("Verity, ramp on.", 0.0)
+    await settle()
+    assert sent[-1] == {"type": "voice.command", "intent": "ramp", "toggle": "on"}
 
     await send_clip(session, frames=2)  # clip frames go to the clip, not the command stream
     assert made["clips"] == [b"\x01" * FRAME_BYTES * 2] and len(streams[0].frames) == 1

@@ -32,6 +32,8 @@ COMMANDS = {
     "queue": "queue",
     # "verity table 4" / "verity table four": binds the unsent draft to that table.
     "table": "table",
+    # "verity ramp" shows the card's dishes; "verity ramp on/off" turns the RUN-card hint on or off.
+    "ramp": "ramp",
     # Scribe writes the TTS "verity queue" as "Verity Q" (2/2 in the simulator run).
     "q": "queue",
     "cue": "queue",
@@ -68,6 +70,7 @@ NUMBER_WORDS = {
     for w in ws
 }
 TABLE_FILLERS = frozenset({"number", "no"})
+RAMP_TOGGLES = frozenset({"on", "off"})
 
 
 @dataclass(frozen=True)
@@ -76,6 +79,7 @@ class Command:
     name: str | None = None  # handoff target
     table: int | None = None  # "verity table 4"; None if no number followed
     words: str | None = None  # the unmatched words, for "unknown"
+    toggle: str | None = None  # "verity ramp on/off": "on" or "off"; None opens the ramp view
 
 
 def words(text: str) -> list[str]:
@@ -245,6 +249,10 @@ def parse_commands(text: str, soundalikes: bool = True) -> list[Command]:
                 out.append(Command("table", table=n))
                 i = j + 1 + used
                 continue
+            if intent == "ramp" and j + 1 < len(ws) and ws[j + 1] in RAMP_TOGGLES:
+                out.append(Command("ramp", toggle=ws[j + 1]))
+                i = j + 2
+                continue
             if intent == "handoff":
                 name = _name_after(ws[j + width : j + width + 2])
                 width += 2 if name and ws[j + width] in NAME_FILLERS else 1 if name else 0
@@ -264,7 +272,7 @@ DATA = Path(__file__).resolve().parents[2] / "data"
 REALTIME_KEYTERMS, REALTIME_KEYTERM_CHARS = 50, 20
 KEYTERM_COMMANDS = (
     "up", "down", "back", "confirm", "clip", "accept", "decline", "done", "handoff",
-    "nevermind", "revert", "menu", "queue", "table", "exit",
+    "nevermind", "revert", "menu", "queue", "table", "ramp", "exit",
 )  # fmt: skip
 KEYTERM_NUMBERS = ("one", "two", "three", "four", "five", "six", "seven", "eight")
 

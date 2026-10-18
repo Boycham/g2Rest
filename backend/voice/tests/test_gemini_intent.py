@@ -19,6 +19,7 @@ def test_code_checks_what_gemini_proposes():
     assert checked({"intent": "handoff", "name": "Maya; DROP"}) == ("handoff", None)
     assert checked({"intent": "send_order"}) is None
     assert checked({"intent": "none"}) is None
+    assert checked({"intent": "ramp"}) == ("ramp", None)
 
 
 def _reply(payload: dict) -> httpx.Response:
