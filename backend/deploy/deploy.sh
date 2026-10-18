@@ -31,7 +31,12 @@ ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 SSH=(ssh -i "$KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 "root@$IP")
 log() { echo "[fs] $*" >&2; }
 
-log "waiting for first boot to finish on $IP"
+log "waiting for SSH and first boot on $IP"
+# Vultr reports a new server "active" before sshd is up, so retry for a few minutes.
+for _ in $(seq 1 40); do
+  "${SSH[@]}" true 2>/dev/null && break
+  sleep 8
+done
 "${SSH[@]}" 'cloud-init status --wait >/dev/null 2>&1 || true; command -v caddy >/dev/null && id floorsense >/dev/null'
 
 if [ "$WRITE_ENV" = 1 ]; then
