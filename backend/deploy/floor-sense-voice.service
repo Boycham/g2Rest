@@ -1,0 +1,15 @@
+[Unit]
+Description=Floor Sense voice relay (ElevenLabs, localhost:8790, dialed by the backend)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=floorsense
+WorkingDirectory=/opt/floor-sense/app/backend/voice
+EnvironmentFile=/etc/floor-sense/env
+ExecStart=/opt/floor-sense/venv-voice/bin/python relay.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
