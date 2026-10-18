@@ -175,6 +175,12 @@ export class CaptureScreen {
     return a.then
   }
 
+  /** A transient line on the draft (voice command feedback). */
+  setHint(text: string | null): void {
+    this.hint = text
+    this.changed()
+  }
+
   private changed(): void {
     this.onChange()
     void this.render()

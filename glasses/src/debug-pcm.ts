@@ -17,6 +17,13 @@ export function debugFixtures(search = location.search): string[] {
   return raw ? raw.split(',').filter(n => /^[\w-]+$/.test(n)) : []
 }
 
+/** `?say=verity_accept,...`: fixtures played into the command stream as if the server said them. */
+export function debugSays(search = location.search): string[] {
+  if (!import.meta.env.DEV) return []
+  const raw = new URLSearchParams(search).get('say')
+  return raw ? raw.split(',').filter(n => /^[\w-]+$/.test(n)) : []
+}
+
 export function frames(pcm: Uint8Array): ArrayBuffer[] {
   const out: ArrayBuffer[] = []
   for (let i = 0; i < pcm.length; i += FRAME) {

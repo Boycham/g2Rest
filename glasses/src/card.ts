@@ -21,6 +21,8 @@ export interface CardOptions {
   offline: boolean
   width?: number
   maxLines?: number
+  /** A transient line under the allergies, e.g. `Heard: accept`. */
+  banner?: string
 }
 
 export function seatsLabel(seats: readonly number[]): string {
@@ -65,11 +67,12 @@ export function formatCard(queue: readonly Task[], opts: CardOptions): CardView 
   const width = opts.width ?? CARD_TEXT_WIDTH
   const maxLines = opts.maxLines ?? CARD_MAX_LINES
   const head = queue[0]
-  if (!head) return { text: opts.offline ? 'OFFLINE' : '', brightness: 4 }
+  if (!head) return { text: opts.banner ? fit(opts.banner, width) : opts.offline ? 'OFFLINE' : '', brightness: 4 }
 
   const lines: string[] = []
   const allergies = allergyLine(head.allergies)
   if (allergies) lines.push(fit(allergies, width))
+  if (opts.banner) lines.push(fit(opts.banner, width))
   lines.push(fit(taskLine(head), width))
 
   const status = [head.state === 'accepted' ? 'ACCEPTED' : '', opts.offline ? 'OFFLINE' : '']
