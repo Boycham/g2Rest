@@ -14,7 +14,9 @@ Two numbers separate the planners' trade-off: `hotWaitAfterCourseUpSec` counts a
 wait only from the moment the last plate of its course came up (the part the "whole course goes
 out together" hold doesn't explain), and `hotCourseToTableSec` is, per course with a hot plate,
 last plate up to the last plate's RUN done: how long after the kitchen finished the course the
-whole table had it.
+whole table had it. `hotCourseHoldSec` is the part of a hot plate's wait that the hold alone
+forces: from its own `pass.up` to the last plate of its course coming up. It depends only on the
+kitchen, not on the planner, so no planner that keeps a course together can wait less.
 """
 
 from __future__ import annotations
@@ -133,10 +135,14 @@ def compute(
     for plate in up:
         groups[(plate.rsplit(":", 1)[0], dishes[plate_dish[plate]]["course"])].append(plate)
     hot_after_course_up: list[float] = []
+    hot_hold: list[float] = []
     course_to_table: list[float] = []
     for plates in groups.values():
         last_up = max(up[p] for p in plates)
         if any(dishes[plate_dish[p]]["temperature"] == "hot" for p in plates):
+            hot_hold += [
+                last_up - up[p] for p in plates if dishes[plate_dish[p]]["temperature"] == "hot"
+            ]
             hot_after_course_up += [
                 max(0.0, left[p] - last_up)
                 for p in plates
@@ -152,6 +158,7 @@ def compute(
         "toTableSec": {temp: summary(to_table[temp]) for temp in TEMPERATURES},
         "hotWaitAfterCourseUpSec": summary(hot_after_course_up),
         "hotCourseToTableSec": summary(course_to_table),
+        "hotCourseHoldSec": summary(hot_hold),
         "ceilingPlates": {**ceiling, "total": sum(ceiling.values())},
         "stillAtPass": {**still_up, "total": sum(still_up.values())},
         "runs": len(run_plates),
