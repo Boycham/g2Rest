@@ -1,5 +1,5 @@
 import { ImuReportPace, RebuildPageContainer } from '@evenrealities/even_hub_sdk'
-import type { BackendMessage, GlassesJsonMessage, VoiceCommand } from './contract'
+import type { BackendMessage, GlassesJsonMessage, VoiceCommand, VoiceRequest } from './contract'
 import { TAB_TEXT_WIDTH, formatCard, formatQueue } from './card'
 import { EightySix } from './eightysix'
 import { CaptureScreen } from './capture'
@@ -18,6 +18,7 @@ import { CARD_GESTURES, CARD_HINT, formatControls, nextControlsPage, tabAfter, t
 import { handoffFrame, handoffPrompt } from './handoff'
 import { PROCESSING, Ticker, dots } from './busy'
 import { didntGet, rejectionLine, tableLine, voiceAction, type VoiceGesture } from './voice'
+import { refusedLine, requestFrame, requestLine, sentLine } from './request'
 
 /** How long `Heard: <command>` and refusal lines stay on the card. */
 const FLASH_MS = 3000
@@ -60,6 +61,8 @@ export class ServerHud implements Hud {
     if (this.current !== 'draft') void this.card.render()
   })
   private popup: { taskId: string; name?: string } | null = null
+  /** A spoken floor request or table status waiting for its confirm tap. */
+  private request: VoiceRequest | null = null
   private controlsPage = 0
   /** task.revert is in flight: the next task update is its answer. */
   private revertSent = false
@@ -160,6 +163,7 @@ export class ServerHud implements Hud {
   }
 
   private banner(): string | undefined {
+    if (this.request) return requestLine(this.request)
     if (this.popup && this.queue[0]?.id === this.popup.taskId) return handoffPrompt(this.popup.name)
     if (this.mapping) return dots(PROCESSING, this.mappingTicker.tick)
     return this.heard?.text
@@ -280,6 +284,7 @@ export class ServerHud implements Hud {
     if (msg.type === 'voice.mapping') return this.setMapping(msg.words)
     if (msg.type === 'voice.command' || msg.type === 'voice.unknown') this.setMapping(null)
     if (msg.type === 'voice.command') return this.onVoiceCommand(msg)
+    if (msg.type === 'voice.request') return this.onRequest(msg)
     if (msg.type === 'alert') {
       if (this.out86.apply(msg)) void this.card.render()
       return
@@ -369,6 +374,10 @@ export class ServerHud implements Hud {
         this.flash('Heard: confirm')
         return this.onTap()
       case 'nevermind':
+        if (this.request) {
+          this.request = null
+          return this.flash('Request dropped')
+        }
         if (!this.popup) return this.flash('Nothing to cancel')
         this.popup = null
         return this.flash('Cancelled')
@@ -495,12 +504,31 @@ export class ServerHud implements Hud {
     this.heard = null
   }
 
+  private onRequest(r: VoiceRequest): void {
+    log('<- voice.request', r.source, r.kind ?? '', r.status ?? '', r.table, r.reason ?? '')
+    if (r.reason) return this.flash(refusedLine(r))
+    this.request = r
+    this.refreshHeard()
+  }
+
+  /** The confirm tap: the backend creates the task or sets the status (and its task). */
+  private confirmRequest(r: VoiceRequest): void {
+    this.request = null
+    const frame = requestFrame(r)
+    if (!frame) return
+    log('->', frame.type, frame.table)
+    this.ctx.socket.send(frame)
+    this.flash(sentLine(r))
+  }
+
   private refreshHeard(): void {
-    if (this.current === 'draft') this.capture.setHint(this.heard?.text ?? null)
+    const line = this.request ? requestLine(this.request) : this.heard?.text
+    if (this.current === 'draft') this.capture.setHint(line ?? null)
     else void this.card.render()
   }
 
   onTap(): void {
+    if (this.request) return this.confirmRequest(this.request)
     if (this.popup) return this.confirmHandoff()
     if (this.current === 'draft') return this.onDraftGesture('tap')
     if (this.current === 'controls') return this.flipControls()
