@@ -13,3 +13,13 @@ Restaurant floor on Even Realities G2 glasses. See `AGENTS.md` for the brief.
   [@evenrealities/evenhub-cli](https://www.npmjs.com/package/@evenrealities/evenhub-cli): simulator and `.ehpk` packing
 - [vitest](https://vitest.dev/): tests
 - [ws](https://www.npmjs.com/package/ws) and [tsx](https://www.npmjs.com/package/tsx): the dev-only fake backend
+
+### Voice spike (`backend/voice/`)
+- Python 3.11
+- [httpx](https://pypi.org/project/httpx/): REST calls to ElevenLabs
+- [websockets](https://pypi.org/project/websockets/): Scribe realtime and agent conversation sockets
+- [python-dotenv](https://pypi.org/project/python-dotenv/): loads the local, gitignored root `.env`
+- [pytest](https://pypi.org/project/pytest/): tests
+- [ruff](https://pypi.org/project/ruff/): lint and format
+- ElevenLabs APIs: Scribe realtime STT (`scribe_v2_realtime`), Agents (text-only mode, client
+  tools), and text to speech for test fixtures
