@@ -40,3 +40,30 @@ def test_floor_rejects_unknown_section() -> None:
     }
     with pytest.raises(DataError):
         Floor.from_dict(raw)
+
+
+def test_demo_floor_gives_the_router_choices_and_keeps_the_tables() -> None:
+    from app.config import DATA_DIR
+
+    demo = Floor.load(DATA_DIR / "floor.demo.json")
+    record = Floor.load(DATA_DIR / "floor.json")
+    assert [s.name for s in demo.servers.values()] == ["Ava", "Ben", "Cam", "Dee"]
+    assert {t: (v.x, v.y, v.seats) for t, v in demo.tables.items()} == {
+        t: (v.x, v.y, v.seats) for t, v in record.tables.items()
+    }
+    # a mock's bounce or escalation stays with the other mocks before it reaches Ava (s1)
+    assert demo.escalation_chain("T3") == ["s3", "s2", "s4", "s1", "m1"]
+    assert demo.escalation_chain("T5") == ["s2", "s3", "s4", "s1", "m1"]
+    assert demo.escalation_chain("T1") == ["s1", "s2", "s3", "s4", "m1"]
+
+
+def test_fs_floor_picks_the_floor_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.config import Settings
+    from app.state import Store
+
+    monkeypatch.delenv("FS_FLOOR", raising=False)
+    assert Settings.from_env().floor_file == "floor.json"
+    monkeypatch.setenv("FS_FLOOR", "demo")
+    settings = Settings.from_env()
+    assert settings.floor_file == "floor.demo.json"
+    assert len(Store.from_settings(settings).floor.servers) == 4

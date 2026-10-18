@@ -23,6 +23,12 @@ def _load_root_env() -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
+def floor_file(name: str) -> str:
+    """`FS_FLOOR`: empty = floor.json (the floor of record), `demo` = floor.demo.json."""
+    name = name.strip()
+    return f"floor.{name}.json" if name else "floor.json"
+
+
 @dataclass(frozen=True)
 class Settings:
     token: str = ""
@@ -30,6 +36,7 @@ class Settings:
     offline_escalation_sec: float = 120.0
     port: int = 8787
     data_dir: Path = field(default=DATA_DIR)
+    floor_file: str = "floor.json"  # FS_FLOOR=demo: floor.demo.json (sim/mock_staff.py)
     cors_origins: tuple[str, ...] = ("*",)
     voice_relay_url: str = ""  # empty: no voice bridge, audio frames are only counted
     done_sec: float = 300.0  # accepted but not done this long: alert the manager, reroute
@@ -54,6 +61,7 @@ class Settings:
             offline_escalation_sec=float(os.environ.get("FS_OFFLINE_ESCALATION_SEC", "120")),
             port=int(os.environ.get("FS_PORT", "8787")),
             data_dir=Path(os.environ.get("FS_DATA_DIR", str(DATA_DIR))),
+            floor_file=floor_file(os.environ.get("FS_FLOOR", "")),
             voice_relay_url=os.environ.get("VOICE_RELAY_URL") or "ws://localhost:8790/ws",
             done_sec=float(os.environ.get("FS_DONE_SEC", "300")),
             course_wait_sec=float(os.environ.get("FS_COURSE_WAIT_SEC", "720")),
