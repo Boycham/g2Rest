@@ -47,6 +47,7 @@ class Task:
     priority: float = 0.0
     created_at: str = ""
     assigned_at: float = 0.0
+    sent_at: float | None = None
     tried: list[str] = field(default_factory=list)
     history: list[dict[str, Any]] = field(default_factory=list)
 
@@ -181,6 +182,7 @@ class TaskBook:
         """The hub delivered the card down a socket."""
         task = self.get(task_id)
         if task.state == "queued":
+            task.sent_at = now
             self._move(task, "sent", now, "delivered")
 
     def accept(self, task_id: str, now: float, by: str | None = None) -> list[Outbound]:
@@ -208,10 +210,16 @@ class TaskBook:
         return self._pass_on(task, now, "bounced", "task.bounce")
 
     def tick(self, now: float) -> list[Outbound]:
-        """Escalate every task nobody accepted within `escalation_sec`."""
+        """Escalate every task nobody accepted within `escalation_sec` of being sent.
+
+        The timer starts at `sent` (the card went down a socket) and stops at `accepted`;
+        a `queued` task whose assignee is offline is not timed (see CONTRACT.md §6).
+        """
         out: list[Outbound] = []
         for task in list(self.tasks.values()):
-            if task.state in UNACCEPTED and now - task.assigned_at >= self.escalation_sec:
+            if task.state != "sent" or task.sent_at is None:
+                continue
+            if now - task.sent_at >= self.escalation_sec:
                 out += self._pass_on(task, now, "escalated", "no accept in time")
         return out
 
@@ -236,6 +244,7 @@ class TaskBook:
         out = [Outbound(previous, {"type": "task.updated", "task": task.wire(state=via)})]
         task.assignee = nxt
         task.assigned_at = now
+        task.sent_at = None
         task.tried.append(nxt)
         self._move(task, "queued", now, f"after {via} from {previous}")
         out.append(Outbound(nxt, {"type": "task.assigned", "task": task.wire()}))

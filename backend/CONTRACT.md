@@ -1,10 +1,13 @@
-# Floor Sense message contract (PROPOSAL)
+# Floor Sense message contract (Python-side mirror)
 
-Status: **proposed by the backend lane (Coder A), needs Coder B's approval.** It is written to match
-`glasses/src/contract.ts` on `main` plus the manager-HUD additions on `origin/devin/manager-hud`
-(`TableState.x/y/urgency`, `Alert.table/sinceSec/cleared`), so nothing the glasses already send or parse
-changes. Differences and open questions are listed at the end. Once both lanes agree, this file is frozen
-and any change goes through a PR that touches both lanes' docs.
+Status: **the source is Coder B's `glasses/src/contract.ts` on `main`** ("PROPOSED, needs Coder A
+sign-off"). This file is its Python-side mirror: same message types, same camelCase field names, same
+shapes. The backend signs off on it as written. `backend/app/contract.py` holds pydantic models that match
+`contract.ts` exactly (`extra="forbid"`), plus a second set with the additions the backend asks for; every
+inbound frame is parsed with the first set (+ the additions), every outbound frame is checked against the
+second before it goes down a socket, and `tests/test_contract.py` proves the base models still parse what we
+send once the extras are dropped. What the backend needs changed is listed only under
+**§8 Contract changes requested**; nothing in `glasses/` is edited by this lane.
 
 Every field name is camelCase on the wire. Times are seconds (`sinceSec`) or ISO-8601 UTC strings (`*At`).
 
@@ -156,13 +159,24 @@ Operations (used by the organizer page, the walkthrough script and the simulator
 queued -> sent -> accepted -> done
   |        |
   |        +--(task.bounce)-----------------> bounced  -> re-queued for the next server (same id)
-  |        +--(30 s without accept)---------> escalated -> re-queued for the next server, then the manager
-  +--(server connects)--> sent
+  |        +--(30 s after sent, no accept)--> escalated -> re-queued for the next server, then the manager
+  +--(assignee's socket is up)--> sent
 ```
 
-- `queued`: assigned to a staff member whose socket isn't connected yet. Becomes `sent` the moment it goes
-  down a socket.
-- `sent` is shown to the glasses as `assigned` (the glasses never see `queued`).
+Backend state -> what the glasses see (`Task.state` in `contract.ts`):
+
+| backend (`backendState` on HTTP) | wire `state` | message |
+|---|---|---|
+| `queued` | (nothing yet) | the card is waiting for the assignee's socket |
+| `sent` | `assigned` | `task.assigned` |
+| `accepted` | `accepted` | `task.updated` |
+| `done` | `done` | `task.updated` |
+| `bounced`, `escalated` | `bounced` | `task.updated` to the previous assignee; `task.assigned` to the next |
+
+- `queued`: assigned to a staff member whose socket isn't connected yet. Becomes `sent` the moment the
+  `task.assigned` frame goes down that person's socket (organizer sockets don't count).
+- **The 30 s escalation timer starts at `sent` and stops at `accepted`.** A `queued` task is not timed
+  (nobody has seen it); see §8.6 for the open question that follows from that.
 - Escalation order: the other servers of the task's section, then any other server, then the manager
   (`m1`). The manager is the end of the chain: after that an `alert` (`task unacknowledged`) is raised instead.
 - `bounced` and `escalated` are what the previous assignee sees (`task.updated`, state `bounced`); the glasses
@@ -206,20 +220,29 @@ Identical to `backend/voice/menu.json` on `origin/devin/voice-spike` so both lan
 
 `tables[].x/y` feed `TableState.x/y`; `section` picks the default assignee for a table's tasks.
 
-## 8. Differences from `glasses/src/contract.ts` and open questions for Coder B
+## 8. Contract changes requested (for Coder B; nothing here is applied to `glasses/`)
 
-1. **Connection query params** (`token`, `role`, `staff`): new. Defaults keep the current glasses app
-   working, but the real build should send them (and `VITE_BACKEND_URL` should include `?token=`,
-   or the token can be a separate `VITE_BACKEND_TOKEN`; it ships in the bundle either way, see
-   `.agents/skills/g2-glasses-integration/04-ARCHITECTURE.md`).
-2. **Task extra fields** `assignee`, `priority`, `createdAt`: additive; `parse.ts` already ignores extras.
-3. **Bounce semantics**: the glasses get `task.updated` with `bounced` (already handled: the card is
-   dropped), and the next server gets `task.assigned` with the same id. OK?
-4. **`capture.start.table`** (optional): is the table known on the glasses when the server swipes down?
-   If not, the backend falls back to the table of the current card.
-5. **`task.done` from `sent`** (no accept first) is accepted by the backend so a fast double-tap never
-   leaves a stuck task. OK?
-6. **Order tool results are camelCase** (`didYouMean`, `allergyConflicts`, `flagged`) to match the wire;
-   `backend/voice/order.py` uses snake_case internally. Pick one before the agent prompt is finalised.
-7. **Who hosts the tools**: the backend exposes `/tools/*` over HTTP; the voice module can call them with
-   `httpx` or import `backend/app/orders.py` directly. Either way the rule guards live in one place.
+Each item is modelled in `backend/app/contract.py` §2 as an `*Ext` class. All are additive: `parse.ts`
+ignores unknown keys today, so the current glasses build keeps working whether or not they are accepted.
+
+1. **Connection query params** `?token=&role=&staff=` on the WebSocket URL. `role` is `server`
+   (default) | `manager` | `organizer`; `staff` is a `floor.json` id (defaults: first server, `m1`,
+   `organizer`). The token ships in the bundle either way (see
+   `.agents/skills/g2-glasses-integration/04-ARCHITECTURE.md`); `VITE_BACKEND_URL` can carry it:
+   `ws://host:8787/ws?token=...&role=server&staff=s1`.
+2. **`Task` + `assignee: string`, `priority: number`, `createdAt: string`** (ISO-8601 UTC). The glasses
+   may ignore all three; the organizer and kitchen pages use them.
+3. **`TableState` + `x`, `y`, `urgency`** and **`Alert` + `table?`, `sinceSec?`, `cleared?`** exactly as
+   proposed on `origin/devin/manager-hud`. The backend already sends them.
+4. **New backend -> glasses message `order.closed`** `{type, orderId, status: "fired" | "cancelled"}`:
+   the answer to `order.confirm` / `order.cancel_confirm`, so the glasses can drop the draft screen.
+5. **`capture.start` + `table?: string`**: if the glasses know the table of the current card when the
+   server swipes down, send it; otherwise the backend uses the table of the server's current card.
+6. **Open question, not a field:** should a task that is `queued` for an offline server (never `sent`)
+   also escalate after 30 s? Today it waits for the socket; the backend lane thinks it should escalate
+   too, which would need no contract change, only agreement.
+7. **Confirmation of semantics already in `contract.ts`:** (a) a bounce shows the previous assignee
+   `task.updated` with `bounced` and the next one `task.assigned` with the same `id`; (b) `task.done`
+   straight from `assigned` (no accept) is allowed so a fast double tap never leaves a stuck task;
+   (c) order-tool HTTP results are camelCase (`didYouMean`, `allergyConflicts`, `flagged`) like the wire,
+   while `backend/voice/order.py` is snake_case internally; pick one before the agent prompt is final.

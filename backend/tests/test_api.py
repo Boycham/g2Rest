@@ -155,3 +155,17 @@ def test_reset_clears_runtime_state(client: TestClient) -> None:
     assert client.get("/tasks", headers=H).json() == []
     assert client.get("/menu", headers=H).json()["dishes"]
     assert len(client.get("/floor", headers=H).json()["tables"]) == 8
+
+
+def test_organizer_socket_watches_but_never_counts_as_delivery(client: TestClient) -> None:
+    with client.websocket_connect(f"/ws?token={TOKEN}&role=organizer") as org:
+        assert org.receive_json()["type"] == "floor.state"
+        task = client.post("/tasks", json={"kind": "CLEAR", "table": "T1"}, headers=H).json()
+        seen = org.receive_json()
+        assert seen["type"] == "task.assigned" and seen["task"]["id"] == task["id"]
+        state = client.get("/tasks", headers=H).json()
+        assert [t["backendState"] for t in state] == ["queued"]  # s1 is offline: not sent
+        with client.websocket_connect(f"/ws?token={TOKEN}&staff=s1") as s1:
+            assert s1.receive_json()["task"]["id"] == task["id"]
+            state = client.get("/tasks", headers=H).json()
+            assert [t["backendState"] for t in state] == ["sent"]

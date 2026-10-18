@@ -9,12 +9,15 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from app.contract import ContractError, check_backend, parse_glasses
 from app.orders import ToolError
 from app.state import Store
 from app.tasks import Outbound, TaskError
 
 log = logging.getLogger("fs.hub")
 ROLES = ("server", "manager", "organizer")
+DEFAULT_STAFF = {"organizer": "organizer"}  # never a server: organizers only watch
+AUDIO_LOG_EVERY = 10  # one log line per second of 100 ms frames
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,13 @@ class Hub:
 
     async def _send(self, conn: Conn, message: dict[str, Any]) -> bool:
         try:
+            check_backend(message)
+        except ContractError as e:
+            log.error(
+                "[fs] not sending off-contract %s to %s: %s", message.get("type"), conn.staff, e
+            )
+            return False
+        try:
             await conn.ws.send_text(json.dumps(message))
             return True
         except Exception as e:  # noqa: BLE001 - a dead socket must not stop delivery to others
@@ -74,7 +84,7 @@ class Hub:
         for conn in list(self.conns.values()):
             if conn.staff == staff or conn.role == "organizer":
                 ok = await self._send(conn, message)
-                delivered += ok and conn.staff == staff
+                delivered += ok and conn.staff == staff and conn.role != "organizer"
         return delivered
 
     async def broadcast(self, message: dict[str, Any], roles: tuple[str, ...] = ROLES) -> None:
@@ -101,48 +111,47 @@ class Hub:
             return
         cap.frames += 1
         cap.bytes += len(data)
+        if cap.frames % AUDIO_LOG_EVERY == 0:
+            log.info("[fs] audio frames: %d", cap.frames)
 
     async def on_text(self, ws: WebSocket, raw: str) -> None:
         conn = self.conns.get(ws)
         if conn is None:
             return
         try:
-            msg = json.loads(raw)
-        except json.JSONDecodeError:
-            log.warning("[fs] dropped non-JSON from %s: %.200s", conn.staff, raw)
+            msg = parse_glasses(raw)
+        except ContractError as e:
+            log.warning("[fs] off-contract frame from %s dropped: %s", conn.staff, e)
+            self.store.events.append("ws.rejected", staff=conn.staff, error=str(e))
             return
-        if not isinstance(msg, dict) or not isinstance(msg.get("type"), str):
-            log.warning("[fs] dropped shapeless message from %s", conn.staff)
-            return
-        self.store.events.append("ws.in", staff=conn.staff, message=msg)
+        self.store.events.append("ws.in", staff=conn.staff, message=msg.model_dump())
         try:
             await self.handle(conn, msg)
-        except (TaskError, ToolError, KeyError, TypeError) as e:
-            log.warning("[fs] %s from %s rejected: %s", msg["type"], conn.staff, e)
-            self.store.events.append(
-                "ws.rejected", staff=conn.staff, type=msg["type"], error=str(e)
-            )
+        except (TaskError, ToolError) as e:
+            log.warning("[fs] %s from %s rejected: %s", msg.type, conn.staff, e)
+            self.store.events.append("ws.rejected", staff=conn.staff, type=msg.type, error=str(e))
 
-    async def handle(self, conn: Conn, msg: dict[str, Any]) -> None:
-        kind, now = msg["type"], self.store.now()
+    async def handle(self, conn: Conn, msg: Any) -> None:
+        now = self.store.now()
         book = self.store.book
-        if kind == "task.accept":
-            await self.deliver(book.accept(str(msg["taskId"]), now, by=conn.staff))
-        elif kind == "task.done":
-            await self.deliver(book.done(str(msg["taskId"]), now, by=conn.staff))
-        elif kind == "task.bounce":
-            await self.deliver(book.bounce(str(msg["taskId"]), now, by=conn.staff))
-        elif kind == "capture.start":
-            cap = self.store.start_capture(str(msg["captureId"]), conn.staff, msg.get("table"))
-            self.last_capture[conn.ws] = cap.id
-        elif kind == "capture.stop":
-            self.store.stop_capture(str(msg["captureId"]))
-        elif kind == "order.confirm":
-            await self.close_order(conn, str(msg["orderId"]), fire=True)
-        elif kind == "order.cancel_confirm":
-            await self.close_order(conn, str(msg["orderId"]), fire=False)
-        else:
-            log.warning("[fs] unknown message type %r from %s", kind, conn.staff)
+        match msg.type:
+            case "task.accept":
+                await self.deliver(book.accept(msg.taskId, now, by=conn.staff))
+            case "task.done":
+                await self.deliver(book.done(msg.taskId, now, by=conn.staff))
+            case "task.bounce":
+                await self.deliver(book.bounce(msg.taskId, now, by=conn.staff))
+            case "capture.start":
+                cap = self.store.start_capture(msg.captureId, conn.staff, msg.table)
+                self.last_capture[conn.ws] = cap.id
+            case "capture.stop":
+                cap = self.store.stop_capture(msg.captureId)
+                if cap is not None:
+                    log.info("[fs] audio frames: %d (capture %s closed)", cap.frames, cap.id)
+            case "order.confirm":
+                await self.close_order(conn, msg.orderId, fire=True)
+            case "order.cancel_confirm":
+                await self.close_order(conn, msg.orderId, fire=False)
 
     async def close_order(self, conn: Conn, order_id: str, *, fire: bool) -> None:
         order = self.store.orders.fire(order_id) if fire else self.store.orders.cancel(order_id)

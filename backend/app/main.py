@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from app.config import Settings
 from app.data import DataError
-from app.hub import ROLES, Hub
+from app.hub import DEFAULT_STAFF, ROLES, Hub
 from app.orders import TOOL_NAMES, ToolError
 from app.state import Store
 from app.tasks import TaskError, TaskKind
@@ -103,7 +103,9 @@ def create_app(settings: Settings | None = None, store: Store | None = None) -> 
             await ws.close(code=4400, reason=f"role must be one of {ROLES}")
             return
         if staff is None:
-            staff = store.floor.manager.id if role == "manager" else next(iter(store.floor.servers))
+            staff = DEFAULT_STAFF.get(role) or next(iter(store.floor.servers))
+            if role == "manager":
+                staff = store.floor.manager.id
         await hub.join(ws, role, staff)
         try:
             while True:

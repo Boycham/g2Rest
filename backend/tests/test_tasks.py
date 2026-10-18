@@ -74,6 +74,7 @@ def test_escalates_after_30s_to_next_server_then_manager(book: TaskBook) -> None
     assert types(out) == [("s2", "task.updated", "bounced"), ("s1", "task.assigned", "assigned")]
     assert task.assignee == "s1"
 
+    book.mark_sent(task.id, now=30)
     assert book.tick(now=59) == []
     out = book.tick(now=60)
     assert types(out) == [("s1", "task.updated", "bounced"), ("m1", "task.assigned", "assigned")]
@@ -83,6 +84,7 @@ def test_escalates_after_30s_to_next_server_then_manager(book: TaskBook) -> None
         "sent",
         "escalated",
         "queued",
+        "sent",
         "escalated",
         "queued",
     ]
@@ -90,16 +92,16 @@ def test_escalates_after_30s_to_next_server_then_manager(book: TaskBook) -> None
 
 def test_end_of_chain_raises_one_alert_and_done_clears_it(book: TaskBook) -> None:
     task, _ = book.create("RUN", "T1", now=0)
-    book.tick(now=30)
-    book.tick(now=60)
+    for t in (0, 30, 60):  # each new assignee's card is delivered at once
+        book.mark_sent(task.id, now=t)
+        out = book.tick(now=t + 30)
     assert task.assignee == "m1"
-    out = book.tick(now=90)
     assert len(out) == 1 and out[0].staff == "m1"
     alert = out[0].message
     assert alert["type"] == "alert" and alert["level"] == "urgent" and alert["table"] == "T1"
     assert alert["id"] == f"unacked-{task.id}"
     assert book.tick(now=120) == []  # not raised twice
-    assert task.assignee == "m1" and task.state == "queued"
+    assert task.assignee == "m1" and task.state == "sent"
 
     out = book.done(task.id, now=130)
     assert out[1].message == {
@@ -127,3 +129,23 @@ def test_open_for_lists_only_that_servers_open_tasks(book: TaskBook) -> None:
     book.done(c.id, now=1)
     assert [t.id for t in book.open_for("s1")] == [a.id]
     assert [t.id for t in book.open_for("s2")] == [b.id]
+
+
+def test_escalation_timer_starts_at_sent_not_at_creation(book: TaskBook) -> None:
+    task, _ = book.create("RUN", "T1", now=0)
+    assert book.tick(now=100) == []  # queued: assignee offline, nothing is timed
+    book.mark_sent(task.id, now=100)
+    assert book.tick(now=129) == []
+    assert types(book.tick(now=130)) == [
+        ("s1", "task.updated", "bounced"),
+        ("s2", "task.assigned", "assigned"),
+    ]
+    assert task.state == "queued" and task.sent_at is None  # s2's timer waits for delivery
+
+
+def test_escalation_timer_stops_at_accepted(book: TaskBook) -> None:
+    task, _ = book.create("RUN", "T1", now=0)
+    book.mark_sent(task.id, now=0)
+    book.accept(task.id, now=29)
+    assert book.tick(now=10_000) == []
+    assert task.state == "accepted"
