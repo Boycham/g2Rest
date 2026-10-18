@@ -126,7 +126,7 @@ const FLOOR: Omit<FakeTable, 'since'>[] = [
   { table: 'T8', status: 'check', x: 9, y: 4, urgency: 0 },
 ]
 /** Minutes each table has been in its status when the loop starts. */
-const START_MIN: Record<string, number> = { T1: 18, T2: 3, T3: 6, T4: 11, T5: 0, T6: 2, T7: 1, T8: 4 }
+const START_MIN: Record<string, number> = { T1: 18, T2: 3, T3: 6, T4: 14, T5: 0, T6: 2, T7: 1, T8: 4 }
 
 const MANAGER_LOOP_MS = 60_000
 type Step = { atMs: number; tables?: Partial<Record<string, Partial<FakeTable>>>; alerts?: Omit<Alert, 'type'>[] }
@@ -136,7 +136,7 @@ const MANAGER_SCRIPT: Step[] = [
   {
     atMs: 8000,
     tables: { T4: { urgency: 4 } },
-    alerts: [{ id: 'late-t4', level: 'urgent', text: 'T4 waiting {elapsed} on mains', table: 'T4', sinceSec: 14 * 60 }],
+    alerts: [{ id: 'late-t4', level: 'urgent', text: 'T4 waiting {elapsed} on mains', table: 'T4', sinceSec: 14 * 60 + 8 }],
   },
   { atMs: 14000, tables: { T6: { status: 'waiting', urgency: 1 }, T5: { status: 'seated' } } },
   { atMs: 20000, tables: { T3: { status: 'waiting', urgency: 0 } }, alerts: [{ id: 'unacked-t3', level: 'warn', text: '', cleared: true }] },
@@ -233,8 +233,10 @@ function stopManager(): void {
 
 function makeLate(table: string): boolean {
   if (!floor.has(table)) return false
-  setTables({ [table]: { status: 'waiting', urgency: 4 } })
-  setAlert({ id: `late-${table.toLowerCase()}`, level: 'urgent', text: `${table} waiting {elapsed} on mains`, table, sinceSec: 12 * 60 })
+  const lateMin = 12
+  floor.set(table, { ...floor.get(table)!, status: 'waiting', urgency: 4, since: Date.now() - lateMin * 60_000 })
+  broadcast(floorMsg())
+  setAlert({ id: `late-${table.toLowerCase()}`, level: 'urgent', text: `${table} waiting {elapsed} on mains`, table, sinceSec: lateMin * 60 })
   return true
 }
 
