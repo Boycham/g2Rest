@@ -465,3 +465,38 @@ decline on the accepted task → `Can't decline: already accepted`; done → tas
 - Phone-link bandwidth/battery of streaming the mic continuously (on top of the rolling buffer).
 - Scribe realtime session limits for an always-open stream (reconnects are handled; long-session
   behaviour not measured).
+
+## Spoken floor requests and table statuses (`floor_requests.py`)
+
+Real-G2 bug: "table 2 wants the check" + clip did nothing (the clip agent: "no food order"; the talk
+agent: "not a guest conversation"). Now a pattern parser (no LLM) proposes a request; the glasses
+confirm it with a tap, so a misheard clip never creates a task.
+
+- A table reference ("table N", "TN", "T N"; in voice also a bare number first: "verity six needs
+  water") next to a request phrase: wants/needs the check or bill, `ready to order`, `clear table N`
+  / needs clearing, wants/needs X (RUN, note X). X that resolves to a menu dish is an order, not a
+  RUN. No new task kind was needed.
+- By voice only (after "verity"), every backend table status: free/empty/open/paid/left -> `empty`,
+  seated (+ VIP), ordered, waiting (on X), eating / has their food, check. A clip proposes statuses
+  only through `check`, so table talk never sets one.
+- "verity table N" with nothing after the number is still set-table; "verity clear" alone is still the
+  clip soundalike. Loose wording goes to Gemini (`request` intent: table, kind, status, vip, note;
+  code checks every field). The relay checks the table against `data/floor.json` (`reason: "no table
+  12"`).
+- 0 false triggers on every `make_fixtures.CONVERSATIONS` text and `NEVER_FIRE` phrase
+  (`tests/test_floor_requests.py`).
+- A clip with no order, no question and no request shows `Nothing to add` (talk lines arriving later
+  clear it). Both clip prompts now say: call the tool with empty lists, never write text.
+- Keyterms: + check, bill, bread, water, refill, seated, free, paid = 49 of the 50 realtime terms (every dish
+  still fits).
+- Simulator run (2026-10-18, real backend + relay + Scribe, TTS fixtures): clip "table 2 wants the
+  check" -> `Request: CHECK T2? tap` -> tap -> CHECK T2 routed to Ava (s1), on the Organizer dispatch
+  board. By verity: "table two wants the check" (CHECK T2 routed), "T4, seated, four" (T4 seated),
+  "table five is free", "table two paid" (T2 -> empty); every status change is in `/events` with
+  `by: s1` and the floor tile updated live.
+- Surprise: the ElevenLabs TTS fixtures sit at -22 to -30 dBFS, right at the relay's -22 dBFS command
+  gate, so Scribe committed "Verity, table two wants..." and "Verity, T4, C4." (quiet words gated to
+  silence). That cut-off used to set the draft's table; now any words after "verity table N" in the
+  same clause skip set-table. With +10 dB fixtures (a close-talk mic level) all four came through.
+- HW-PENDING: Scribe on a real G2 for "wants the check" in restaurant noise; the agents' new prompts
+  only take effect after `create_agent.py --update` for the clip and talk agents.

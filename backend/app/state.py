@@ -88,7 +88,9 @@ class Store:
 
     # ---------- tables ----------
 
-    def set_table_status(self, table: str, status: str, vip: bool = False) -> list[Outbound]:
+    def set_table_status(
+        self, table: str, status: str, vip: bool = False, by: str | None = None
+    ) -> list[Outbound]:
         """Returns the manager's "VIP seated" alert (raised once per party) or its clear."""
         if status not in TABLE_STATUSES:
             raise DataError(f"status must be one of {TABLE_STATUSES}")
@@ -96,7 +98,9 @@ class Store:
         live = self.tables[table]
         if live.status != status:
             live.status, live.since = status, self.now()
-            self.events.append("table.status", table=table, status=status)
+            self.events.append(
+                "table.status", table=table, status=status, **({"by": by} if by else {})
+            )
         if status == "empty" and live.vip:
             live.vip = False
             return self._clear_alert(f"vip-{table}")

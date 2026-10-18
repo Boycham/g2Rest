@@ -51,8 +51,15 @@ describe('Controls tab', () => {
     expect(CONTROLS.find(c => c.label === 'Revert last')?.voice).toBe('verity revert')
   })
 
+  it('lists every table status and the spoken request commands', () => {
+    const voices = CONTROLS.map(c => c.voice).join(' ')
+    for (const s of ['free', 'paid', 'seated', 'ordered', 'waiting', 'eating', 'check', 'clear', 'ready to order', 'needs bread', 'nevermind']) {
+      expect(voices).toContain(s)
+    }
+  })
+
   it('pages by tap and wraps, the footer on the last line', () => {
-    expect(CONTROLS_PAGES).toBe(3)
+    expect(CONTROLS_PAGES).toBe(6)
     expect(nextControlsPage(0)).toBe(1)
     expect(nextControlsPage(CONTROLS_PAGES - 1)).toBe(0)
     for (let p = 0; p < CONTROLS_PAGES; p++) {

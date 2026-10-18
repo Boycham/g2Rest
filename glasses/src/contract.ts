@@ -164,7 +164,30 @@ export interface OrderReject {
   proposalId: string
 }
 
+/**
+ * A spoken floor request the server confirmed with a tap ("table 2 wants the check" said in a
+ * clip or after "verity"). Routed like POST /tasks without an assignee; an open task of the
+ * same kind at the table is not doubled. Refused (unknown table): task.rejected "request".
+ */
+export interface TaskRequest {
+  type: 'task.request'
+  table: string
+  kind: TaskKind
+  note?: string
+}
+
+/** A table status the server confirmed ("verity table five is free"); "check" also requests a CHECK. */
+export interface TableStatusSet {
+  type: 'table.status'
+  table: string
+  status: TableStatus
+  vip?: boolean
+  note?: string
+}
+
 export type GlassesJsonMessage =
+  | TaskRequest
+  | TableStatusSet
   | TaskAccept
   | TaskDone
   | TaskBounce
@@ -332,8 +355,24 @@ export interface VoiceCommand {
 export interface TaskRejected {
   type: 'task.rejected'
   taskId: string | null
-  action: 'accept' | 'done' | 'bounce' | 'handoff' | 'revert'
+  action: 'accept' | 'done' | 'bounce' | 'handoff' | 'revert' | 'request' | 'status'
   reason: string
+}
+
+/**
+ * A floor request or table status heard in a clip or after "verity", to confirm with a tap
+ * (`Request: CHECK T2? tap`). Nothing is created until then. `reason` ("no table 12"): refused,
+ * nothing to confirm.
+ */
+export interface VoiceRequest {
+  type: 'voice.request'
+  table: string
+  kind?: TaskKind
+  status?: TableStatus
+  vip?: boolean
+  note?: string
+  source: 'clip' | 'voice'
+  reason?: string
 }
 
 /** Words after "verity" that neither the word list nor Gemini could map: `Didn't get: <words>`. */
@@ -367,4 +406,5 @@ export type BackendMessage =
   | VoiceCommand
   | VoiceMapping
   | VoiceUnknown
+  | VoiceRequest
   | TaskRejected
