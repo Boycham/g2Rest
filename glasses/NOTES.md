@@ -86,16 +86,25 @@ upgrade itself takes 0-4 ms in the simulator.
 - The relay's order lives per glasses connection: a WebView reload starts a new draft.
 - `app.json` whitelists only `ws://localhost:8787` and `http://localhost:8787`. Add the real `wss://`/`https://`
   host before packing for the phone.
-- **QR dev mode doesn't seem to enforce the whitelist** (hand test, reported by Boyuan): the server HUD on a
-  real G2 in QR dev mode reached the fake backend over a Tailscale IP that isn't in `app.json`. Don't take
-  that as proof the host is allowed: packed `.ehpk` builds still need the real host listed.
+
+## Checked on a real G2 (server HUD, first hardware run, reported by Boyuan)
+
+- **Install path that worked:** pack the `.ehpk` (SDK 0.0.16, `min_app_version` 2.2.10), upload it on the Even
+  Hub portal, push it to a Beta group, then install from the phone app's **Me → Beta tester**. The emailed invite
+  link said "build expired"; installing from Me → Beta tester worked anyway. Developer Mode / Scan QR never
+  appeared in the owner's Even app, so QR dev mode is untested (this corrects the earlier note here, which said
+  QR dev mode skipped the whitelist).
+- **Network:** the packed build reached the fake backend over a Tailscale IP with plain `ws://`, listed in
+  that build's `app.json` whitelist. So packed builds accept a non-TLS `ws://` host when it is whitelisted.
+  The committed `app.json` still lists only localhost; add the host you use before packing.
+- **Gestures:** tap accept → tap done for all 3 tasks; swipe down → `capture.start`, swipe down again →
+  `capture.stop`. The backend received each message within the same second as the gesture.
 
 ## HW-PENDING (real G2 + phone)
 
-- Tap / swipe up / swipe down / double tap from both the ring and the temple; swipe up on the queue returns.
+- Swipe up (queue and back) and double tap on hardware; ring vs temple input.
 - Card legibility at each brightness; the dim `ACCEPTED` state is readable; 5-line cap fits the real lens.
 - `+N queued` stays flush right on hardware (padding built from pretext widths of spaces).
-- WebSocket to the real backend host from the phone WebView (whitelist + CORS); SSE fallback if not.
 - Background the Even app, wait, foreground: queue restored from SDK storage and socket reconnects.
 - 5-minute locked-phone test (Even's requirement).
 - Double tap exits cleanly on hardware and passes Even Hub review.
