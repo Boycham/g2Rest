@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -45,21 +46,25 @@ class Store:
     orders: OrderBook = field(init=False)
     captures: dict[str, Capture] = field(default_factory=dict)
     pass_: Pass = field(init=False)
+    # seconds, monotonic; the dinner-rush simulator passes a simulated clock (sim/)
+    clock: Callable[[], float] = field(default=time.monotonic, repr=False)
 
     def __post_init__(self) -> None:
         self.reset()
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> Store:
+    def from_settings(
+        cls, settings: Settings, clock: Callable[[], float] = time.monotonic
+    ) -> Store:
         return cls(
             settings,
             Menu.load(settings.data_dir / "menu.json"),
             Floor.load(settings.data_dir / "floor.json"),
+            clock=clock,
         )
 
-    @staticmethod
-    def now() -> float:
-        return time.monotonic()
+    def now(self) -> float:
+        return self.clock()
 
     def reset(self) -> None:
         now = self.now()
