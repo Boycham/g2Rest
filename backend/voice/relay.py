@@ -38,7 +38,7 @@ from voice_session import (
 PORT = int(os.environ.get("VOICE_RELAY_PORT", "8790"))
 START_TIMEOUT = 8.0  # Scribe + agent connect, each already has its own timeout
 MAX_BUFFERED_FRAMES = 50  # 5 s of audio kept while the providers connect
-MAX_CLIP_FRAMES = 1220  # a 120 s clip plus slack; anything past it is dropped
+MAX_CLIP_FRAMES = 620  # a 60 s clip plus slack; anything past it is dropped
 Transcribe = Callable[[bytes], Awaitable[list[tuple[str, str]]]]
 
 
@@ -83,7 +83,7 @@ def clip_message(turns: list[tuple[str, str]], book: OrderBook) -> str:
         f"table {t} ({whence[book.table_source]})" if t and book.table_source else "not known yet"
     )
     lines = "\n".join(f"{speaker}: {text}" for speaker, text in turns)
-    return f"CLIP, last 2 minutes at the table, oldest first. Table: {where}.\n{lines}"
+    return f"CLIP, last minute at the table, oldest first. Table: {where}.\n{lines}"
 
 
 def proposal_text(book: OrderBook, p: dict[str, Any]) -> str:
@@ -398,7 +398,7 @@ class RelaySession:
             log(f"command stream send failed: {type(e).__name__}: {e}")
             self.cmd_stt = None
 
-    # ---- clip: the last 2 minutes from the glasses' rolling buffer ----
+    # ---- clip: the last minute from the glasses' rolling buffer ----
 
     async def _clip_start(self, capture_id: str, table: str | None) -> None:
         self.mode = "clip"
@@ -457,7 +457,7 @@ class RelaySession:
         if capture_id != self.capture_id:
             return
         if not turns:
-            self.voice, self.notice = "idle", "heard nothing in the last 2 min"
+            self.voice, self.notice = "idle", "heard nothing in the last minute"
             await self.draft()
             return
         self.got_order = False
@@ -473,7 +473,7 @@ class RelaySession:
             await self._offline(f"agent: {type(e).__name__}: {e}")
             return
         if not self.got_order and capture_id == self.capture_id:
-            self.voice, self.notice = "idle", "no order heard in the last 2 min"
+            self.voice, self.notice = "idle", "no order heard in the last minute"
             await self.draft()
 
     async def audio(self, frame: bytes) -> None:

@@ -40,7 +40,7 @@ describe('formatDraft', () => {
 
   it('shows the pending proposal highlighted in the bar', () => {
     const v = formatDraft(state({ draft: draft({ pending: [{ id: 'p1', action: 'remove', text: 'REMOVE s2 salmon?' }] }) }))
-    expect(v.bar).toBe('REMOVE s2 salmon? tap=yes swipe up=no')
+    expect(v.bar).toBe('REMOVE s2 salmon? tap=yes swipe fwd=no')
     expect(v.highlight).toBe(true)
   })
 
@@ -76,7 +76,7 @@ describe('formatDraft', () => {
 describe('draftGesture', () => {
   const pending = (action: 'remove' | 'cancel' | 'confirm') => state({ draft: draft({ pending: [{ id: 'p7', action, text: 'x' }] }) })
 
-  it('swipe down sends the last 2 minutes again', () => {
+  it('swipe back sends the last minute again', () => {
     expect(draftGesture('down', state())).toEqual({ send: null, then: 'clip' })
   })
 
@@ -103,7 +103,7 @@ describe('draftGesture', () => {
     expect(draftGesture('tap', state({ draft: null })).send).toBeNull()
   })
 
-  it('swipe up rejects the pending proposal, else goes back keeping the draft', () => {
+  it('swipe fwd rejects the pending proposal, else goes back keeping the draft', () => {
     expect(draftGesture('up', pending('remove'))).toEqual({
       send: { type: 'order.reject', orderId: 'o1', proposalId: 'p7' },
       then: 'none',
@@ -113,16 +113,16 @@ describe('draftGesture', () => {
 })
 
 describe('formatDraft for a clip', () => {
-  it('shows Reading last 2 min… while the clip is processed', () => {
+  it('shows Reading last min… while the clip is processed', () => {
     const lines = formatDraft(state({ draft: null, voice: 'processing' })).main.split('\n')
-    expect(lines[0].startsWith('Last 2 min')).toBe(true)
-    expect(lines[0].endsWith('Reading last 2 min…')).toBe(true)
+    expect(lines[0].startsWith('Last minute')).toBe(true)
+    expect(lines[0].endsWith('Reading last min…')).toBe(true)
   })
 
   it('shows TABLE? and how to give it when the draft has no table', () => {
     const v = formatDraft(state({ draft: draft({ table: null }) }))
     expect(v.main.split('\n')[1].startsWith('TABLE?')).toBe(true)
-    expect(v.bar).toBe('TABLE? say the table, then swipe down')
+    expect(v.bar).toBe('TABLE? say the table, then swipe back')
     expect(v.highlight).toBe(false)
   })
 
@@ -202,8 +202,8 @@ describe('formatDraft with the table talk', () => {
   it('keeps the page count in the TABLE? bar so the rest of the talk is not hidden', () => {
     const many = Array.from({ length: 5 }, (_, i) => ({ seat: i + 1, qty: 1, dish: 'soup', alterations: [], flagged: [] }))
     const d = draft({ table: null, lines: many, summary: 'Birthday at seat 3, relaxed', answers })
-    expect(formatDraft(state({ draft: d })).bar).toBe('TABLE? say the table, then swipe down · fwd 1/2')
-    expect(formatDraft(state({ draft: d, page: 1 })).bar).toBe('TABLE? say the table, then swipe down · fwd 2/2')
+    expect(formatDraft(state({ draft: d })).bar).toBe('TABLE? say the table, then swipe back · fwd 1/2')
+    expect(formatDraft(state({ draft: d, page: 1 })).bar).toBe('TABLE? say the table, then swipe back · fwd 2/2')
   })
 
   it('a tap sends only the order: the summary and answers are not in the message', () => {

@@ -66,7 +66,7 @@ Every field name is camelCase on the wire. Times are seconds (`sinceSec`) or ISO
 | `capture.stop` | `captureId` | closes the capture (trailing silence is the backend's job) |
 | `order.confirm` | `orderId`, `proposalId?` | without `proposalId`: fires the draft to the kitchen (the agent only proposed it); with it: applies that pending voice proposal |
 | `order.cancel_confirm` | `orderId`, `proposalId?` | without `proposalId`: cancels the draft (the agent only proposed it); with it: applies that pending cancel proposal |
-| `order.reject` | `orderId`, `proposalId` | swipe up on a pending voice proposal: drops it, nothing changes |
+| `order.reject` | `orderId`, `proposalId` | swipe fwd on a pending voice proposal: drops it, nothing changes |
 
 ```json
 { "type": "task.accept", "taskId": "task-1a2b" }
@@ -293,7 +293,7 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
    - `TaskKind` + `ORDER`: "take T3's order". Accepting it on the glasses binds the next clip to that
      table; the backend also uses the server's open ORDER task as the capture's table when
      `capture.start` has none. The order firing (or being cancelled) marks the ORDER task done.
-   - `capture.start` + `mode?: "stream" | "clip"`. A clip is up to 120 s of 3200-byte frames sent as
+   - `capture.start` + `mode?: "stream" | "clip"`. A clip is up to 60 s of 3200-byte frames sent as
      fast as possible, then `capture.stop`; the relay transcribes it in one batch and extracts the order.
    - `VoiceState` + `processing` (the clip is being transcribed and read), and `order.draft` +
      `notes?: string[]` (occasion, pacing) and `uncertain?: string[]` (`? s2 'the fish': halibut or salmon`).
@@ -309,9 +309,7 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
 10. **Handoff and revert** (Coder A, for voice "handoff" / "revert" and the long-hold handoff):
     glasses -> backend `task.handoff {taskId, to?}` and `task.revert {taskId?}`; backend -> glasses
     `task.rejected {taskId, action, reason}`. Additive; `contract.ts` needs the three types.
-11. **Table by voice and the 2-minute clip (glasses lane, branch `devin/clip-summary`):**
-    - A clip is now the last **120 s** (was 60 s): at most 1200 frames, 3.84 MB; the relay drops frames past
-      1220.
+11. **Table by voice (glasses lane, branch `devin/clip-summary`):**
     - Relay -> glasses `voice.command` + `intent: "table"` with `table?: string` (`"T4"`), `was?: string`
       (the table it replaced, e.g. an ORDER task's `"T3"`) and `reason?: string` (refused: `"no table 12"`
       (not in `data/floor.json`), `"already sent"`, `"no order to set the table for"`). On success the relay

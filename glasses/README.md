@@ -7,7 +7,7 @@ saved in SDK storage, and Server is the default.
 - **Server:** one task card at a time (`RUN · T12 · 2× halibut s1+3`), allergies on the top line, and
   `+N queued` in the corner.
 - **Manager:** a list of exceptions only, most urgent first (`! T4 waiting 14m on mains`, `T3 task unacked 60s`).
-  Timers tick on the glasses. Swipe down for a minimap of 8 tables: each box shows a status glyph and minutes,
+  Timers tick on the glasses. Swipe back for a minimap of 8 tables: each box shows a status glyph and minutes,
   and the brightest box is the one that needs you.
 
 The glasses talk to the backend over one WebSocket using the message contract in `src/contract.ts`. The URL
@@ -37,8 +37,9 @@ On real glasses: `npx evenhub qr --url http://<your-ip>:5173`. To pack: `npm run
 | Gesture | Server | Manager |
 |---|---|---|
 | Tap | accept the task; tap again when it's done | dismiss the top exception (on this device only); on the minimap, back to exceptions |
-| Swipe up | queue (swipe up or tap to go back) | back to exceptions from the minimap |
-| Swipe down | take an order; swipe down again to stop | floor minimap |
+| Swipe fwd (toward the eyes) | Controls menu: every gesture and its "verity" command, the queue | back to exceptions from the minimap |
+| Swipe back (toward the ear) | clip the last minute: the order shows as a draft | floor minimap |
+| Long press | hand the task off (`Confirm handoff?`, then tap) | - |
 | Double tap | exit (`shutDownPageContainer(1)`) | exit (`shutDownPageContainer(1)`) |
 
 Minimap glyphs: `!` needs you, `S` seated, `O` ordered, `W` waiting on food, `E` eating (mains out),

@@ -31,7 +31,7 @@ const CLIP_TIMEOUT_MS = 30_000
 
 declare global {
   interface Window {
-    /** Dev measurement: swipe down -> draft from that clip shown on the glasses, ms. */
+    /** Dev measurement: swipe back -> draft from that clip shown on the glasses, ms. */
     __fsLatency?: number[]
     /** Swipe -> the clip's summary/answers on the lens (they follow the order card). */
     __fsTalkLatency?: number[]
@@ -175,7 +175,7 @@ export class CaptureScreen {
     else this.changed()
   }
 
-  /** 'clip': the caller sends a new last 2 minutes; 'back': return to the card. */
+  /** 'clip': the caller sends a new last minute; 'back': return to the card. */
   gesture(g: Gesture): 'back' | 'clip' | 'none' {
     const a = draftGesture(g, this.state())
     if (a.send) this.socket.send(a.send)
@@ -236,13 +236,13 @@ export class CaptureScreen {
         if (this.clipAt !== null && !this.processing && this.draft?.captureId === this.clipId) {
           const ms = Math.round(t1 - this.clipAt)
           ;(window.__fsLatency ??= []).push(ms)
-          log('latency swipe down -> draft on glasses', `${ms} ms`)
+          log('latency swipe back -> draft on glasses', `${ms} ms`)
           this.clipAt = null
         }
         if (this.talkAt !== null && this.draft?.captureId === this.clipId && (this.draft.summary || this.draft.answers?.length)) {
           const ms = Math.round(t1 - this.talkAt)
           ;(window.__fsTalkLatency ??= []).push(ms)
-          log('latency swipe down -> summary and answers on glasses', `${ms} ms`)
+          log('latency swipe back -> summary and answers on glasses', `${ms} ms`)
           this.talkAt = null
         }
       } while (this.dirty && this.active)
