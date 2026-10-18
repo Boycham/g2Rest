@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeTask } from './fixtures.test-helpers'
 import {
   configUrl,
+  clipShown,
+  clipStarted,
   crumb,
   flush,
   frameData,
@@ -9,8 +11,11 @@ import {
   scrub,
   scrubString,
   startTelemetry,
+  taskAssigned,
   traceOf,
+  watchLens,
 } from './telemetry'
+import type { EvenAppBridge } from '@evenrealities/even_hub_sdk'
 
 const TOKEN = 'dev-token-123'
 
@@ -58,6 +63,23 @@ describe('telemetry helpers', () => {
   })
 })
 
+// Sentry init runs once per module, so every test after the first shares this transport.
+const sent: string[] = []
+const transport = () => ({
+  send: async (envelope: unknown) => {
+    sent.push(JSON.stringify(envelope))
+    return {}
+  },
+  flush: async () => true,
+})
+const tick = (ms = 50) => new Promise(r => setTimeout(r, ms))
+/** The transaction payloads (envelope item bodies) sent since the last call. */
+function transactions(): Array<{ transaction: string; contexts: { trace: { trace_id: string; parent_span_id?: string; data: Record<string, unknown> } }; spans: Array<{ description: string; op: string }> }> {
+  const out = sent.flatMap(e => (JSON.parse(e) as [unknown, Array<[{ type: string }, unknown]>])[1]).filter(([h]) => h.type === 'transaction').map(([, body]) => body as never)
+  sent.length = 0
+  return out
+}
+
 describe('startTelemetry', () => {
   afterEach(() => vi.unstubAllGlobals())
 
@@ -73,14 +95,6 @@ describe('startTelemetry', () => {
       new Response(JSON.stringify({ sentry: { dsn: 'https://key@o1.ingest.us.sentry.io/2', environment: 'test', tracesSampleRate: 1 } })),
     )
     vi.stubGlobal('fetch', fetchMock)
-    const sent: string[] = []
-    const transport = () => ({
-      send: async (envelope: unknown) => {
-        sent.push(JSON.stringify(envelope))
-        return {}
-      },
-      flush: async () => true,
-    })
     crumb('gesture', 'swipe back', { where: 'server/card' })
     const on = await startTelemetry({ wsUrl: `ws://localhost:8787/ws?token=${TOKEN}`, token: TOKEN, tags: { role: 'server', staff: 's1' }, transport })
     expect(on).toBe(true)
@@ -92,13 +106,49 @@ describe('startTelemetry', () => {
     const { captureException } = await import('@sentry/browser')
     captureException(new Error(`socket failed ws://h/ws?token=${TOKEN}`))
     flush()
-    await new Promise(r => setTimeout(r, 50))
+    await tick()
     const all = sent.join('\n')
+    if (process.env.SHOW_SENTRY_PAYLOAD) console.log(all)
     expect(all).toContain('swipe back')
     expect(all).toContain('"role":"server"')
     expect(all).toContain('"app_version":"0.1.6"')
     expect(all).toContain('"even_hub_sdk":"0.0.16"')
     expect(all).not.toContain(TOKEN)
     expect(all).not.toContain('SHELLFISH')
+  })
+
+  it('times a swipe-back clip to the order card and then the summary in one transaction', async () => {
+    transactions()
+    const { noteInput } = await import('./telemetry')
+    noteInput('swipe back')
+    clipStarted('cap-1', 60, true)
+    await tick(20)
+    clipShown('cap-1', 'order')
+    await tick(20)
+    clipShown('cap-1', 'summary')
+    flush()
+    await tick()
+    const [tx, ...rest] = transactions()
+    expect(rest).toEqual([])
+    expect(tx!.transaction).toBe('clip -> order card')
+    expect(tx!.contexts.trace.data).toMatchObject({ trigger: 'swipe back', 'clip.seconds': 60, 'clip.has_table': true })
+    expect(tx!.spans.map(s => s.op).sort()).toEqual(['ui.clip.order', 'ui.clip.summary'])
+  })
+
+  it('continues the backend trace from task.assigned until the card is drawn', async () => {
+    transactions()
+    const bridge = { textContainerUpgrade: vi.fn().mockResolvedValue(true), rebuildPageContainer: vi.fn().mockResolvedValue(true) }
+    watchLens(bridge as unknown as EvenAppBridge, 1)
+    const traceId = 'a'.repeat(32)
+    taskAssigned({ type: 'task.assigned', task: makeTask({ id: 'task-9' }), trace: { sentryTrace: `${traceId}-${'b'.repeat(16)}-1` } })
+    await (bridge as unknown as EvenAppBridge).textContainerUpgrade({ containerID: 1, containerName: 'main', content: 'RUN · T12' } as never)
+    flush()
+    await tick()
+    const [tx] = transactions()
+    expect(tx!.transaction).toBe('task.assigned -> card')
+    expect(tx!.contexts.trace.trace_id).toBe(traceId)
+    expect(tx!.contexts.trace.parent_span_id).toBe('b'.repeat(16))
+    expect(tx!.contexts.trace.data).toMatchObject({ 'task.id': 'task-9', continued: true, shown: true })
+    expect(JSON.stringify(tx)).not.toContain('T12')
   })
 })
