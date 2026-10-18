@@ -92,6 +92,23 @@ export interface TaskBounce {
   taskId: string
 }
 
+/**
+ * Coder A (claude/gemini-router): hand a task (accepted too) to someone else, sent only after
+ * the Confirm popup. `to` is a staff id or name, any case; without it the router picks anyone
+ * but the sender. The sender then gets task.updated "bounced"; the new holder task.assigned.
+ */
+export interface TaskHandoff {
+  type: 'task.handoff'
+  taskId: string
+  to?: string
+}
+
+/** Coder A: undo the sender's last accept, done, bounce or handoff (one level). */
+export interface TaskRevert {
+  type: 'task.revert'
+  taskId?: string
+}
+
 export interface CaptureStart {
   type: 'capture.start'
   /** Generated on the glasses; ties audio frames and the stop to this capture. */
@@ -151,6 +168,8 @@ export type GlassesJsonMessage =
   | TaskAccept
   | TaskDone
   | TaskBounce
+  | TaskHandoff
+  | TaskRevert
   | CaptureStart
   | CaptureStop
   | OrderConfirm
@@ -242,7 +261,20 @@ export interface OrderClosed {
 }
 
 /** Voice commands the relay matched after the wake word "verity" (fixed list, no LLM). */
-export type VoiceIntent = 'up' | 'down' | 'back' | 'confirm' | 'clip' | 'accept' | 'decline' | 'done'
+export type VoiceIntent =
+  | 'up'
+  | 'down'
+  | 'back'
+  | 'confirm'
+  | 'clip'
+  | 'accept'
+  | 'decline'
+  | 'done'
+  | 'handoff'
+  | 'nevermind'
+  | 'revert'
+  | 'menu'
+  | 'queue'
 
 /**
  * "verity <command>" heard on the always-on command stream. The glasses act on it exactly
@@ -251,6 +283,24 @@ export type VoiceIntent = 'up' | 'down' | 'back' | 'confirm' | 'clip' | 'accept'
 export interface VoiceCommand {
   type: 'voice.command'
   intent: VoiceIntent
+  /** "verity handoff Maya": who to hand the task to. */
+  name?: string
+}
+
+/** Coder A: a refused task.* frame, to the sending socket only. The card shows `reason` as is. */
+export interface TaskRejected {
+  type: 'task.rejected'
+  taskId: string | null
+  action: 'accept' | 'done' | 'bounce' | 'handoff' | 'revert'
+  reason: string
+}
+
+/** Words after "verity" that neither the word list nor Gemini could map: `Didn't get: <words>`. */
+export interface VoiceUnknown {
+  type: 'voice.unknown'
+  words: string
+  /** Why Gemini couldn't help ("timeout", "no key", ...); absent when it said "not a command". */
+  reason?: string
 }
 
 /** A full snapshot of every table (not a diff); sent on connect and on every change. */
@@ -268,3 +318,5 @@ export type BackendMessage =
   | FloorState
   | OrderClosed
   | VoiceCommand
+  | VoiceUnknown
+  | TaskRejected
