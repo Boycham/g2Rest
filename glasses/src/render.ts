@@ -1,0 +1,81 @@
+import { TextContainerProperty, TextContainerUpgrade, type EvenAppBridge } from '@evenrealities/even_hub_sdk'
+import { CARD_PADDING, DISPLAY_HEIGHT, DISPLAY_WIDTH, type CardView } from './card'
+import { log } from './log'
+
+export const MAIN_ID = 1
+export const MAIN_NAME = 'main'
+
+/** The one full-screen, input-capturing text container both HUDs use for their root screen. */
+export function fullTextPage(content: string, brightness = 4): TextContainerProperty {
+  return new TextContainerProperty({
+    xPosition: 0,
+    yPosition: 0,
+    width: DISPLAY_WIDTH,
+    height: DISPLAY_HEIGHT,
+    borderWidth: 0,
+    paddingLength: CARD_PADDING,
+    containerID: MAIN_ID,
+    containerName: MAIN_NAME,
+    // An empty string may be rejected by the host; a space renders as blank.
+    content: content || ' ',
+    textColor: brightness,
+    isEventCapture: 1,
+  })
+}
+
+const keyOf = (view: CardView) => JSON.stringify(view)
+
+/**
+ * One text container on the glasses, updated in place with `textContainerUpgrade`.
+ * Writes are serialized and coalesced so a burst of changes ends on the latest view, and
+ * skipped when nothing changed. `current` returns null while the container isn't on screen.
+ */
+export class TextSlot {
+  private shownKey = ''
+  private writing = false
+  private dirty = false
+
+  constructor(
+    private readonly bridge: EvenAppBridge,
+    private readonly id: number,
+    private readonly name: string,
+    private readonly label: string,
+    private readonly current: () => CardView | null,
+  ) {}
+
+  /** Record what a create or rebuild just drew, so the next render only sends changes. */
+  shown(view: CardView): void {
+    this.shownKey = keyOf(view)
+  }
+
+  async render(): Promise<void> {
+    if (!this.current()) return
+    if (this.writing) {
+      this.dirty = true
+      return
+    }
+    this.writing = true
+    try {
+      do {
+        this.dirty = false
+        const view = this.current()
+        if (!view) break
+        const key = keyOf(view)
+        if (key === this.shownKey) continue
+        const t0 = performance.now()
+        const ok = await this.bridge.textContainerUpgrade(
+          new TextContainerUpgrade({
+            containerID: this.id,
+            containerName: this.name,
+            content: view.text || ' ',
+            textColor: view.brightness,
+          }),
+        )
+        this.shownKey = key
+        log(`${this.label} upgrade`, ok, `${(performance.now() - t0).toFixed(1)} ms`, JSON.stringify(view.text))
+      } while (this.dirty)
+    } finally {
+      this.writing = false
+    }
+  }
+}

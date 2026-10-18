@@ -1,4 +1,4 @@
-# glasses/ notes (server HUD + voice capture)
+# glasses/ notes (server HUD, voice capture, manager HUD)
 
 ## How to run
 
@@ -13,6 +13,15 @@ npm test && npm run build
 The fake backend's page at `http://localhost:8787/` (JSON at `/state`) stands in for the organizer page: each
 task's state plus every message the glasses sent. `POST /reset` clears it and replays the script on the next
 connect.
+
+The fake backend also runs a manager loop (60 s) from the first connect: 8 tables on a 4×2 floor plan,
+`vip-t7` at 0 s, `unacked-t3` at 4 s, T4 goes late (urgency 4 + `late-t4` urgent alert) at 8 s, then
+`unacked-t3` clears at 20 s, `vip-t7` at 30 s, `late-t4` at 40 s. `POST /late?table=T2` makes any table late
+on demand. Pick the role on the phone page (Server / Manager select).
+
+On a fresh Ubuntu 22.04 VM the simulator binary needs `sudo apt-get install libwebkit2gtk-4.1-0`, and
+`npx evenhub-simulator` resolves to the npm registry instead of the local package; run
+`node node_modules/@evenrealities/evenhub-simulator/bin/index.js http://localhost:5173 --automation-port 9898`.
 
 ## Confirmed versions
 
@@ -39,8 +48,50 @@ the fake backend's `/state`.
 
 Unit tests: 27 vitest tests (card formatter, queue screen, task state machine, message parser).
 
+## Manager HUD, checked in the simulator (0.9.5, automation port, against the fake backend)
+
+All on 2026-10-18, same tooling as above.
+
+- Role picker: switching the phone select to Manager logs `role -> manager`, writes `fs.role.v1` with
+  `setLocalStorage` and rebuilds the glasses page once. Server stays the default on a fresh install.
+- Server role unchanged after the refactor: same card, `+2 queued`, tap -> `task.accept`, tap -> `task.done`
+  (next card), swipe up -> queue and back, swipe down -> `capture.start` / `capture.stop`.
+- Exceptions: blank at the start of each loop; `VIP seated T7`, then `T3 task unacked 40s`, then
+  `! T4 waiting 14m on mains` on top, each as one `textContainerUpgrade` (1-2 ms). With no new message the
+  local timer ticked `T3 task unacked 40s -> 50s -> 60s`. Clears drop lines in place; after the last clear
+  the screen is blank.
+- Tap on exceptions -> `dismissed locally late-t4` (no message: the contract has no ack). The next alert
+  moves up.
+- Swipe down -> minimap: one `rebuildPageContainer` with 8 bordered text containers (3 ms). After that,
+  table changes are per-box `textContainerUpgrade` only (`box 3 upgrade "T3 W\n0m"`, 2-4 ms), no rebuild.
+- Late table: `POST /late?table=T2` while on the minimap -> the next `floor.state` upgrades box 2 to
+  `T2 !` at brightness 4 in one update (2 ms). Same for T5.
+- Swipe up -> exceptions again; double tap -> `shutDownPageContainer(1)`, glasses blank.
+
+Unit tests: 55 vitest tests (27 server + exceptions ordering/formatting, minimap layout/brightness, parser
+checks for `alert` and `floor.state`).
+
+### Why text containers for the minimap
+
+The SDK has text, list and image containers. A list container swallows swipe up (see Surprises), and an
+image container needs a raw Gray4 bitmap pushed with a separate `updateImageRawData` per change. A text
+container has a border, padding and a per-container brightness (`textColor` 0..4) that
+`textContainerUpgrade` can change in place, and a page holds up to 8 of them: exactly one per table. Only
+the first box captures input.
+
 ## Surprises
 
+- **The simulator draws brightness as alpha, not as a darker green.** Every pixel is `(0,255,0,a)`: text level
+  4 has alpha 255, level 1 has 179, a level-2 border 131. On a white background (the PNG viewer default) all
+  levels look the same; composite the screenshot onto black to see the lit box. Real lens: HW-PENDING.
+- Border width and border colour can't be changed with `textContainerUpgrade` (only content and
+  `textColor`), so urgency rides on text brightness and the `!` glyph; borders stay at level 2.
+- With 8 containers on a page and only box 1 capturing input, swipes and taps still reach the app wherever
+  the "finger" is, because G2 input is not positional.
+- After `shutDownPageContainer(1)` the simulator blanks the glasses and later `textContainerUpgrade` calls
+  return `false`. We keep rendering anyway: on hardware mode 1 shows an exit dialog the wearer can cancel.
+- Manager `alert` messages say nothing about time, so `T4 waiting 14m` would freeze without a new message.
+  The proposed `sinceSec` + `{elapsed}` token lets the glasses tick the number locally.
 - **A list container swallows swipe up.** With the queue as a `ListContainerProperty`, swipe up only moved
   the selection; no `SCROLL_TOP_EVENT` reached the app, so "swipe up again to return" never fired (tap still
   did). The queue is now plain text in one text container (`> ` marks the current task, `+N more` after 5
@@ -81,9 +132,12 @@ upgrade itself takes 0-4 ms in the simulator.
 
 ## Not done here
 
-- `order.readback`, `alert`, `floor.state` are parsed but not drawn; `task.bounce` is typed but no gesture
-  sends it yet.
+- `order.readback` is parsed but not drawn; `task.bounce` is typed but no gesture sends it yet.
 - The relay's order lives per glasses connection: a WebView reload starts a new draft.
+- **Manager tap only dismisses locally.** The contract has no alert acknowledgement, so the dismissed alert
+  stays open on the backend and comes back if the backend re-sends it. Proposed `alert.ack` in the PR.
+- No Organizer role on the phone yet (AGENTS.md lists one); the select has Server and Manager only.
+- The minimap draws at most 8 tables (one text container each); more are dropped after natural sort.
 - `app.json` whitelists only `ws://localhost:8787` and `http://localhost:8787`. Add the real `wss://`/`https://`
   host before packing for the phone.
 
@@ -111,3 +165,11 @@ upgrade itself takes 0-4 ms in the simulator.
 - Card update latency on hardware (backend send -> visible card).
 - G2 mic quality in a noisy room (the real risk); `audioPcm` chunk size/encoding on a real device; mic turns
   off on swipe down, swipe up back, background and exit (the G2 mic LED, if any).
+- Manager: the 5 brightness levels are distinguishable on the lens, and a level-4 box stands out from
+  level-1 boxes at a glance in restaurant light. Pick the calm level (1 now) on hardware.
+- Manager: 8 bordered text containers render without flicker and per-box `textContainerUpgrade` doesn't
+  redraw the other boxes; `T12 !` and `12m` fit a 128×64 box with the real font.
+- Manager: the minimap rebuild time with 8 containers (3 ms in the simulator) on hardware.
+- Manager: tap and swipes reach the app on the minimap page, where only box 1 captures input.
+- Role switch from the phone select while the glasses show a card, and the role surviving a background
+  reload (SDK storage).

@@ -55,6 +55,17 @@ export interface TableState {
   status: TableStatus
   /** Seconds in the current status. */
   sinceSec: number
+  /**
+   * PROPOSED (manager HUD): the table's position on the floor plan, in any unit with
+   * x to the right and y down. The glasses fit the floor's bounding box to the display.
+   */
+  x: number
+  y: number
+  /**
+   * PROPOSED (manager HUD): how much the table needs the manager, 0 (fine) to 4 (now).
+   * Decided by the backend's exception rules; the glasses map it to brightness.
+   */
+  urgency: number
 }
 
 // ---------- glasses -> backend ----------
@@ -181,13 +192,30 @@ export interface OrderReadback {
   text: string
 }
 
+export type AlertLevel = 'info' | 'warn' | 'urgent'
+
+/**
+ * A manager exception. Re-sending the same `id` replaces it. PROPOSED additions
+ * (manager HUD): `table`, `sinceSec`, `cleared`, and the `{elapsed}` placeholder.
+ */
 export interface Alert {
   type: 'alert'
   id: string
-  level: 'info' | 'warn' | 'urgent'
+  level: AlertLevel
+  /**
+   * One short line, e.g. "T4 waiting {elapsed} on mains". `{elapsed}` is replaced on the
+   * glasses by a timer that ticks locally from `sinceSec` ("45s", "14m").
+   */
   text: string
+  /** Table label the exception is about, e.g. "T4". */
+  table?: string
+  /** Seconds the condition has lasted when this message is sent; starts the local timer. */
+  sinceSec?: number
+  /** True once the condition is resolved; the glasses drop the alert. */
+  cleared?: boolean
 }
 
+/** A full snapshot of every table (not a diff); sent on connect and on every change. */
 export interface FloorState {
   type: 'floor.state'
   tables: TableState[]

@@ -1,29 +1,43 @@
 import type { Task } from './contract'
 import type { SocketStatus } from './socket'
 import { taskLine } from './card'
+import { ROLES, type Role } from './hud'
+import { GLYPH_LEGEND } from './minimap'
 
-// Phone-side companion screen. Gesture help lives here, never on the glasses display.
+// Phone-side companion screen: the role picker, and gesture help (never on the glasses).
 
 export interface PhoneView {
+  role: Role
   status: SocketStatus
   screen: string
   queue: readonly Task[]
   capturing: boolean
+  alerts: readonly string[]
+  tables: readonly string[]
 }
 
 let statusEl: HTMLDivElement
 let queueEl: HTMLOListElement
-let screenEl: HTMLSpanElement
+let roleEl: HTMLSelectElement
+let alertsEl: HTMLOListElement
+let tablesEl: HTMLOListElement
+let sections: Record<Role, HTMLElement[]>
 
-export function mountUi(backendUrl: string): void {
+const esc = (s: string) => s.replace(/[<>&"]/g, '')
+
+export function mountUi(backendUrl: string, onRole: (role: Role) => void): void {
   const app = document.querySelector<HTMLDivElement>('#app')!
   app.innerHTML = `
     <main class="panel">
       <header>
-        <h1>Floor Sense · Server</h1>
+        <h1>Floor Sense ·
+          <select id="role" aria-label="Role">
+            ${ROLES.map(r => `<option value="${r}">${r[0]!.toUpperCase()}${r.slice(1)}</option>`).join('')}
+          </select>
+        </h1>
         <div id="status" class="status status-connecting">Connecting…</div>
       </header>
-      <section>
+      <section data-role="server">
         <h2>Glasses gestures</h2>
         <ul class="help">
           <li><b>Tap</b> accept the task; tap again when it's done</li>
@@ -32,24 +46,55 @@ export function mountUi(backendUrl: string): void {
           <li><b>Double tap</b> exit</li>
         </ul>
       </section>
-      <section>
-        <h2>Queue <span id="screen" class="muted"></span></h2>
+      <section data-role="server">
+        <h2>Queue <span class="muted screen"></span></h2>
         <ol id="queue" class="queue"></ol>
       </section>
-      <footer class="muted">Backend: ${backendUrl.replace(/[<>&"]/g, '')}</footer>
+      <section data-role="manager" hidden>
+        <h2>Glasses gestures</h2>
+        <ul class="help">
+          <li><b>Tap</b> dismiss the top exception (on this device only)</li>
+          <li><b>Swipe down</b> floor minimap (swipe up or tap to go back)</li>
+          <li><b>Double tap</b> exit</li>
+        </ul>
+        <p class="muted">Minimap: brightest box needs you. ${GLYPH_LEGEND.map(([g, m]) => `<b>${g}</b> ${m}`).join(' · ')}</p>
+      </section>
+      <section data-role="manager" hidden>
+        <h2>Exceptions <span class="muted screen"></span></h2>
+        <ol id="alerts" class="queue"></ol>
+        <h2>Floor</h2>
+        <ol id="tables" class="queue"></ol>
+      </section>
+      <footer class="muted">Backend: ${esc(backendUrl)}</footer>
     </main>
   `
   statusEl = app.querySelector<HTMLDivElement>('#status')!
   queueEl = app.querySelector<HTMLOListElement>('#queue')!
-  screenEl = app.querySelector<HTMLSpanElement>('#screen')!
+  alertsEl = app.querySelector<HTMLOListElement>('#alerts')!
+  tablesEl = app.querySelector<HTMLOListElement>('#tables')!
+  roleEl = app.querySelector<HTMLSelectElement>('#role')!
+  const all = [...app.querySelectorAll<HTMLElement>('section[data-role]')]
+  sections = { server: all.filter(s => s.dataset.role === 'server'), manager: all.filter(s => s.dataset.role === 'manager') }
+  roleEl.addEventListener('change', () => onRole(roleEl.value as Role))
   injectStyles()
+}
+
+function items(list: readonly string[], empty: string): HTMLLIElement[] {
+  return (list.length ? list : [empty]).map(text => {
+    const li = document.createElement('li')
+    li.textContent = text
+    if (!list.length) li.className = 'muted'
+    return li
+  })
 }
 
 export function renderPhone(view: PhoneView): void {
   if (!statusEl) return
+  roleEl.value = view.role
+  for (const role of ROLES) for (const s of sections[role]) s.hidden = role !== view.role
   statusEl.className = `status status-${view.status}`
   statusEl.textContent = view.capturing ? 'Listening' : view.status
-  screenEl.textContent = `(glasses: ${view.screen})`
+  for (const el of document.querySelectorAll<HTMLSpanElement>('.screen')) el.textContent = `(glasses: ${view.screen})`
   queueEl.replaceChildren(
     ...view.queue.map(t => {
       const li = document.createElement('li')
@@ -58,6 +103,8 @@ export function renderPhone(view: PhoneView): void {
       return li
     }),
   )
+  alertsEl.replaceChildren(...items(view.alerts, 'No exceptions'))
+  tablesEl.replaceChildren(...items(view.tables, 'No floor data yet'))
 }
 
 function injectStyles(): void {
@@ -70,8 +117,9 @@ function injectStyles(): void {
       padding: 24px; box-sizing: border-box; }
     header { display: flex; align-items: center; justify-content: space-between; }
     h1 { font-size: 18px; font-weight: 600; margin: 0; }
+    h1 select { font: inherit; background: #2E2E2E; color: inherit; border: 1px solid #3E3E3E; border-radius: 6px; padding: 2px 6px; }
     h2 { font-size: 14px; margin: 0 0 8px; color: #A7A7A7; text-transform: uppercase; letter-spacing: 0.04em; }
-    .help, .queue { margin: 0; padding-left: 20px; }
+    .help, .queue { margin: 0 0 12px; padding-left: 20px; }
     .muted { color: #7B7B7B; font-size: 12px; }
     .status { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid #3E3E3E;
       text-transform: uppercase; letter-spacing: 0.04em; }

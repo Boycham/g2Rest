@@ -9,6 +9,7 @@ import { CARD_PADDING, DISPLAY_WIDTH } from './card'
 import { debugFixtures, streamFixture, type DebugStream } from './debug-pcm'
 import { BAR_HEIGHT, BRIGHT, DIM, DRAFT_HEIGHT, draftGesture, formatDraft, type DraftState, type Gesture } from './draft'
 import { FrameChunker, Mic, toBytes } from './mic'
+import { MAIN_ID, MAIN_NAME } from './render'
 import type { BackendSocket } from './socket'
 import { log } from './log'
 
@@ -16,7 +17,6 @@ import { log } from './log'
 // order.draft and the two text containers (order, pending bar). The mic is on only
 // between capture.start and capture.stop.
 
-const MAIN_ID = 1
 const BAR_ID = 2
 /** No `voice: listening` draft for this capture within this time means VOICE OFFLINE. */
 const START_TIMEOUT_MS = 10_000
@@ -37,7 +37,7 @@ function container(id: number, y: number, height: number, content: string, color
     borderWidth: 0,
     paddingLength: CARD_PADDING,
     containerID: id,
-    containerName: id === MAIN_ID ? 'main' : 'bar',
+    containerName: id === MAIN_ID ? MAIN_NAME : 'bar',
     content: content || ' ',
     textColor: color,
     isEventCapture: capture,
@@ -214,7 +214,7 @@ export class CaptureScreen {
           await this.bridge.textContainerUpgrade(
             new TextContainerUpgrade({
               containerID: MAIN_ID,
-              containerName: 'main',
+              containerName: MAIN_NAME,
               content: v.main || ' ',
               textColor: v.highlight ? DIM : BRIGHT,
             }),
