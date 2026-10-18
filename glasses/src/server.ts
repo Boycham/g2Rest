@@ -1,27 +1,28 @@
 import { RebuildPageContainer } from '@evenrealities/even_hub_sdk'
 import type { BackendMessage, GlassesJsonMessage, VoiceCommand } from './contract'
-import { formatCard, formatQueue } from './card'
+import { TAB_TEXT_WIDTH, formatCard, formatQueue } from './card'
 import { CaptureScreen } from './capture'
 import { RollingBuffer } from './clip'
 import { debugFixtures, debugSays, loadFixture } from './debug-pcm'
 import { FrameChunker, Mic, toBytes } from './mic'
 import type { Hud, HudContext, PageSpec } from './hud'
 import { applyBackendTask, markDone, saveDone, type DoneIds } from './reconcile'
-import { MAIN_ID, MAIN_NAME, TextSlot, fullTextPage } from './render'
+import { MAIN_ID, MAIN_NAME, TextSlot, tabsPage } from './render'
 import { saveQueue } from './storage'
 import { tap, type Queue } from './tasks'
 import { log } from './log'
-import { CONTROLS, CONTROLS_HINT, MAIN_GESTURES, formatControls, moveSelection, type ControlAction } from './controls'
+import { CARD_GESTURES, CARD_HINT, formatControls, nextControlsPage, tabAfter, type CardAction, type Tab } from './controls'
 import { handoffFrame, handoffPrompt } from './handoff'
 import { didntGet, voiceAction, type VoiceGesture } from './voice'
 
 /** How long `Heard: <command>` and refusal lines stay on the card. */
 const FLASH_MS = 3000
 
-type Screen = 'card' | 'queue' | 'draft' | 'controls'
+type Screen = Tab | 'draft'
 
 /**
- * The server HUD: one task card, the queue, and the order draft. While the server role is on
+ * The server HUD: three stacked tabs (Controls, Queue, Card; it starts on the Card) and the
+ * order draft. While the server role is on
  * the glasses the mic runs into a rolling buffer of the last 60 s (memory only); swipe back
  * sends that minute as a clip and opens the draft the backend makes of it.
  */
@@ -40,7 +41,7 @@ export class ServerHud implements Hud {
   private commandId: string | null = null
   private heard: { text: string; timer: ReturnType<typeof setTimeout> } | null = null
   private popup: { taskId: string; name?: string } | null = null
-  private selected = 0
+  private controlsPage = 0
   /** task.revert is in flight: the next task update is its answer. */
   private revertSent = false
 
@@ -139,13 +140,13 @@ export class ServerHud implements Hud {
 
   private currentCard() {
     const offline = this.ctx.status() !== 'online'
-    return formatCard(this.queue, { offline, banner: this.banner(), hint: CONTROLS_HINT })
+    return formatCard(this.queue, { offline, banner: this.banner(), hint: CARD_HINT, width: TAB_TEXT_WIDTH })
   }
 
-  /** What the main text container shows on the card, Controls and queue screens (null on the draft). */
+  /** What the tab content shows (null on the draft). */
   private slotView() {
     if (this.current === 'card') return this.currentCard()
-    if (this.current === 'controls') return { text: formatControls(this.selected), brightness: 4 }
+    if (this.current === 'controls') return { text: formatControls(this.controlsPage), brightness: 4 }
     if (this.current === 'queue') return { text: formatQueue(this.queue), brightness: 4 }
     return null
   }
@@ -154,7 +155,7 @@ export class ServerHud implements Hud {
     this.current = 'card'
     const card = this.currentCard()
     this.card.shown(card)
-    return { containerTotalNum: 1, textObject: [fullTextPage(card.text, card.brightness)] }
+    return tabsPage('card', card)
   }
 
   async enter(): Promise<void> {
@@ -178,7 +179,7 @@ export class ServerHud implements Hud {
       return
     }
     const view = this.slotView() ?? { text: '', brightness: 4 }
-    const page = new RebuildPageContainer({ containerTotalNum: 1, textObject: [fullTextPage(view.text, view.brightness)] })
+    const page = new RebuildPageContainer(tabsPage(next, view))
     this.card.shown(view)
     const t0 = performance.now()
     const ok = await this.ctx.bridge.rebuildPageContainer(page)
@@ -332,29 +333,22 @@ export class ServerHud implements Hud {
   }
 
   private async openControls(): Promise<void> {
-    this.selected = 0
+    this.controlsPage = 0
     await this.showScreen('controls')
   }
 
-  /** A tap (or "verity confirm") on the selected Controls row. */
-  private pick(action: ControlAction): void {
-    log('controls pick', action)
-    if (action === 'queue') return void this.showScreen('queue')
-    if (action === 'clip') return void this.sendClip()
-    if (action === 'exit') return void this.ctx.bridge.shutDownPageContainer(1)
-    void this.showScreen('card')
-    if (action === 'task') this.taskTap()
-    else if (action === 'handoff') this.openHandoff()
-    else if (action === 'decline' && this.queue[0]) this.sendTask({ type: 'task.bounce', taskId: this.queue[0].id })
-    else if (action === 'revert') this.sendTask({ type: 'task.revert' })
-    else if (action === 'controls') void this.openControls()
+  /** A swipe on a tab: one tab up or down; null past the ends. */
+  private switchTab(dir: 'up' | 'down'): void {
+    if (this.current === 'draft') return
+    const next = tabAfter(this.current, dir)
+    if (next === 'controls') return void this.openControls()
+    if (next) void this.showScreen(next)
   }
 
-  /** What a gesture does on the main card (MAIN_GESTURES in controls.ts). */
-  private mainAction(action: 'task' | 'controls' | 'queue' | 'clip' | 'handoff'): void {
+  /** What a gesture does on the Card (CARD_GESTURES in controls.ts). */
+  private cardAction(action: CardAction): void {
     if (action === 'task') return this.taskTap()
-    if (action === 'controls') return void this.openControls()
-    if (action === 'queue') return void this.showScreen('queue')
+    if (action === 'queue') return this.switchTab('up')
     if (action === 'clip') return void this.sendClip()
     this.openHandoff()
   }
@@ -382,9 +376,9 @@ export class ServerHud implements Hud {
   onTap(): void {
     if (this.popup) return this.confirmHandoff()
     if (this.current === 'draft') return this.onDraftGesture('tap')
-    if (this.current === 'controls') return this.pick(CONTROLS[this.selected].action)
+    if (this.current === 'controls') return this.flipControls()
     if (this.current === 'queue') return void this.showScreen('card')
-    this.mainAction(MAIN_GESTURES.tap)
+    this.cardAction(CARD_GESTURES.tap)
   }
 
   private taskTap(): void {
@@ -397,26 +391,26 @@ export class ServerHud implements Hud {
 
   onSwipeUp(): void {
     if (this.current === 'draft') return this.onDraftGesture('up')
-    if (this.current === 'controls') return this.move('up')
-    if (this.current === 'queue') return void this.showScreen('card')
-    this.mainAction(MAIN_GESTURES.up)
+    if (this.current === 'card') return this.cardAction(CARD_GESTURES.up)
+    this.switchTab('up')
   }
 
   onSwipeDown(): void {
     if (this.current === 'draft') return this.onDraftGesture('down')
-    if (this.current === 'controls') return this.move('down')
-    if (this.current === 'queue') return void this.showScreen('card')
-    this.mainAction(MAIN_GESTURES.down)
+    if (this.current === 'card') return this.cardAction(CARD_GESTURES.down)
+    this.switchTab('down')
   }
 
-  /** Long hold (LONG_PRESS_EVENT): handoff on the card; in Controls it goes back, like Close. */
+  /** Long hold (LONG_PRESS_EVENT): handoff on the Card; on Queue or Controls back to the Card. */
   onLongPress(): void {
-    if (this.current === 'controls') return void this.showScreen('card')
-    if (this.current === 'card') this.mainAction(MAIN_GESTURES.hold)
+    if (this.current === 'card') return this.cardAction(CARD_GESTURES.hold)
+    if (this.current !== 'draft') void this.showScreen('card')
   }
 
-  private move(dir: 'up' | 'down'): void {
-    this.selected = moveSelection(this.selected, dir)
+  /** A tap on Controls (or "verity confirm") shows its next page. */
+  private flipControls(): void {
+    this.controlsPage = nextControlsPage(this.controlsPage)
+    log('controls page', this.controlsPage + 1)
     void this.card.render()
   }
 

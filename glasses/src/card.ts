@@ -7,6 +7,10 @@ export const CARD_PADDING = 6
 /** Inner text width of a full-width, borderless card. */
 export const CARD_TEXT_WIDTH = DISPLAY_WIDTH - 2 * CARD_PADDING
 export const CARD_MAX_LINES = 5
+/** The tab rail on the left of the server tabs: one box per tab, wide enough for `Controls`. */
+export const TAB_RAIL_WIDTH = 88
+/** Inner text width of the content beside the tab rail. */
+export const TAB_TEXT_WIDTH = DISPLAY_WIDTH - TAB_RAIL_WIDTH - 2 * CARD_PADDING
 
 /** Shown under an accepted ORDER task: the table is bound, the clip does the rest. */
 export const ORDER_HINT = 'swipe back once they have ordered'
@@ -117,8 +121,8 @@ export function fitBytes(text: string, maxBytes: number): string {
   return out + '...'
 }
 
-/** Bottom right of the queue screen; any tap or swipe goes back to the card. */
-export const QUEUE_FOOTER = 'tap: back'
+/** Bottom right of the Queue tab: Controls is the tab above it. */
+export const QUEUE_FOOTER = 'fwd: controls'
 
 /** One row of the queue screen: table and kind, then any allergy. No dishes; the card has those. */
 export function queueRow(task: Task, width: number): string {
@@ -127,11 +131,11 @@ export function queueRow(task: Task, width: number): string {
 }
 
 /**
- * The queue screen, as text in one container: one row per task, the current one marked, and
- * `tap: back` on the last line. A list container would swallow swipes (the firmware moves the
+ * The Queue tab, as text in one container: one row per task, the current one marked, and
+ * `fwd: controls` on the last line. A list container would swallow swipes (the firmware moves the
  * selection instead of sending us the event), so the queue is plain text.
  */
-export function formatQueue(queue: readonly Task[], width = CARD_TEXT_WIDTH): string {
+export function formatQueue(queue: readonly Task[], width = TAB_TEXT_WIDTH): string {
   const footer = spread('', QUEUE_FOOTER, width)
   if (!queue.length) return atBottom(['Queue empty'], footer, CARD_MAX_LINES)
   const room = CARD_MAX_LINES - 1
