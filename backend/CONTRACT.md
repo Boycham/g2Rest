@@ -309,3 +309,11 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
 10. **Handoff and revert** (Coder A, for voice "handoff" / "revert" and the long-hold handoff):
     glasses -> backend `task.handoff {taskId, to?}` and `task.revert {taskId?}`; backend -> glasses
     `task.rejected {taskId, action, reason}`. Additive; `contract.ts` needs the three types.
+11. **Table by voice (glasses lane, branch `devin/clip-summary`):**
+    - Relay -> glasses `voice.command` + `intent: "table"` with `table?: string` (`"T4"`), `was?: string`
+      (the table it replaced, e.g. an ORDER task's `"T3"`) and `reason?: string` (refused: `"no table 12"`
+      (not in `data/floor.json`), `"already sent"`, `"no order to set the table for"`). On success the relay
+      also sends the rebound `order.draft`. "verity table N" overrides the ORDER task's table; a table said
+      inside a clip ("that was table four", even as the last words) binds only when no task or
+      "verity table" has set one. Only an unsent draft changes. Additive; `contract.py` `VoiceCommand`
+      has the three optional fields.
