@@ -1,7 +1,8 @@
 import { getTextWidth } from '@evenrealities/pretext'
 import menuJson from '../../data/menu.json'
 import type { Allergy, Task, TaskItem } from './contract'
-import { CARD_TEXT_WIDTH, fit, seatsLabel, spread, type CardView } from './card'
+import { CARD_PADDING, CARD_TEXT_WIDTH, DISPLAY_HEIGHT, fit, seatsLabel, spread, type CardView } from './card'
+import { LINE_PX } from './draft'
 import { wrap } from './talk'
 
 // New-server ramp mode: what is on each plate of the current card, its allergens and the wine
@@ -35,8 +36,8 @@ export class RampMenu {
 
 export const MENU = new RampMenu(menuJson.dishes)
 
-/** Lines on a ramp page, footer included (full-screen text, 27 px lines). */
-export const RAMP_MAX_LINES = 7
+/** Lines on a ramp page, footer included: the full-screen text height in 27 px lines, so the footer sits at the bottom. */
+export const RAMP_MAX_LINES = Math.floor((DISPLAY_HEIGHT - 2 * CARD_PADDING) / LINE_PX)
 export const RAMP_COMPONENT_LINES = 2
 export const RAMP_NEXT = 'tap: next · hold: card'
 export const RAMP_ONLY = 'hold: card'
