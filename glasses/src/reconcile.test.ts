@@ -48,3 +48,13 @@ describe('applyBackendTask after a backend restart', () => {
     expect(done.at(-1)).toBe('t59')
   })
 })
+
+describe('applyBackendTask after task.revert', () => {
+  it('takes the un-accepted state as the answer instead of replaying the accept', () => {
+    const t = makeTask({ id: 'r1' })
+    const local = [{ ...t, state: 'accepted' as const }]
+    const r = applyBackendTask(local, [], { ...t, state: 'assigned' }, true)
+    expect(r.resend).toEqual([])
+    expect(r.queue[0].state).toBe('assigned')
+  })
+})
