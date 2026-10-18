@@ -237,8 +237,13 @@ class TaskBook:
         self._check_owner(task, by)
         return self._hand(task, now, "bounce", None)
 
-    def handoff(self, task_id: str, now: float, by: str | None, to: str) -> list[Outbound]:
-        """Give an open task (accepted or not) to `to`, a staff id or name."""
+    def handoff(
+        self, task_id: str, now: float, by: str | None, to: str, *, manager: bool = False
+    ) -> list[Outbound]:
+        """Give an open task (accepted or not) to `to`, a staff id or name.
+
+        `manager`: the dashboard moved it, so it is logged as a reroute and the old holder's
+        "verity revert" can't undo it."""
         task = self.get(task_id)
         if not task.open:
             raise TaskError(f"{task.id} is {task.state}, cannot hand off")
@@ -246,6 +251,8 @@ class TaskBook:
         target = self.staff_id(to)
         if target == task.assignee:
             raise TaskError("it's already yours")
+        if manager:
+            return self._pass_on(task, now, "bounced", f"manager reroute to {target}", target)
         return self._hand(task, now, "handoff", target)
 
     def revert(self, now: float, by: str, task_id: str | None = None) -> list[Outbound]:

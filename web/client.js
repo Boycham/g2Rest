@@ -83,14 +83,17 @@ export function traced(name, fn) {
 
 /**
  * Organizer socket with reconnect. `staff=organizer` keeps the hub from treating this tab
- * as a server's glasses. onStatus(true) fires on every (re)connect so the page can resync.
+ * as a server's glasses. onStatus(true) fires on every (re)connect so the page can resync;
+ * onStatus(false, ms) says when the next attempt is. retry() skips the wait.
  */
 export function live(onMessage, onStatus) {
   const q = new URLSearchParams({ role: 'organizer', staff: 'organizer' })
   if (TOKEN) q.set('token', TOKEN)
   const url = `${API.replace(/^http/, 'ws')}/ws?${q}`
   let delay = 500
+  let timer = null
   const open = () => {
+    timer = null
     const ws = new WebSocket(url)
     ws.onopen = () => {
       delay = 500
@@ -107,12 +110,20 @@ export function live(onMessage, onStatus) {
       onMessage(msg)
     }
     ws.onclose = () => {
-      onStatus(false)
-      setTimeout(open, delay)
+      onStatus(false, delay)
+      timer = setTimeout(open, delay)
       delay = Math.min(delay * 2, 8000)
     }
   }
   open()
+  return {
+    retry() {
+      if (timer === null) return
+      clearTimeout(timer)
+      delay = 500
+      open()
+    },
+  }
 }
 
 /** h('div', {class: 'x', onclick}, child, 'text', [more]) -> Element. Text is never parsed as HTML. */

@@ -1,0 +1,77 @@
+/* Verity design tokens, from the Paper file's Design System page. */
+:root {
+  --color-bg: #0b0b0a;
+  --color-bg-2: #1a1917;
+  --color-bg-3: #121110;
+  --color-line: #3a3733;
+  --color-text: #f2efe6;
+  --color-text-2: #c2bcae;
+  --color-red: #e4543e;
+  --color-red-text: #f4937e;
+  --color-red-bg: #2a2322;
+  --color-bone: #e4dcc8;
+  --color-leaf: #93bf6b;
+  --color-ink: #0b0b0a;
+  --color-paper: #f2efe6;
+
+  --font-hand: 'Gaegu', 'Comic Sans MS', cursive;
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, monospace;
+
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 40px;
+  --space-5: 64px;
+  --radius-1: 6px;
+  --radius-2: 12px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-hover: 150ms;
+  --t-open: 240ms;
+  --t-close: 180ms;
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-bone);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
