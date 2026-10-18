@@ -381,3 +381,30 @@ hold: back`. The always-on `fwd: controls` hint is the card's last line, right-a
 - HW-PENDING: the command stream with the phone locked/backgrounded, and battery of streaming the mic.
 - HW-PENDING: long hold (SDK `LONG_PRESS_EVENT` 9) on the real ring/temple; AGENTS.md still says there
   is no long press, and the simulator may not send it.
+
+## "Verity is thinking": processing animation, checked in the simulator 0.9.5 against the real backend
+
+- **What shows:** from swipe back / "verity clip" until the order draft lands, the draft's bottom bar reads
+  `Verity: processing.` → `..` → `...`; once the order shows, the bar keeps a smaller `summary.` → `...` until
+  the summary and answers arrive (or 15 s pass, then it just stops). The same `Verity: processing...` line runs
+  while Gemini maps unknown words after "verity" (relay sends `voice.mapping {words}` first), in the card
+  banner or the draft bar; `voice.command` / `voice.unknown` stops it, and after 5 s with neither the glasses
+  show the existing `Didn't get: <words> (timeout)`. A clip timeout (30 s) still shows `VOICE OFFLINE`.
+- **Rate: one update every 400 ms (2.5 a second).** The SDK docs give no number for a BLE update limit; they
+  say to update a card in place with `textContainerUpgrade` and keep `rebuildPageContainer` for screen
+  changes. So each tick rewrites only the bar container (`BAR_ID`) with `textContainerUpgrade`, the main text
+  is left alone, and nothing runs per frame. Console per 120 s clip: 16-18 `busy upgrade` lines, median gap
+  402 ms, one `rebuild draft` (entering the screen), 4 `draft upgrade` (content changes).
+- **Swipe back → card on the 120 s clip (`conv_2min`), median of 5**, runs interleaved with main at `addead7`
+  (no animation) on the same relay and hub:
+
+| Build | → order draft | → summary + answers |
+|---|---|---|
+| main `addead7`: 7474, 5872, 5658, 5591, 4864 / 7023, 7103, 6851, 6895, 6263 ms | 5.66 s | 6.90 s |
+| this branch: 7535, 6601, 5210, 5686, 5797 / 7240, 7508, 6807, 7019, 7189 ms | 5.80 s | 7.19 s |
+
+  The 0.1-0.3 s gap is within run-to-run spread (4.9-7.5 s); the animation adds no backend work. In run 1 of
+  both builds `set_talk` finished before `set_order`; main then lost the summary, this branch keeps it.
+- Seen, not changed here: `Reading last 2 min…` on the draft's top line wraps to a second line in the
+  simulator (pretext says it fits); same on main.
+- HW-PENDING: whether 2.5 updates a second is smooth and costs no input lag over real BLE.
