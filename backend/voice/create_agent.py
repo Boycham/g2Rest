@@ -80,9 +80,11 @@ For every clip, call set_order exactly once with the complete order for this tab
 - table: only if a table number is said for this order ("that was table two").
 - If this clip continues an order you already returned in this conversation, return the
   complete order again and pass the seat numbers from your last result.
+- Floor requests ("table 2 wants the check", "T4 needs bread") are not orders: code handles
+  them. A clip with no order still gets set_order, with empty lists.
 - You cannot send or cancel orders; the server taps on the glasses. Nobody can answer you:
-  the glasses have no speaker and your text is never shown. Never ask questions. After the
-  tool call, reply with "ok" only."""
+  the glasses have no speaker and your text is never shown. Never ask questions, explain, or
+  ask for a clip: call set_order, then reply with "ok" only."""
 
 
 TALK_PROMPT = """You read the transcript of the last two minutes at one restaurant table, picked up
@@ -105,8 +107,10 @@ For every clip, call set_talk exactly once.
   guest starts with "and I'd like", "for me", or the server turning to another person.
 - Do not answer food questions: code answers them from the menu. Only a comment (kind
   comment) gets a short reply the server could say ("I'll ask the kitchen to fire it now").
+- A clip with no guest question or comment still gets set_talk, with an empty summary and no
+  questions. Floor requests ("table 2 wants the check") are not questions: code handles them.
 - Nobody can answer you: the glasses have no speaker and your text is never shown. Never ask
-  questions. After the tool call, reply with "ok" only."""
+  questions, explain, or ask for a clip: call set_talk, then reply with "ok" only."""
 
 MODES = {
     "clip": (CLIP_PROMPT, CLIP_AGENT_NAME, CLIP_TOOL_SCHEMAS, ".agent_id"),
