@@ -75,4 +75,5 @@ def test_the_ticker_reroutes_and_stats_are_served() -> None:
             assert json.loads(ben.receive_text())["task"]["id"] == tid
         stats = client.get("/stats", headers=h).json()
         assert stats["doneSec"] == 0.5
+        assert stats["escalationSec"] == 30
         assert [s["open"][0]["taskId"] for s in stats["servers"] if s["open"]] == [tid]
