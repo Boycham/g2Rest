@@ -163,3 +163,37 @@ of the file, not the end of speech. Don't compare it with the clean number.
 
 - A real G2 mic stream through the same path. Frame size and format match on paper.
 - Accuracy in restaurant / judging-hall noise. White noise is only a stand-in.
+
+## Clip path (conversational capture)
+
+Docs read 2026-10-18: [speech-to-text convert](https://elevenlabs.io/docs/api-reference/speech-to-text/convert)
+(`POST /v1/speech-to-text`, multipart, `model_id=scribe_v2`, `file_format=pcm_s16le_16` for raw 16 kHz s16le
+mono, `language_code`, `diarize`, `tag_audio_events`), and the realtime reference (query `language_code`).
+
+- **English is pinned** in both Scribe paths (`language_code=en`): a real-G2 test transcribed bystanders and
+  once switched to Turkish.
+- `relay.py`: `capture.start{mode:"clip", table?}` buffers frames in memory (max 62 s), `capture.stop` runs
+  `transcribe_clip` (one batch call, diarized; lines split at speaker changes and 0.6 s pauses), then one
+  agent turn. The clip bytes are dropped once sent to Scribe; nothing is written to disk.
+- Clip agent (`create_agent.py`, default): one client tool, `set_order(table?, items[{guest, seat?, dish, qty,
+  alterations}], allergies[], unclear[], notes[])`. Nested object arrays were accepted by `POST /v1/convai/tools`.
+- **Guards in `order.py` (tests in `tests/test_order.py`):** guests become seats in the order they ordered (a
+  spoken seat wins); dishes menu-checked (unknown → code-written `?` line); disallowed alterations flagged;
+  every dish, alteration and allergen must be words that were said in the clip; a guest with an unclear line
+  gets no guessed dish; unclear lines or notes phrased as questions are dropped (the agent's text is never
+  shown); allergies are never removed; a dish a later clip drops only becomes a removal proposal; the table
+  is from the ORDER task (a spoken one can't override it) or spoken; send is refused without a table.
+
+LLM choice (5 × `conv_task` + 1 table-less, real hub + relay, clip stop → draft, same day):
+
+| llm | conv_task right | latency |
+|---|---|---|
+| gemini-2.5-flash | 3/5 | ~6.5 s |
+| gemini-2.5-flash-lite | 0/5 (allergy seat, missing ? line, invented alterations) | ~2.0 s |
+| gpt-4.1-mini | 3/5, one 20 s stall | ~2.5 s |
+| **claude-haiku-4-5** | 4/5 | 3.9-4.2 s |
+
+After the fixture was re-spoken with more small talk, haiku put both mains on seat 1 in 5/5; a worked example
+in the prompt fixed seats (5/5) but the allergy still goes to s1 instead of s2 in 4/5. Next to try: distinct
+guest voices (diarization), or an allergy `?` line when the speaker is ambiguous. CREAO is not used here (runs
+take minutes); a CREAO end-of-shift digest could come later.
