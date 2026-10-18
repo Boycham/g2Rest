@@ -197,8 +197,6 @@ class Hub:
         match msg.type:
             case "task.accept":
                 await self.deliver(book.accept(msg.taskId, now, by=conn.staff))
-            case "task.unaccept":
-                await self.deliver(book.unaccept(msg.taskId, now, by=conn.staff))
             case "task.done":
                 await self.deliver(book.done(msg.taskId, now, by=conn.staff))
                 await self.replan()
