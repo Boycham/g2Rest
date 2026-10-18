@@ -24,7 +24,8 @@ Point at another backend with `?api=https://host&token=...` (same as the other p
 moves to sessionStorage and leaves the address bar). Built (`npm run build`), the pages land in
 `web/verity/dist/`, next to the existing pages, so `/app/verity/dist/dashboard.html` on the server.
 The Kitchen links go to `web/kitchen.html`; in dev set `VITE_WEB_URL` if `web/` isn't served on
-`http://localhost:5173/`. The shift clock reads `?shiftEnd=HH:MM` (23:00 by default).
+`http://localhost:5173/`. The shift clock reads `?shiftEnd=HH:MM`; without it, it counts to the next service end (lunch 15:00,
+dinner 22:00).
 
 Checks: `npm run build` (TypeScript, then Vite) and `npm test` (Node's runner: the keyframe math
 and the dashboard view model).
@@ -35,7 +36,8 @@ and the dashboard view model).
   progress 0..1, split per the handoff: S01 0–20%, S02 20–40%, S03 40–60%, S04 60–85%,
   S05 85–100%. Lenis smooths with lerp 0.12 (the handoff's smoothing) and Lenis Snap settles on
   the nearest keyframe of any scene, so each flick moves one "page". Arrow keys and Page Up/Down
-  step one keyframe; the dots on the right jump to a scene.
+  step one keyframe; the dots on the right jump to where a scene is fully built (`BUILT` in
+  keyframes.js: KF0, KF25, KF75, KF75, KF100).
 - `src/site/keyframes.js` holds every layer's keyframes and the camera rule
   P' = (720,450) + s·(P − c). Each layer moves as translate + scale (scale = width ÷ KF0 width,
   origin 0 0). Two layers per scene: photos, doors and pins fill the window; copy and cards fit
@@ -43,8 +45,8 @@ and the dashboard view model).
 - Discrete states (the task card NEW → ACCEPTED → DONE, the voice panel READY → LISTENING →
   STRUCTURING → CONFIRM → SENT, cue text) swap at the midpoint between keyframes with a 150ms
   crossfade. Scenes crossfade into each other at their boundaries.
-- Reduced motion: no smoothing, snap or crossfade; each scene holds one keyframe (KF50, or KF100
-  for the doors and the floor, where their copy and the dashboard sign show).
+- Reduced motion: no smoothing, snap or crossfade; each scene holds the same fully built
+  keyframe the dots land on.
 
 ## The dashboard
 
