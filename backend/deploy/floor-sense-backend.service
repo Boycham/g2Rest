@@ -1,0 +1,15 @@
+[Unit]
+Description=Floor Sense backend (FastAPI hub on 127.0.0.1:8787, behind Caddy)
+After=network-online.target floor-sense-voice.service
+Wants=network-online.target
+
+[Service]
+User=floorsense
+WorkingDirectory=/opt/floor-sense/app/backend
+EnvironmentFile=/etc/floor-sense/env
+ExecStart=/opt/floor-sense/venv-backend/bin/uvicorn app.main:app --host 127.0.0.1 --port 8787
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -205,6 +205,41 @@ little next to Scribe's 0.8 s VAD and the agent turn, and the spread run to run 
   shows one `T12 · RUN · ! SHELLFISH` row per task, the current one marked, `tap: back` bottom right, and
   updates in place.
 
+## Real G2 against the Vultr host (0.1.6)
+
+The backend and voice relay run on Vultr at `https://45-76-173-44.sslip.io` (PR #12, Caddy, Let's Encrypt).
+`app.json` whitelists `https://` and `wss://` for that host; localhost stays for dev. No Tailscale host was
+ever in the committed `app.json`, so none was removed.
+
+Build and upload (a person does the upload; the CLI has no upload command):
+
+1. `cd glasses && npm install`
+2. `VITE_FS_TOKEN=<the server's FS_TOKEN> npm run pack:vultr` (refuses to run without the token; sets
+   `VITE_BACKEND_URL=wss://45-76-173-44.sslip.io/ws`). Writes `glasses/floor-sense.ehpk`, version 0.1.6 (above the 0.1.5 already on the G2).
+   The token ends up inside the bundle, so share the `.ehpk` only with the team, and never commit it.
+3. hub.evenrealities.com → Floor Sense project → Builds → upload `floor-sense.ehpk` (version 0.1.6) as a
+   private build.
+4. Push the build to the Beta group and add the tester's email.
+5. Phone: Even Realities app (glasses paired) → Me → Beta tester → Floor Sense 0.1.6 → Install. The emailed
+   link may say "build expired"; installing from Me → Beta tester works anyway.
+6. Launch it from the glasses home screen, pick Server on the phone, and check the phone page shows the
+   `wss://45-76-173-44.sslip.io/ws` URL (token redacted) and `connected`.
+
+Simulator 0.9.5 against the server (Vite dev with the same `VITE_BACKEND_URL`, no local backend or relay,
+connected as s2 so the real G2 on s1 was left alone):
+
+- `wss://…/ws?token=…` opened first time; no 4401, TLS or CORS errors. `/state` without or with a wrong
+  token: 401.
+- Task to card (`POST /tasks` CHECK T5 for s2 → card in the simulator screenshot, which slightly overstates
+  it): 76.0 / 75.0 / 74.7 / 75.1 / 83.0 ms, median **75 ms**. Tap accept and tap done showed on the organizer page.
+- Clip through the server's relay (`conv_task`, 58.7 s, 587 frames, table T5 from the ORDER task),
+  `capture.stop` → draft drawn: 4674 / 3280 / 3126 ms, median **3.3 s** (4.0 s locally earlier). The three
+  drafts were identical: shellfish on s2, halibut no butter, salmon no dill, `? s3 'the fish'`, the
+  anniversary note.
+- The deployed 30 s no-accept timer reroutes a task left unaccepted, so a test that pauses moves its task to
+  another server (it happened once, to s1). Keep test cycles back to back.
+- HW-PENDING: the packed `.ehpk` on the G2 (whitelist enforced by the phone), lens latency over cellular.
+
 ## HW-PENDING (real G2 + phone)
 
 - Swipe fwd (queue and back) and double tap on hardware; ring vs temple input.

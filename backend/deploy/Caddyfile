@@ -1,0 +1,16 @@
+# deploy.sh writes this to /etc/caddy/Caddyfile with __FS_HOST__ set to <server-ip>.sslip.io
+# (dots as dashes), so Caddy can get a real certificate without a domain.
+__FS_HOST__ {
+	encode gzip
+
+	# Organizer and Kitchen pages: https://__FS_HOST__/app/index.html?token=...
+	handle_path /app/* {
+		root * /opt/floor-sense/app/web
+		file_server
+	}
+
+	# Everything else is the backend: HTTP API and the /ws hub (Caddy proxies WebSockets).
+	handle {
+		reverse_proxy 127.0.0.1:8787
+	}
+}

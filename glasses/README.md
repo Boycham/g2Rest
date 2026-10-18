@@ -29,7 +29,8 @@ alerts appear and clear. `POST /late?table=T2` makes any table late, and `POST /
 if `npx evenhub-simulator` can't find the package or won't start, see the setup notes in [NOTES.md](NOTES.md).
 
 On real glasses: `npx evenhub qr --url http://<your-ip>:5173`. To pack: `npm run pack` (writes
-`floor-sense.ehpk`; add the real backend host to `app.json` first).
+`floor-sense.ehpk`; add the real backend host to `app.json` first). For the Vultr host:
+`VITE_FS_TOKEN=<server FS_TOKEN> npm run pack:vultr` (upload steps in [NOTES.md](NOTES.md)).
 
 ## Gestures
 
