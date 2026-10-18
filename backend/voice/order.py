@@ -152,6 +152,13 @@ def _str_arg(params: dict[str, Any], name: str) -> str:
     return value.strip()
 
 
+FILLER_WORDS = frozenset({"no", "the", "on", "a", "an", "of", "with", "extra", "side"})
+
+
+def _words(text: str) -> list[str]:
+    return "".join(c if c.isalnum() else " " for c in text.lower()).split()
+
+
 def is_question(text: str) -> bool:
     t = _norm(text).lstrip("?'\" ")
     return text.rstrip().endswith("?") or t.startswith(QUESTION_STARTS)
@@ -193,7 +200,22 @@ class OrderBook:
         self.tables: dict[int, Table] = {}
         self.current_table: int | None = None
         self.table_source: str | None = None  # "task" (ORDER task) or "spoken"; task wins
+        # Words of the clip the agent is reading; set_order only keeps what was said.
+        self.heard: set[str] | None = None
         self._next_proposal = 1
+
+    def hear(self, transcript: str) -> None:
+        self.heard = set(_words(transcript))
+
+    def was_said(self, phrase: str) -> bool:
+        """True if every content word of `phrase` is in the clip (or no clip is set)."""
+        if self.heard is None:
+            return True
+        words = [w for w in _words(phrase) if w not in FILLER_WORDS]
+        return all(w in self.heard or w.rstrip("s") in self.heard for w in words)
+
+    def dish_said(self, dish: Dish) -> bool:
+        return any(self.was_said(k) for k in (dish.name, *dish.aliases))
 
     @property
     def draft_table(self) -> int:
@@ -409,6 +431,7 @@ class OrderBook:
         uncertain: list[str] = []
         flagged: list[str] = []
         held: list[str] = []
+        unheard: list[str] = []
         wanted: dict[tuple[int, str], Item] = {}
         unclear_seats = {
             seat_of(u): _norm(str(u.get("text", "")))
@@ -432,8 +455,13 @@ class OrderBook:
                 close = [self._label(d) for d in self.menu.closest(name, 2)]
                 uncertain.append(f"? s{seat} '{name}' not on menu: {' or '.join(close)}")
                 continue
+            if not self.dish_said(dish):
+                unheard.append(f"s{seat} {dish.name}")
+                continue
             qty = _int_arg(raw, "qty", 1, MAX_QTY, default=1)
-            ok, bad = self._split_alterations(dish, _str_list_arg(raw, "alterations"))
+            asked = _str_list_arg(raw, "alterations")
+            unheard += [f"s{seat} {dish.name}: {a}" for a in asked if not self.was_said(a)]
+            ok, bad = self._split_alterations(dish, [a for a in asked if self.was_said(a)])
             flagged += [f"s{seat} {dish.name}: {b}" for b in bad]
             item = wanted.setdefault((seat, dish.name), Item(dish.name, 0))
             item.qty = min(MAX_QTY, item.qty + qty)
@@ -458,7 +486,9 @@ class OrderBook:
 
         for raw in allergies:
             allergen = _norm(str(raw.get("allergen", "")))
-            if allergen:
+            if allergen and not self.was_said(allergen):
+                unheard.append(f"allergy {allergen}")
+            elif allergen:
                 seat = table.seat(seat_of(raw))
                 if allergen not in seat.allergies:
                     seat.allergies.append(allergen)
@@ -493,6 +523,9 @@ class OrderBook:
             result["note"] = "dropped dishes are NOT removed until the server taps"
         if flagged:
             result["flagged_not_applied"] = flagged
+        if unheard:
+            result["not_in_clip"] = unheard
+            result["warning_unheard"] = "only what was said in the clip is kept"
         if held:
             result["held_unclear"] = held
             result["note_unclear"] = "a guest whose choice is unclear gets no guessed dish"

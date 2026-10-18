@@ -271,7 +271,14 @@ CLIP_ORDER = {
 }
 
 
-def clip_relay(order=CLIP_ORDER, turns=(("speaker_0", "I'll have the halibut"),)):
+HEARD = (
+    ("speaker_1", "I'll have the halibut, no butter."),
+    ("speaker_1", "The salmon, no dill. I have a shellfish allergy."),
+    ("speaker_1", "I'll just get the fish."),
+)
+
+
+def clip_relay(order=CLIP_ORDER, turns=HEARD):
     sent: list[dict[str, Any]] = []
     made: dict[str, Any] = {"clips": []}
 

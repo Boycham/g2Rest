@@ -321,6 +321,7 @@ class RelaySession:
             return
         self.got_order = False
         assert self.agent
+        self.book.hear(" ".join(text for _, text in turns))
         try:
             await self.agent.say(clip_message(turns, self.book))
         except (Exception, SystemExit) as e:  # noqa: BLE001 - shown on the glasses

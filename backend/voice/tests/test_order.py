@@ -348,3 +348,25 @@ def test_unclear_guest_keeps_a_clearly_different_second_dish(book):
     }
     book.dispatch("set_order", order)
     assert [i.dish for i in book.tables[0].seats[1].items] == ["Roasted Tomato Soup"]
+
+
+def test_set_order_keeps_only_what_was_said_in_the_clip(book):
+    book.hear("I'll have the halibut, no butter. Burrata to share. Shellfish allergy here.")
+    result, _ = book.dispatch(
+        "set_order",
+        {
+            "items": [
+                {"guest": 1, "dish": "halibut", "alterations": ["no butter", "no capers"]},
+                {"guest": 1, "dish": "burrata", "alterations": ["no pesto", "extra tomato"]},
+                {"guest": 2, "dish": "nicoise"},
+            ],
+            "allergies": [{"guest": 1, "allergen": "shellfish"}, {"guest": 2, "allergen": "egg"}],
+        },
+    )
+    seat1 = book.tables[0].seats[1]
+    assert [(i.dish, i.alterations) for i in seat1.items] == [
+        ("Pan-Roasted Halibut", ["no butter"]),
+        ("Burrata", []),
+    ]
+    assert seat1.allergies == ["shellfish"] and 2 not in book.tables[0].seats
+    assert "s2 Nicoise Salad" in result["not_in_clip"] and "allergy egg" in result["not_in_clip"]
