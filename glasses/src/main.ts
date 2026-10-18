@@ -1,7 +1,5 @@
 import {
   CreateStartUpPageContainer,
-  ListContainerProperty,
-  ListItemContainerProperty,
   OsEventTypeList,
   RebuildPageContainer,
   TextContainerProperty,
@@ -10,7 +8,7 @@ import {
   type EvenHubEvent,
 } from '@evenrealities/even_hub_sdk'
 import type { BackendMessage } from './contract'
-import { CARD_PADDING, CARD_TEXT_WIDTH, DISPLAY_HEIGHT, DISPLAY_WIDTH, formatCard, queueRow } from './card'
+import { CARD_PADDING, DISPLAY_HEIGHT, DISPLAY_WIDTH, formatCard, formatQueue } from './card'
 import { BackendSocket, type SocketStatus } from './socket'
 import { loadQueue, saveQueue } from './storage'
 import { tap, upsertTask, type Queue } from './tasks'
@@ -23,7 +21,6 @@ type Screen = 'card' | 'queue' | 'listening'
 
 const MAIN_ID = 1
 const MAIN_NAME = 'main'
-const LIST_MAX_ITEMS = 20
 const LISTENING_TEXT = 'Listening… (swipe down to stop)'
 
 let queue: Queue = []
@@ -102,37 +99,11 @@ async function renderCard(): Promise<void> {
 
 async function showScreen(next: Screen): Promise<void> {
   screen = next
-  let page: RebuildPageContainer
-  if (next === 'queue' && queue.length) {
-    const rows = queue.slice(0, LIST_MAX_ITEMS).map(t => queueRow(t, CARD_TEXT_WIDTH - 2 * CARD_PADDING))
-    page = new RebuildPageContainer({
-      containerTotalNum: 1,
-      listObject: [
-        new ListContainerProperty({
-          xPosition: 0,
-          yPosition: 0,
-          width: DISPLAY_WIDTH,
-          height: DISPLAY_HEIGHT,
-          borderWidth: 0,
-          paddingLength: CARD_PADDING,
-          containerID: MAIN_ID,
-          containerName: MAIN_NAME,
-          itemContainer: new ListItemContainerProperty({
-            itemCount: rows.length,
-            itemWidth: DISPLAY_WIDTH - 2 * CARD_PADDING,
-            isItemSelectBorderEn: 1,
-            itemName: rows,
-          }),
-          isEventCapture: 1,
-        }),
-      ],
-    })
-  } else {
-    const text = next === 'listening' ? LISTENING_TEXT : next === 'queue' ? 'Queue empty' : currentCard().text
-    const brightness = next === 'card' ? currentCard().brightness : 4
-    page = new RebuildPageContainer({ containerTotalNum: 1, textObject: [textPage(text, brightness)] })
-    if (next === 'card') shownCard = JSON.stringify(currentCard())
-  }
+  const card = currentCard()
+  const text = next === 'listening' ? LISTENING_TEXT : next === 'queue' ? formatQueue(queue) : card.text
+  const brightness = next === 'card' ? card.brightness : 4
+  const page = new RebuildPageContainer({ containerTotalNum: 1, textObject: [textPage(text, brightness)] })
+  if (next === 'card') shownCard = JSON.stringify(card)
   const t0 = performance.now()
   const ok = await bridge.rebuildPageContainer(page)
   log('rebuild', next, ok, `${(performance.now() - t0).toFixed(1)} ms`)

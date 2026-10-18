@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { getTextWidth } from '@evenrealities/pretext'
-import { CARD_TEXT_WIDTH, fitBytes, formatCard, queueRow, taskLine } from './card'
+import { CARD_MAX_LINES, CARD_TEXT_WIDTH, fitBytes, formatCard, formatQueue, queueRow, taskLine } from './card'
 import { makeTask } from './fixtures.test-helpers'
 
 const lines = (text: string) => text.split('\n')
@@ -100,5 +100,27 @@ describe('queueRow', () => {
     const out = fitBytes('×'.repeat(40), 63)
     expect(new TextEncoder().encode(out).length).toBeLessThanOrEqual(63)
     expect(out.endsWith('...')).toBe(true)
+  })
+})
+
+describe('formatQueue', () => {
+  it('says the queue is empty', () => {
+    expect(formatQueue([])).toBe('Queue empty')
+  })
+
+  it('lists every task, the current one marked, allergies first', () => {
+    const q = [
+      makeTask({ id: 'a', allergies: [{ allergen: 'shellfish', seats: [3] }] }),
+      makeTask({ id: 'b', kind: 'CLEAR', table: 'T7', items: [] }),
+    ]
+    expect(lines(formatQueue(q))).toEqual(['> ! SHELLFISH RUN · T12 · 2× halibut s1+3', '  CLEAR · T7'])
+  })
+
+  it('caps the screen and counts the rest', () => {
+    const q = Array.from({ length: 9 }, (_, i) => makeTask({ id: `t${i}` }))
+    const l = lines(formatQueue(q))
+    expect(l).toHaveLength(CARD_MAX_LINES)
+    expect(l[CARD_MAX_LINES - 1]).toBe(`  +${9 - (CARD_MAX_LINES - 1)} more`)
+    for (const line of l) expect(getTextWidth(line)).toBeLessThanOrEqual(CARD_TEXT_WIDTH)
   })
 })

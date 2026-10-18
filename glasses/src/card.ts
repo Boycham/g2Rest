@@ -101,3 +101,16 @@ export function queueRow(task: Task, width: number): string {
   const allergy = task.allergies.length ? `! ${task.allergies.map(a => a.allergen.toUpperCase()).join(',')} ` : ''
   return fitBytes(fit(`${allergy}${taskLine(task)}`, width), LIST_ITEM_MAX_BYTES)
 }
+
+/**
+ * The queue screen, as text in one container. A list container would swallow swipe up
+ * (the firmware moves the selection instead of sending us the event), so "swipe up again
+ * to return" only works if the queue is plain text.
+ */
+export function formatQueue(queue: readonly Task[], width = CARD_TEXT_WIDTH): string {
+  if (!queue.length) return 'Queue empty'
+  const rows = queue.map((t, i) => (i === 0 ? '> ' : '  ') + queueRow(t, width - getTextWidth('> ')))
+  if (rows.length <= CARD_MAX_LINES) return rows.join('\n')
+  const shown = rows.slice(0, CARD_MAX_LINES - 1)
+  return [...shown, `  +${queue.length - shown.length} more`].join('\n')
+}
