@@ -68,6 +68,7 @@ export class ServerHud implements Hud {
   private readonly nod = NOD_CONFIG ? new NodDetector(NOD_CONFIG) : null
   private imuOn = false
   private imuSamples = 0
+  private debugNodPlayed = false
 
   constructor(
     private readonly ctx: HudContext,
@@ -246,7 +247,7 @@ export class ServerHud implements Hud {
       ok => log('imu', want ? 'on (nod to accept)' : 'off', ok),
       err => log('imu control failed', String(err)),
     )
-    if (want && debugNod()) void this.playDebugNod()
+    if (want && debugNod() && !this.debugNodPlayed) void this.playDebugNod()
   }
 
   /** SDK IMU_DATA_REPORT: a deliberate down-up nod accepts the waiting task, like a tap. */
@@ -262,9 +263,10 @@ export class ServerHud implements Hud {
     this.flash('Heard: nod')
   }
 
-  /** DEV ONLY: `?debugImu=nod` plays a synthetic nod 2.5 s after the IMU turns on (the simulator's imuData is null). */
+  /** DEV ONLY: `?debugImu=nod` plays one synthetic nod 2.5 s after the IMU first turns on (the simulator's imuData is null). */
   private async playDebugNod(): Promise<void> {
     const samples = syntheticNod({ restMs: 2500, depth: 0.5, durationMs: 400, hz: 20, base: -0.9 }, this.nod!.cfg)
+    this.debugNodPlayed = true
     log('debug imu nod queued')
     const t0 = performance.now()
     for (const s of samples) {
