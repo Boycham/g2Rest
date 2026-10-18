@@ -56,6 +56,9 @@ def test_alterations_are_checked_against_the_dish(menu):
     assert a["a"] == "yes, no butter is fine"
     a = ask(menu, q="torte without nuts?", kind="alteration", dish="torte", change="no nuts")
     assert a["a"] == "has tree nuts; menu allows: no whipped cream, no hazelnuts"
+    a = answer(menu, {"q": "torte without nuts?", "kind": "alteration", "dish": "torte",
+                      "change": "no hazelnuts"}, said("can the torte come without nuts"))  # fmt: skip
+    assert a["a"].startswith("has tree nuts")  # the agent's "hazelnuts" was never said
     a = ask(menu, q="salmon without nuts?", kind="alteration", dish="salmon", change="no nuts")
     assert a["a"] == "salmon lists no tree nuts"
     a = ask(menu, q="duck without skin?", kind="alteration", dish="duck", change="no skin")

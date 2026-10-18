@@ -211,9 +211,11 @@ CLIP_TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
         },
     },
+]
+TALK_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "set_talk",
-        "description": "After set_order: a short summary of the clip and every question or "
+        "description": "A short summary of the clip and every question or "
         "comment a guest made. Display only on the glasses; code answers food questions.",
         "parameters": {
             "type": "object",
@@ -265,7 +267,7 @@ CLIP_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
             },
         },
-    },
+    }
 ]
 
 

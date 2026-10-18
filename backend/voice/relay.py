@@ -17,6 +17,7 @@ import os
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any, Protocol
 
 from websockets.asyncio.server import ServerConnection, serve
@@ -166,6 +167,7 @@ class RelaySession:
         make_stt: Callable[[Callable[[str], None], Callable[[str, float], None]], Stt],
         make_agent: Callable[[OrderBook, Callable[..., None]], Agent],
         transcribe: Transcribe | None = None,
+        make_talk_agent: Callable[[OrderBook, Callable[..., None]], Agent | None] | None = None,
     ):
         self._send = send
         self.make_stt = make_stt
@@ -177,6 +179,10 @@ class RelaySession:
         self.notice: str | None = None
         self.stt: Stt | None = None
         self.agent: Agent | None = None
+        # The clip's second agent (set_talk: summary and answers), run beside the order agent
+        # so the order card never waits for it. None: no talk agent configured.
+        self.make_talk_agent = make_talk_agent
+        self.talk_agent: Agent | None = None
         self.buffer: list[bytes] = []
         self.segments: asyncio.Queue[str] = asyncio.Queue()
         self.tasks: set[asyncio.Task[None]] = set()
@@ -211,8 +217,11 @@ class RelaySession:
     ) -> None:
         log(f"tool {tool}({json.dumps(params)}) -> {'ERROR' if is_error else 'ok'}")
         self.notice = tool_notice(self.book, tool, params, result) if is_error else None
-        if tool == "set_talk" and not is_error and self.clip_stop:
-            log(f"latency clip stop -> set_talk {time.monotonic() - self.clip_stop:.2f}s")
+        if tool == "set_talk":
+            if not is_error and self.clip_stop:
+                log(f"latency clip stop -> set_talk {time.monotonic() - self.clip_stop:.2f}s")
+            self._spawn(self.draft())
+            return
         if tool == "set_order" and not is_error:
             self.got_order = True
             self.voice = "idle"
@@ -374,6 +383,21 @@ class RelaySession:
         self.agent = self.make_agent(self.book, self.on_tool)
         await asyncio.wait_for(self.agent.start(), START_TIMEOUT)
 
+    async def _talk(self, capture_id: str, message: str) -> None:
+        """The summary and answers for a clip; any failure only means no talk lines."""
+        if not self.make_talk_agent or capture_id != self.capture_id:
+            return
+        try:
+            if not self.talk_agent or not self.talk_agent.alive:
+                self.talk_agent = self.make_talk_agent(self.book, self.on_tool)
+                if not self.talk_agent:
+                    return
+                await asyncio.wait_for(self.talk_agent.start(), START_TIMEOUT)
+            await self.talk_agent.say(message)
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - the order card is unaffected
+            log(f"talk agent: {type(e).__name__}: {e}")
+            self.talk_agent = None
+
     async def _process_clip(self, capture_id: str, pcm: bytes) -> None:
         self.clip_stop = time.monotonic()
         try:
@@ -397,8 +421,10 @@ class RelaySession:
         self.got_order = False
         assert self.agent
         self.book.hear(" ".join(text for _, text in turns))
+        message = clip_message(turns, self.book)
+        self._spawn(self._talk(capture_id, message))
         try:
-            await self.agent.say(clip_message(turns, self.book))
+            await self.agent.say(message)
         except (Exception, SystemExit) as e:  # noqa: BLE001 - shown on the glasses
             await self._offline(f"agent: {type(e).__name__}: {e}")
             return
@@ -527,6 +553,8 @@ class RelaySession:
             await self.cmd_stt.close()
         if self.agent:
             await self.agent.close()
+        if self.talk_agent:
+            await self.talk_agent.close()
         for task in list(self.tasks):
             task.cancel()
 
@@ -549,6 +577,16 @@ def live_agent(book: OrderBook, on_tool: Callable[..., None]) -> Agent:
     return AgentSession(aid, book, on_tool, lambda text: log(f"agent: {text}"))
 
 
+def live_talk_agent(book: OrderBook, on_tool: Callable[..., None]) -> Agent | None:
+    aid = os.environ.get("ELEVENLABS_TALK_AGENT_ID")
+    saved = Path(__file__).with_name(".talk_agent_id")
+    if not aid and saved.exists():
+        aid = saved.read_text().strip()
+    if not aid:
+        return None
+    return AgentSession(aid, book, on_tool, lambda text: log(f"talk agent: {text}"))
+
+
 async def handler(ws: ServerConnection) -> None:
     log(f"glasses connected via {ws.request.path if ws.request else '?'}")
 
@@ -558,7 +596,7 @@ async def handler(ws: ServerConnection) -> None:
         except (ConnectionClosed, TimeoutError):
             pass
 
-    session = RelaySession(send, live_stt, live_agent)
+    session = RelaySession(send, live_stt, live_agent, make_talk_agent=live_talk_agent)
     try:
         async for data in ws:
             if isinstance(data, bytes):

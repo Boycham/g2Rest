@@ -461,3 +461,66 @@ async def test_unknown_words_after_the_wake_word_go_to_gemini_or_show_didnt_get(
     finally:
         relay_mod.map_words = real
         await session.close()
+
+
+class TalkAgent(FakeAgent):
+    """The clip's second agent: one set_talk per clip, or a failure."""
+
+    def __init__(self, book, on_tool, talk, fail=False):
+        super().__init__(book, on_tool, {})
+        self.talk, self.fail = talk, fail
+
+    async def say(self, text: str) -> None:
+        if self.fail:
+            raise ConnectionError("talk agent down")
+        result, err = self.book.dispatch("set_talk", self.talk)
+        self.on_tool("set_talk", self.talk, result, err, 0.0)
+
+
+TALK = {
+    "summary": "Anniversary, relaxed.",
+    "questions": [
+        {"guest": 2, "q": "salmon fish?", "kind": "allergen", "dish": "salmon", "allergen": "fish"},
+        {"q": "gluten-free bread?", "kind": "dietary", "dish": "bread"},
+    ],
+}
+
+
+def talk_relay(talk=TALK, fail=False, order=CLIP_ORDER):
+    session, sent, made = clip_relay(order=order)
+    session.make_talk_agent = lambda book, on_tool: TalkAgent(book, on_tool, talk, fail)
+    return session, sent, made
+
+
+@run
+async def test_clip_talk_agent_adds_summary_and_menu_answers_beside_the_order():
+    session, sent, _ = talk_relay()
+    await send_clip(session)
+    d = sent[-1]
+    assert d["lines"] and d["summary"] == "Anniversary, relaxed"
+    assert d["answers"] == [
+        {"seat": 2, "q": "salmon fish?", "a": "yes, salmon has fish", "known": True},
+        {"q": "gluten-free bread?", "a": "not in menu data", "known": False},
+    ]
+    await session.handle_text(json.dumps({"type": "order.confirm", "orderId": d["orderId"]}))
+    assert sent[-1]["status"] == "sent"
+    await session.close()
+
+
+@run
+async def test_clip_talk_failure_still_shows_the_order():
+    session, sent, _ = talk_relay(fail=True)
+    await send_clip(session)
+    d = sent[-1]
+    assert d["voice"] == "idle" and d["lines"] and d["summary"] == "" and d["answers"] == []
+    await session.close()
+
+
+@run
+async def test_clip_with_no_order_still_shows_the_talk():
+    session, sent, _ = talk_relay(order={"items": []})
+    await send_clip(session)
+    d = sent[-1]
+    assert d["lines"] == [] and d["summary"] and len(d["answers"]) == 2
+    assert d["notice"] is None
+    await session.close()

@@ -84,7 +84,10 @@ def clean_summary(menu: Menu, text: str, allergies: set[str], dishes: set[str]) 
         if named - dishes:
             continue
         kept.append(s)
-    return _clip(". ".join(kept[:2]), MAX_SUMMARY_CHARS)
+    kept = kept[:2]
+    while len(kept) > 1 and len(". ".join(kept)) > MAX_SUMMARY_CHARS:
+        kept.pop()
+    return _clip(". ".join(kept), MAX_SUMMARY_CHARS)
 
 
 def _label(dish: Dish) -> str:
@@ -134,7 +137,8 @@ def answer(menu: Menu, raw: dict[str, Any], was_said: Callable[[str], bool]) -> 
         if reply and not is_question(reply) and not names_food(menu, reply) and not dish:
             a, ok = reply, True
     elif kind == "alteration" and dish:
-        change = str(raw.get("change") or q)
+        change = str(raw.get("change") or "")
+        change = change if change and was_said(" ".join(_words(change)[-1:])) else q
         a, ok = _change_answer(dish, change)
     elif kind in ("allergen", "dietary") and said_terms:
         allergen = said_terms[0]
