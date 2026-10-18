@@ -29,14 +29,23 @@ phone / glasses / browser --https, wss--> Caddy :443 (<ip>.sslip.io, Let's Encry
 ```sh
 source .env.sh                                   # VULTR_API_KEY, FLOOR_SENSE_TOKEN, ELEVENLABS_API_KEY
 backend/deploy/provision.sh                      # once: creates the server, prints its IP
-backend/deploy/deploy.sh <ip> --env --agent      # first deploy: env file, ElevenLabs agent, services
+backend/deploy/deploy.sh <ip> --env --agent      # first deploy: env file, ElevenLabs agents, services
 backend/deploy/deploy.sh <ip>                    # every later deploy of the committed HEAD
+
+# deploy what is on GitHub main, whatever branch you have checked out
+git fetch origin && FS_DEPLOY_REF=origin/main backend/deploy/deploy.sh <ip>
 ```
 
+- Add `--env` when a setting changes (for example `SENTRY_DSN_WEB=... deploy.sh <ip> --env`), and
+  `--agent` when the clip or talk agent's prompt or tools change in `backend/voice/create_agent.py`.
+- `web/verity` is built on the deploying machine from the same commit (Node and npm needed); its
+  `dist/` is shipped, not committed.
 - The Vultr API key's access list must include your current public IP (`curl -4 ifconfig.me`).
 - SSH: `ssh -i ~/.ssh/floorsense_vultr root@<ip>`; logs: `journalctl -u floor-sense-backend -u
   floor-sense-voice -u caddy -f`.
-- Pages: `https://<host>/app/index.html?token=<FS_TOKEN>` and `.../app/kitchen.html?token=...`.
+- Pages (add `?token=<FS_TOKEN>` once; it moves to the tab's session storage):
+  `https://<host>/app/index.html` (Organizer), `.../app/kitchen.html`, and the Verity manager
+  dashboard and scroll story at `.../app/verity/dist/dashboard.html` and `.../app/verity/dist/index.html`.
 - Glasses: `VITE_BACKEND_URL=wss://<host>/ws`, `VITE_FS_TOKEN=<FS_TOKEN>`, and the host listed in
   `glasses/app.json` as `https://<host>` and `wss://<host>` (Coder B's lane, then a new `.ehpk`).
 - Stop paying: destroy the server in the Vultr dashboard (or `DELETE /v2/instances/<id>`).
