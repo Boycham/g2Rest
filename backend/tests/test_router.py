@@ -67,3 +67,16 @@ def test_no_key_means_rules_and_no_call() -> None:
         raise AssertionError("called Gemini without a key")
 
     assert pick(store(key=""), gemini(boom)[0]) == "s1"
+
+
+def test_floor_tasks_skip_a_server_held_for_a_run() -> None:
+    s = store(key="")
+    s.book.held = frozenset({"s1"})
+    client = httpx.AsyncClient()
+    assert asyncio.run(router.pick(s, client, "ORDER", "T1", [])) == "s2"  # T1 is Ava's
+    assert asyncio.run(router.pick(s, client, "RUN", "T1", [])) == "s1"
+    s = store()
+    s.book.held = frozenset({"s1"})
+    client, seen = gemini(answer("s2"))
+    assert asyncio.run(router.pick(s, client, "CHECK", "T1", [])) == "s2"
+    assert seen["generationConfig"]["responseSchema"]["enum"] == ["s2"]

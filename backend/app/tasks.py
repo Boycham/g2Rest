@@ -128,6 +128,8 @@ class TaskBook:
         self.done_sec = done_sec
         self.tasks: dict[str, Task] = {}
         self.alerts: dict[str, Alert] = {}
+        # servers the pass holds for a run (`Pass.reserved`): no new floor tasks go to them
+        self.held: frozenset[str] = frozenset()
         # staff -> (task id, action, state before it): one level of undo for task.revert
         self.last_action: dict[str, tuple[str, str, TaskState]] = {}
 
@@ -373,7 +375,7 @@ class TaskBook:
 
     def _next_assignee(self, task: Task) -> str | None:
         for who in self.floor.escalation_chain(task.table):
-            if who not in task.tried:
+            if who not in task.tried and (task.kind == "RUN" or who not in self.held):
                 return who
         return None
 

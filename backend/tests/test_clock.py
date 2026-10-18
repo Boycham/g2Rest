@@ -43,3 +43,20 @@ def test_injected_clock_drives_tables_tasks_and_the_pass() -> None:
     task = store.book.get(run.message["task"]["id"])
     assert task.assigned_at == clock.t
     assert store.pass_.state(store.now())["plates"][0]["upSec"] == 90
+
+
+def test_the_manager_runs_a_plate_only_once_it_is_past_the_ceiling() -> None:
+    from app.orders import Line
+
+    clock = FakeClock(0.0)
+    store = Store.from_settings(Settings(), clock=clock)
+    for table in ("T1", "T5"):  # Ava and Ben both out on a run
+        store.book.create("RUN", table, 0.0)
+    store.pass_.add_order("o1", "T2", [Line(1, 1, "Dry-Aged Ribeye")], now=0.0)
+    store.plate_up("o1", 0)
+    clock.t = 299.0
+    assert store.dispatch() == []
+    clock.t = 301.0
+    store.dispatch()
+    runs = [t for t in store.book.tasks.values() if t.kind == "RUN" and t.table == "T2"]
+    assert [t.assignee for t in runs] == ["m1"]

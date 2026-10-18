@@ -60,7 +60,12 @@ async def pick(
     notes: list[str],
     exclude: frozenset[str] = frozenset(),
 ) -> str:
-    """`exclude`: people who can't take it (a handoff excludes the person handing it off)."""
+    """`exclude`: people who can't take it (a handoff excludes the person handing it off).
+
+    Floor tasks never go to a server the pass holds for a run (`TaskBook.held`).
+    """
+    if kind != "RUN":
+        exclude = exclude | store.book.held
     chain = [w for w in store.floor.escalation_chain(table) if w not in exclude]
     rule = chain[0] if chain else store.floor.manager.id
     settings = store.settings

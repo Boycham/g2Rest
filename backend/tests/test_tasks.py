@@ -166,3 +166,11 @@ def test_task_queued_for_an_offline_server_escalates_after_two_minutes(book: Tas
     ]
     out = book.tick(now=360)  # end of the chain: the manager gets the alert
     assert [(o.staff, o.message["type"]) for o in out] == [("m1", "alert")]
+
+
+def test_escalation_skips_a_server_held_for_a_run_but_not_for_a_run_card(book: TaskBook) -> None:
+    book.held = frozenset({"s1"})  # the pass is holding Ava for a big course
+    order, _ = book.create("ORDER", "T5", now=0)  # Ben's section: Ben, Ava, then Dana
+    run, _ = book.create("RUN", "T5", now=0)
+    book.tick(now=book.offline_escalation_sec + 1)
+    assert (order.assignee, run.assignee) == ("m1", "s1")
