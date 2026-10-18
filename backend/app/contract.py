@@ -21,7 +21,7 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-TaskKind = Literal["RUN", "CLEAR", "CHECK", "SEAT"]
+TaskKind = Literal["RUN", "CLEAR", "CHECK", "SEAT", "ORDER"]
 TaskState = Literal["assigned", "accepted", "done", "bounced"]
 TableStatus = Literal["empty", "seated", "ordered", "waiting", "eating", "check"]
 AlertLevel = Literal["info", "warn", "urgent"]
@@ -151,8 +151,10 @@ class OrderDraft(Strict):
     allergies: list[Allergy]
     status: Literal["draft", "sent", "cancelled"] | None = None
     pending: list[PendingProposal] | None = None
-    voice: Literal["idle", "connecting", "listening", "offline"] | None = None
+    voice: Literal["idle", "connecting", "listening", "processing", "offline"] | None = None
     notice: str | None = None
+    notes: list[str] | None = None
+    uncertain: list[str] | None = None
 
 
 class OrderReadback(Strict):
@@ -231,6 +233,7 @@ class CaptureStartExt(CaptureStart):
     """+ optional table, when the glasses know which card the server was looking at."""
 
     table: str | None = None
+    mode: Literal["stream", "clip"] | None = None
 
 
 BackendMessageExt = Annotated[

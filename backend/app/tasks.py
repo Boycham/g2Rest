@@ -17,7 +17,7 @@ from app.data import Floor
 from app.events import EventLog
 
 TaskState = Literal["queued", "sent", "accepted", "done", "bounced", "escalated"]
-TaskKind = Literal["RUN", "CLEAR", "CHECK", "SEAT"]
+TaskKind = Literal["RUN", "CLEAR", "CHECK", "SEAT", "ORDER"]
 WIRE_STATE: dict[str, str] = {
     "queued": "assigned",
     "sent": "assigned",

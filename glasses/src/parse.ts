@@ -20,7 +20,7 @@ import type { FloorTable } from './minimap'
 
 type Obj = Record<string, unknown>
 
-const KINDS: readonly TaskKind[] = ['RUN', 'CLEAR', 'CHECK', 'SEAT']
+const KINDS: readonly TaskKind[] = ['RUN', 'CLEAR', 'CHECK', 'SEAT', 'ORDER']
 const STATES: readonly TaskState[] = ['assigned', 'accepted', 'done', 'bounced']
 const LEVELS: readonly AlertLevel[] = ['info', 'warn', 'urgent']
 const TABLE_STATUSES: readonly TableStatus[] = ['empty', 'seated', 'ordered', 'waiting', 'eating', 'check']

@@ -8,7 +8,8 @@
 
 // ---------- shared shapes ----------
 
-export type TaskKind = 'RUN' | 'CLEAR' | 'CHECK' | 'SEAT'
+/** ORDER: take this table's order; accepting it binds the next clip to `table`. */
+export type TaskKind = 'RUN' | 'CLEAR' | 'CHECK' | 'SEAT' | 'ORDER'
 
 /** Lifecycle of a task as the backend sees it. */
 export type TaskState = 'assigned' | 'accepted' | 'done' | 'bounced'
@@ -97,6 +98,12 @@ export interface CaptureStart {
   captureId: string
   /** Table of the card on screen, when known; otherwise the backend uses the server's current card. */
   table?: string
+  /**
+   * `clip`: the frames that follow are the last minute from the glasses' rolling buffer, sent
+   * as fast as possible; `capture.stop` ends the clip and the backend transcribes and extracts
+   * it in one go. Absent or `stream`: live mic frames (the earlier capture path).
+   */
+  mode?: 'stream' | 'clip'
 }
 
 /**
@@ -171,8 +178,8 @@ export interface PendingProposal {
   text: string
 }
 
-/** `connecting` until Scribe and the agent answer. */
-export type VoiceState = 'idle' | 'connecting' | 'listening' | 'offline'
+/** `connecting` until Scribe and the agent answer; `processing` while a clip is transcribed and read. */
+export type VoiceState = 'idle' | 'connecting' | 'listening' | 'processing' | 'offline'
 
 /** Full replacement of the order being taken, sent after every change. */
 export interface OrderDraft {
@@ -190,6 +197,10 @@ export interface OrderDraft {
   voice?: VoiceState
   /** One-line reason the last tool call was refused, e.g. "s2 has no soup". */
   notice?: string | null
+  /** Short table notes from the conversation, e.g. "anniversary", "mains after 20 min". */
+  notes?: string[]
+  /** Anything unclear, one line each, ready to show, e.g. "? s2 'the fish': halibut or salmon". */
+  uncertain?: string[]
 }
 
 /** The agent proposes sending or cancelling; only a tap on the glasses does it. */
