@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -45,21 +46,25 @@ class Store:
     orders: OrderBook = field(init=False)
     captures: dict[str, Capture] = field(default_factory=dict)
     pass_: Pass = field(init=False)
+    # seconds, monotonic; the dinner-rush simulator passes a simulated clock (sim/)
+    clock: Callable[[], float] = field(default=time.monotonic, repr=False)
 
     def __post_init__(self) -> None:
         self.reset()
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> Store:
+    def from_settings(
+        cls, settings: Settings, clock: Callable[[], float] = time.monotonic
+    ) -> Store:
         return cls(
             settings,
             Menu.load(settings.data_dir / "menu.json"),
             Floor.load(settings.data_dir / "floor.json"),
+            clock=clock,
         )
 
-    @staticmethod
-    def now() -> float:
-        return time.monotonic()
+    def now(self) -> float:
+        return self.clock()
 
     def reset(self) -> None:
         now = self.now()
@@ -121,10 +126,14 @@ class Store:
         return plate
 
     def free_runners(self) -> dict[str, str]:
-        """Servers with no open RUN task, mapped to the section they run by default."""
+        """Servers with free hands, mapped to the section they run by default.
+
+        Busy means an open RUN (holding or about to hold plates) or any other task they have
+        accepted (taking an order, running a check): a RUN card would only sit and escalate.
+        """
         free: dict[str, str] = {}
         for server in self.floor.servers.values():
-            if any(t.kind == "RUN" for t in self.book.open_for(server.id)):
+            if any(t.kind == "RUN" or t.state == "accepted" for t in self.book.open_for(server.id)):
                 continue
             home = [sec for sec, srv in self.floor.sections.items() if srv == server.id]
             free[server.id] = home[0] if home else (server.sections[0] if server.sections else "")
