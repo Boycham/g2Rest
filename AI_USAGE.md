@@ -27,7 +27,8 @@
   Devin session; it relayed the web lane's requests to that session over the Devin API. A human
   directed and reviewed the work.
 - **Claude Code** also wrote the Gemini task router (`backend/app/router.py`) and its tests, and made
-  task accept/done/bounce the assigned server's action only. A human chose Gemini and reviewed the PR.
+  task accept/done/bounce the assigned server's action only, plus task handoff
+  and one-level revert. A human chose Gemini and reviewed the PR.
 
 ## How Gemini is used in the product
 

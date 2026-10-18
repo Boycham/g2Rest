@@ -59,6 +59,8 @@ Every field name is camelCase on the wire. Times are seconds (`sinceSec`) or ISO
 | `task.accept` | `taskId` | task `sent -> accepted`; `task.updated` echoed to the assignee; organizer sees it |
 | `task.done` | `taskId` | task `accepted -> done` (also allowed straight from `sent`); next queued card is already on the glasses |
 | `task.bounce` | `taskId` | task leaves this server (`task.updated` with state `bounced`) and is re-sent to the next server as a new `task.assigned` with the **same id** |
+| `task.handoff` | `taskId`, `to?` | gives an open task (accepted or not) to `to` (a staff id or name, any case: `"Ben"`); without `to` the router (Gemini, else rules) picks anyone but the sender. Same frames as a bounce: `bounced` to the sender, `task.assigned` (same `id`) to the new holder |
+| `task.revert` | `taskId?` | undoes the sender's **last** accept, done, bounce or handoff (one level): un-accept -> `task.updated` `assigned` with a fresh 30 s timer; un-done -> `task.assigned` (the card comes back, state as before); un-bounce/un-handoff -> the task comes back with `task.assigned`, the holder gets `bounced`, but only while the holder hasn't accepted it |
 | `capture.start` | `captureId` | opens a voice capture for this staff member's current table; mic audio frames follow |
 | `capture.audio` | binary frame | raw PCM 16 kHz, s16le, mono, 3200 bytes = 100 ms, belonging to the last `capture.start` on this socket |
 | `capture.stop` | `captureId` | closes the capture (trailing silence is the backend's job) |
@@ -129,6 +131,12 @@ Delivery rules:
 - `order.*` go to the socket that opened the capture.
 - `alert` and `floor.state` go to manager and organizer sockets.
 - The glasses may apply taps optimistically; the backend's `task.updated` is the truth and wins.
+
+```jsonc
+// A task.* frame from this socket was refused (wrong owner, unknown name, nothing to revert,
+// "Ben already accepted it"). Only to the sending socket; `reason` is short enough for the card.
+{ "type": "task.rejected", "taskId": "task-4f2a" | null, "action": "accept" | "done" | "bounce" | "handoff" | "revert", "reason": "Ben already accepted it" }
+```
 
 ## 5. HTTP API (shared token)
 
@@ -276,3 +284,6 @@ All of these are now in `glasses/src/contract.ts` (no `PROPOSED` markers left) a
    like the wire; `backend/voice/order.py` keeps snake_case internally behind the relay.
 8. **Voice fields** from the voice capture lane: `order.confirm` / `order.cancel_confirm` + `proposalId?`,
    `order.reject {orderId, proposalId}`, and `order.draft` + `status?`, `pending?`, `voice?`, `notice?`.
+9. **Handoff and revert** (Coder A, for voice "handoff" / "revert" and the double-tap handoff):
+   glasses -> backend `task.handoff {taskId, to?}` and `task.revert {taskId?}`; backend -> glasses
+   `task.rejected {taskId, action, reason}`. Additive; `contract.ts` needs the three types.

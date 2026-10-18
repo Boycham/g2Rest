@@ -51,14 +51,22 @@ def context(store: Store, kind: str, table: str, notes: list[str]) -> dict[str, 
 
 
 async def pick(
-    store: Store, client: httpx.AsyncClient, kind: str, table: str, notes: list[str]
+    store: Store,
+    client: httpx.AsyncClient,
+    kind: str,
+    table: str,
+    notes: list[str],
+    exclude: frozenset[str] = frozenset(),
 ) -> str:
-    rule = store.floor.escalation_chain(table)[0]
+    """`exclude`: people who can't take it (a handoff excludes the person handing it off)."""
+    chain = [w for w in store.floor.escalation_chain(table) if w not in exclude]
+    rule = chain[0] if chain else store.floor.manager.id
     settings = store.settings
-    if not settings.gemini_api_key:
-        return rule
     ctx = context(store, kind, table, notes)
+    ctx["servers"] = [s for s in ctx["servers"] if s["id"] not in exclude]
     ids = [s["id"] for s in ctx["servers"]]
+    if not settings.gemini_api_key or not ids:
+        return rule
     body = {
         "systemInstruction": {"parts": [{"text": INSTRUCTIONS}]},
         "contents": [{"role": "user", "parts": [{"text": json.dumps(ctx)}]}],
