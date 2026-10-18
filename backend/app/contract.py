@@ -233,7 +233,35 @@ class VoiceCommand(Strict):
     """New: "verity <command>" matched by the relay; the glasses act like the gesture."""
 
     type: Literal["voice.command"]
-    intent: Literal["up", "down", "back", "confirm", "clip", "accept", "decline", "done"]
+    intent: Literal[
+        "up",
+        "down",
+        "back",
+        "confirm",
+        "clip",
+        "accept",
+        "decline",
+        "done",
+        "handoff",
+        "nevermind",
+        "revert",
+    ]
+    name: str | None = None
+
+
+class VoiceUnknown(Strict):
+    """New: words after "verity" that neither the word list nor Gemini could map."""
+
+    type: Literal["voice.unknown"]
+    words: str
+    reason: str | None = None
+
+
+class TaskUnaccept(Strict):
+    """New: "verity revert" right after an accept puts the task back to unaccepted."""
+
+    type: Literal["task.unaccept"]
+    taskId: str
 
 
 class CaptureStartExt(CaptureStart):
@@ -251,13 +279,15 @@ BackendMessageExt = Annotated[
     | AlertExt
     | FloorStateExt
     | OrderClosed
-    | VoiceCommand,
+    | VoiceCommand
+    | VoiceUnknown,
     Field(discriminator="type"),
 ]
 GlassesJsonMessageExt = Annotated[
     TaskAccept
     | TaskDone
     | TaskBounce
+    | TaskUnaccept
     | CaptureStartExt
     | CaptureStop
     | OrderConfirm
