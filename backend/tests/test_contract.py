@@ -204,7 +204,8 @@ def test_voice_taps_and_relay_drafts_are_on_contract() -> None:
 
 
 def test_order_task_clip_capture_and_draft_notes_are_on_contract() -> None:
-    clip = parse_glasses('{"type": "capture.start", "captureId": "c1", "table": "T3", "mode": "clip"}')
+    raw = '{"type": "capture.start", "captureId": "c1", "table": "T3", "mode": "clip"}'
+    clip = parse_glasses(raw)
     assert clip.mode == "clip" and clip.table == "T3"
     task = {
         "id": "task-1",
