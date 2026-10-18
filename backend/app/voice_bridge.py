@@ -30,6 +30,17 @@ QUEUE_MAX = 50
 OFFLINE_NOTICE = "voice relay unreachable"
 
 Send = Callable[[dict[str, Any]], Awaitable[Any]]
+OrderHook = Callable[[Order], Awaitable[None]]
+CloseHook = Callable[[str, str | None, str], Awaitable[None]]
+NO_TABLE = "TABLE?"  # label of a live voice draft whose table is not known yet
+
+
+async def _no_order_hook(order: Order) -> None:
+    return None
+
+
+async def _no_close_hook(staff: str, table: str | None, status: str) -> None:
+    return None
 
 
 @dataclass
@@ -54,12 +65,19 @@ class VoiceBridge:
         self,
         url: str,
         store: Store,
-        after_fire: Callable[[Order], Awaitable[None]],
+        after_fire: OrderHook,
         dial: Callable[..., Any] = connect,
+        *,
+        after_draft: OrderHook = _no_order_hook,
+        after_cancel: OrderHook = _no_order_hook,
+        after_close: CloseHook = _no_close_hook,
     ) -> None:
         self.url = url
         self.store = store
         self.after_fire = after_fire
+        self.after_draft = after_draft
+        self.after_cancel = after_cancel
+        self.after_close = after_close
         self.dial = dial
         self.links: dict[Any, Link] = {}
 
@@ -156,15 +174,31 @@ class VoiceBridge:
             link.last_draft = msg
         await link.send(msg)
         status = msg.get("status")
+        if order_id and status in (None, "draft") and (msg.get("lines") or msg.get("allergies")):
+            await self._live_draft(link, msg)
         if order_id and status in ("sent", "cancelled") and order_id not in link.closed:
             link.closed.add(order_id)
             await self._close(link, msg)
+
+    async def _live_draft(self, link: Link, draft: dict[str, Any]) -> None:
+        """Mirror the relay's draft into the hub's store so the kitchen sees it forming."""
+        try:
+            order = self.build_order(draft, link.staff, live=True)
+        except ToolError as e:
+            log.warning("[fs] live draft %s not mirrored: %s", draft.get("orderId"), e)
+            return
+        self.store.orders.orders[order.id] = order
+        await self.after_draft(order)
 
     async def _close(self, link: Link, draft: dict[str, Any]) -> None:
         relay_id = draft["orderId"]
         if draft["status"] == "cancelled":
             self.store.events.append("order.cancelled", orderId=relay_id, staff=link.staff)
+            live = self.store.orders.get(f"order-{relay_id}")
+            if live is not None and live.status == "draft":
+                await self.after_cancel(self.store.orders.cancel(live.id))
             await link.send({"type": "order.closed", "orderId": relay_id, "status": "cancelled"})
+            await self.after_close(link.staff, draft.get("table"), "cancelled")
             return
         try:
             order = self.fire_into_store(draft, link.staff)
@@ -184,13 +218,25 @@ class VoiceBridge:
         log.info("[fs] voice order %s fired as %s (%s)", relay_id, order.id, order.summary())
         await self.after_fire(order)
         await link.send({"type": "order.closed", "orderId": relay_id, "status": "fired"})
+        await self.after_close(link.staff, order.table, "fired")
 
     def fire_into_store(self, draft: dict[str, Any], staff: str) -> Order:
         """The relay's final draft -> a fired order in the hub's store, through the order tools."""
+        order = self.build_order(draft, staff)
+        if not order.lines:
+            raise ToolError("the order is empty")
+        self.store.orders.orders[order.id] = order
+        return self.store.orders.fire(order.id)
+
+    def build_order(self, draft: dict[str, Any], staff: str, *, live: bool = False) -> Order:
+        """A relay draft -> a draft Order (full menu names), through the same tools as
+        POST /tools/*. `live`: a draft still being taken may have no table yet."""
         orders = self.store.orders
         table = draft.get("table")
         if table not in orders.tables:
-            raise ToolError(f"unknown table {table!r}")
+            if not (live and table is None):
+                raise ToolError(f"unknown table {table!r}")
+            table = NO_TABLE
         order = Order(
             id=f"order-{draft['orderId']}",
             table=table,
@@ -210,10 +256,7 @@ class VoiceBridge:
         for allergy in draft.get("allergies", []):
             for seat in allergy["seats"]:
                 orders.tool_set_allergy(order, {"seat": seat, "allergen": allergy["allergen"]})
-        if not order.lines:
-            raise ToolError("the order is empty")
-        orders.orders[order.id] = order
-        return orders.fire(order.id)
+        return order
 
     async def _offline(self, link: Link) -> None:
         base = link.last_draft or {

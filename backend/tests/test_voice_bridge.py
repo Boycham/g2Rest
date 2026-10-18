@@ -122,3 +122,72 @@ def test_hub_orders_still_close_without_the_relay() -> None:
         assert glasses.sent[-1] == {"type": "order.closed", "orderId": order.id, "status": "fired"}
 
     asyncio.run(run())
+
+
+def test_order_task_table_live_draft_and_fire_close_the_task() -> None:
+    async def run() -> None:
+        starts: list[dict[str, Any]] = []
+
+        async def relay(ws: ServerConnection) -> None:
+            async for data in ws:
+                if isinstance(data, bytes):
+                    continue
+                msg = json.loads(data)
+                if msg["type"] == "capture.start":
+                    starts.append(msg)
+                    await ws.send(json.dumps(draft(table=msg.get("table"))))
+                elif msg["type"] == "order.confirm" and "proposalId" not in msg:
+                    await ws.send(json.dumps(draft("sent", table=msg.get("table") or "T3")))
+
+        async with serve(relay, "localhost", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            hub = Hub(Store.from_settings(Settings()), f"ws://localhost:{port}/ws")
+            glasses, org = FakeWs(), FakeWs()
+            await hub.join(glasses, "server", "s1")  # type: ignore[arg-type]
+            await hub.join(org, "organizer", "organizer")  # type: ignore[arg-type]
+            task, out = hub.store.book.create("ORDER", "T3", hub.store.now())
+            await hub.deliver(out)
+            await hub.on_text(glasses, json.dumps({"type": "task.accept", "taskId": task.id}))  # type: ignore[arg-type]
+
+            start = {"type": "capture.start", "captureId": "cap-1", "mode": "clip"}
+            await hub.on_text(glasses, json.dumps(start))  # type: ignore[arg-type]
+            await until(lambda: any(m.get("type") == "order.draft" for m in org.sent))
+            assert starts[0]["table"] == "T3" and starts[0]["mode"] == "clip"
+            live = next(m for m in org.sent if m.get("type") == "order.draft")
+            assert live["orderId"] == "order-r1" and live["status"] == "draft"
+            assert live["table"] == "T3" and live["lines"][0]["dish"] == "Pan-Roasted Halibut"
+
+            await hub.on_text(glasses, '{"type": "order.confirm", "orderId": "r1"}')  # type: ignore[arg-type]
+            await until(lambda: hub.store.book.get(task.id).state == "done")
+            assert any(
+                m.get("type") == "task.updated" and m["task"]["state"] == "done"
+                for m in glasses.sent
+            )
+            hub.leave(glasses)  # type: ignore[arg-type]
+
+    asyncio.run(run())
+
+
+def test_tableless_live_draft_is_labelled_and_capture_has_no_table() -> None:
+    async def run() -> None:
+        async def relay(ws: ServerConnection) -> None:
+            async for data in ws:
+                if isinstance(data, str) and json.loads(data)["type"] == "capture.start":
+                    await ws.send(json.dumps(draft(table=None)))
+
+        async with serve(relay, "localhost", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            hub = Hub(Store.from_settings(Settings()), f"ws://localhost:{port}/ws")
+            glasses, org = FakeWs(), FakeWs()
+            await hub.join(glasses, "server", "s1")  # type: ignore[arg-type]
+            await hub.join(org, "organizer", "organizer")  # type: ignore[arg-type]
+            _, out = hub.store.book.create("RUN", "T1", hub.store.now())  # not an ORDER task
+            await hub.deliver(out)
+            await hub.on_text(glasses, '{"type": "capture.start", "captureId": "c2"}')  # type: ignore[arg-type]
+            await until(lambda: any(m.get("type") == "order.draft" for m in org.sent))
+            assert hub.store.captures["c2"].table is None
+            live = next(m for m in org.sent if m.get("type") == "order.draft")
+            assert live["table"] == "TABLE?"
+            hub.leave(glasses)  # type: ignore[arg-type]
+
+    asyncio.run(run())

@@ -34,7 +34,16 @@ class Hub:
         self.conns: dict[WebSocket, Conn] = {}
         self.last_capture: dict[WebSocket, str] = {}
         self.voice = (
-            VoiceBridge(voice_relay_url, store, self.after_fire) if voice_relay_url else None
+            VoiceBridge(
+                voice_relay_url,
+                store,
+                self.after_fire,
+                after_draft=self.after_voice_draft,
+                after_cancel=self.after_cancel,
+                after_close=self.finish_order_task,
+            )
+            if voice_relay_url
+            else None
         )
 
     # ---------- connections ----------
@@ -126,6 +135,18 @@ class Hub:
     async def after_cancel(self, order: Any) -> None:
         await self.to_organizers({"type": "order.cancelled", "order": order.to_dict()})
 
+    async def after_voice_draft(self, order: Any) -> None:
+        """A voice draft as it builds: the organizer and kitchen pages show it forming."""
+        await self.to_organizers({"type": "order.draft", **order.to_dict()})
+
+    async def finish_order_task(self, staff: str, table: str | None, status: str) -> None:
+        """The order was sent or cancelled: the server's ORDER task for that table is done."""
+        now = self.store.now()
+        for task in self.store.book.open_for(staff):
+            if task.kind == "ORDER" and task.table == table:
+                await self.deliver(self.store.book.done(task.id, now, by=staff))
+                self.store.events.append("order.task_done", taskId=task.id, status=status)
+
     async def replan(self, *, push: bool = False) -> bool:
         """Hand out any run a free server can take now; push pass.state if something moved."""
         out = self.store.dispatch()
@@ -182,7 +203,7 @@ class Hub:
             case "capture.start":
                 cap = self.store.start_capture(msg.captureId, conn.staff, msg.table)
                 self.last_capture[conn.ws] = cap.id
-                await self.to_voice(conn, msg)
+                await self.to_voice(conn, msg, table=cap.table)
             case "capture.stop":
                 cap = self.store.stop_capture(msg.captureId)
                 if cap is not None:
@@ -197,10 +218,13 @@ class Hub:
             case "order.cancel_confirm":
                 await self.close_order(conn, msg.orderId, fire=False)
 
-    async def to_voice(self, conn: Conn, msg: Any) -> None:
+    async def to_voice(self, conn: Conn, msg: Any, table: str | None = None) -> None:
         if self.voice:
             send = lambda m: self._send(conn, m)  # noqa: E731
-            await self.voice.text(conn.ws, conn.staff, send, msg.model_dump(exclude_none=True))
+            body = msg.model_dump(exclude_none=True)
+            if table:
+                body["table"] = table
+            await self.voice.text(conn.ws, conn.staff, send, body)
 
     async def close_order(self, conn: Conn, order_id: str, *, fire: bool) -> None:
         order = self.store.orders.fire(order_id) if fire else self.store.orders.cancel(order_id)
