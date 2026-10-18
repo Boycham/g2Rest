@@ -1,4 +1,4 @@
-# glasses/ notes (server HUD, manager HUD)
+# glasses/ notes (server HUD, voice capture, manager HUD)
 
 ## How to run
 
@@ -106,12 +106,34 @@ the first box captures input.
 - `npm audit` flags transitive dev dependencies (esbuild via vite 5, vitest 1). Dev-only; not fixed with
   `--force` because that bumps majors.
 
+## Voice capture (draft screen)
+
+Run the relay too: `cd backend/voice && .venv/bin/python relay.py` (needs `ELEVENLABS_API_KEY` and an agent
+from `create_agent.py`; fixtures from `make_fixtures.py`). The fake backend proxies capture.* / order.* to it
+and shows confirmed orders at `http://localhost:8787/kitchen`.
+
+Debug PCM path (dev server only): open the app with
+`?debugPcm=01_order,02_no_soup,03_allergy,04_cancel_dessert`. Each swipe-down capture streams the next fixture
+from `backend/voice/fixtures/` (served by the Vite plugin at `/dev-fixtures/`) through the same capture.audio
+path in real time, then silence like a quiet mic. Without the param the G2 mic is used (`audioControl`).
+
+Checked in the simulator (0.9.5) against the live relay (Scribe realtime + text-only agent), all four
+fixtures, twice: the order builds by seat, `REMOVE s2 soup? tap=yes swipe up=no` and `CANCEL T12 dessert? ...`
+appear as the bright bottom line while the order dims, a tap applies each, the final tap sends
+`order.confirm`, the card shows `SENT` and the fake kitchen shows `! SHELLFISH s3 / s1 halibut –no butter /
+s2 salmon –no dill`. The simulator's own mic: `audioControl(true)` returned false in this VM (no audio
+device), which correctly shows `VOICE OFFLINE`.
+
+**End of speech -> draft updated on the glasses** (last voiced 100 ms frame sent -> `textContainerUpgrade`
+resolved; logged as `latency ...` and `window.__fsLatency`), 8 runs over the 4 fixtures:
+1872, 1926, 1951, 2003, 2032, 2346, 2414, 2550 ms. **Median 2.0 s** (first 5 runs: 2.03 s). About 0.8 s of
+it is Scribe's VAD silence before a commit; the rest is the agent turn plus relay and proxy hops. The
+upgrade itself takes 0-4 ms in the simulator.
+
 ## Not done here
 
-- **No mic audio.** `capture.audio` (binary PCM frame) is in the contract and `BackendSocket.sendAudio` exists,
-  but the mic is not opened and no frames are forwarded. That is the voice session's work.
-- `order.draft`, `order.readback` are parsed but not drawn; `order.confirm` /
-  `order.cancel_confirm` and `task.bounce` are typed but no gesture sends them yet.
+- `order.readback` is parsed but not drawn; `task.bounce` is typed but no gesture sends it yet.
+- The relay's order lives per glasses connection: a WebView reload starts a new draft.
 - **Manager tap only dismisses locally.** The contract has no alert acknowledgement, so the dismissed alert
   stays open on the backend and comes back if the backend re-sends it. Proposed `alert.ack` in the PR.
 - No Organizer role on the phone yet (AGENTS.md lists one); the select has Server and Manager only.
@@ -119,16 +141,30 @@ the first box captures input.
 - `app.json` whitelists only `ws://localhost:8787` and `http://localhost:8787`. Add the real `wss://`/`https://`
   host before packing for the phone.
 
+## Checked on a real G2 (server HUD, first hardware run, reported by Boyuan)
+
+- **Install path that worked:** pack the `.ehpk` (SDK 0.0.16, `min_app_version` 2.2.10), upload it on the Even
+  Hub portal, push it to a Beta group, then install from the phone app's **Me → Beta tester**. The emailed invite
+  link said "build expired"; installing from Me → Beta tester worked anyway. Developer Mode / Scan QR never
+  appeared in the owner's Even app, so QR dev mode is untested (this corrects the earlier note here, which said
+  QR dev mode skipped the whitelist).
+- **Network:** the packed build reached the fake backend over a Tailscale IP with plain `ws://`, listed in
+  that build's `app.json` whitelist. So packed builds accept a non-TLS `ws://` host when it is whitelisted.
+  The committed `app.json` still lists only localhost; add the host you use before packing.
+- **Gestures:** tap accept → tap done for all 3 tasks; swipe down → `capture.start`, swipe down again →
+  `capture.stop`. The backend received each message within the same second as the gesture.
+
 ## HW-PENDING (real G2 + phone)
 
-- Tap / swipe up / swipe down / double tap from both the ring and the temple; swipe up on the queue returns.
+- Swipe up (queue and back) and double tap on hardware; ring vs temple input.
 - Card legibility at each brightness; the dim `ACCEPTED` state is readable; 5-line cap fits the real lens.
 - `+N queued` stays flush right on hardware (padding built from pretext widths of spaces).
-- WebSocket to the real backend host from the phone WebView (whitelist + CORS); SSE fallback if not.
 - Background the Even app, wait, foreground: queue restored from SDK storage and socket reconnects.
 - 5-minute locked-phone test (Even's requirement).
 - Double tap exits cleanly on hardware and passes Even Hub review.
 - Card update latency on hardware (backend send -> visible card).
+- G2 mic quality in a noisy room (the real risk); `audioPcm` chunk size/encoding on a real device; mic turns
+  off on swipe down, swipe up back, background and exit (the G2 mic LED, if any).
 - Manager: the 5 brightness levels are distinguishable on the lens, and a level-4 box stands out from
   level-1 boxes at a glance in restaurant light. Pick the calm level (1 now) on hardware.
 - Manager: 8 bordered text containers render without flicker and per-box `textContainerUpgrade` doesn't

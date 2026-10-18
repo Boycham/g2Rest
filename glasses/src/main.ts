@@ -2,6 +2,7 @@ import { CreateStartUpPageContainer, OsEventTypeList, waitForEvenAppBridge, type
 import { alertRows } from './exceptions'
 import type { Hud, HudContext, Role } from './hud'
 import { ManagerHud } from './manager'
+import { loadDone } from './reconcile'
 import { tableRows } from './minimap'
 import { ServerHud } from './server'
 import { BackendSocket, type SocketStatus } from './socket'
@@ -18,6 +19,7 @@ const bridge = await waitForEvenAppBridge()
 let role: Role = await loadRole(bridge)
 const restoredQueue = await loadQueue(bridge)
 const restoredManager = await loadManager(bridge)
+const restoredDone = await loadDone(bridge)
 log('role', role, 'restored queue', restoredQueue.length, 'alerts', restoredManager.exceptions.open.length)
 
 const socket = new BackendSocket(BACKEND_URL, {
@@ -41,7 +43,7 @@ const context = (r: Role): HudContext => ({
   active: () => role === r,
   syncPhone,
 })
-const server = new ServerHud(context('server'), restoredQueue)
+const server = new ServerHud(context('server'), restoredQueue, restoredDone)
 const manager = new ManagerHud(context('manager'), restoredManager)
 const active = (): Hud => (role === 'server' ? server : manager)
 
@@ -52,7 +54,7 @@ function syncPhone(): void {
     status,
     screen: active().screen(),
     queue: server.queue,
-    capturing: server.captureId !== null,
+    capturing: server.capturing,
     alerts: alertRows(manager.exceptions, now),
     tables: tableRows(manager.tables, now),
   })
@@ -91,6 +93,7 @@ function cleanup(): void {
 }
 
 bridge.onEvenHubEvent(event => {
+  if (event.audioEvent) return server.onAudio(event.audioEvent.audioPcm)
   const type = eventTypeOf(event)
   if (type === null) return
   const hud = active()
@@ -115,8 +118,8 @@ bridge.onEvenHubEvent(event => {
       socket.reconnectNow()
       return
     case OsEventTypeList.FOREGROUND_EXIT_EVENT:
-      log('foreground exit: saving state')
-      server.save()
+      log('foreground exit: mic off, saving state')
+      server.cleanup()
       manager.save()
       return
     case OsEventTypeList.SYSTEM_EXIT_EVENT:

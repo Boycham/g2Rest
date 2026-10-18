@@ -21,6 +21,7 @@ from urllib.parse import urlencode
 import httpx
 from dotenv import load_dotenv
 from websockets.asyncio.client import ClientConnection, connect
+from websockets.exceptions import ConnectionClosed
 
 from order import OrderBook
 
@@ -62,7 +63,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "remove_item",
-        "description": "Remove a dish from one seat.",
+        "description": "PROPOSE removing a dish the server named from one seat. It must be "
+        "on that seat. It is not removed until the server taps on the glasses.",
         "parameters": {
             "type": "object",
             "required": ["table", "seat", "dish"],
@@ -156,6 +158,116 @@ def speech_end_offset(pcm: bytes, threshold_dbfs: float = -40.0) -> float:
     return last * FRAME_SECS
 
 
+class ScribeStream:
+    """One Scribe realtime socket fed 100 ms PCM frames as they arrive (mic or file)."""
+
+    def __init__(
+        self,
+        on_partial: Callable[[str], None],
+        on_committed: Callable[[str, float], None],
+        *,
+        vad_silence_secs: float = 0.8,
+        open_timeout: float = 5.0,
+        send_timeout: float = 2.0,
+    ):
+        self.on_partial = on_partial
+        self.on_committed = on_committed
+        self.vad_silence_secs = vad_silence_secs
+        self.open_timeout = open_timeout
+        self.send_timeout = send_timeout
+        self.ws: ClientConnection | None = None
+        self._reader: asyncio.Task[None] | None = None
+        self._started = asyncio.Event()
+        self._final_commit = asyncio.Event()
+        self._final_sent = False
+        self.error: str | None = None
+
+    @property
+    def alive(self) -> bool:
+        return self.ws is not None and self._reader is not None and not self._reader.done()
+
+    async def open(self) -> None:
+        query = urlencode(
+            {
+                "model_id": STT_MODEL,
+                "audio_format": "pcm_16000",
+                "commit_strategy": "vad",
+                "vad_silence_threshold_secs": self.vad_silence_secs,
+            }
+        )
+        url = f"{WSS}/v1/speech-to-text/realtime?{query}"
+        headers = {"xi-api-key": api_key()}
+        self.ws = await connect(url, additional_headers=headers, open_timeout=self.open_timeout)
+        self._reader = asyncio.create_task(self._read())
+        await asyncio.wait_for(self._started.wait(), self.open_timeout)
+
+    async def _read(self) -> None:
+        assert self.ws
+        last_partial = ""
+        try:
+            async for raw in self.ws:
+                msg = json.loads(raw)
+                kind = msg.get("message_type")
+                if kind == "session_started":
+                    log(f"stt session {msg.get('session_id')}")
+                    self._started.set()
+                elif kind == "partial_transcript":
+                    text = msg.get("text", "")
+                    if text and text != last_partial:
+                        last_partial = text
+                        self.on_partial(text)
+                elif kind == "committed_transcript":
+                    last_partial = ""
+                    if msg.get("text", "").strip():
+                        self.on_committed(msg["text"].strip(), time.monotonic())
+                    if self._final_sent:
+                        self._final_commit.set()
+                elif kind in STT_ERRORS:
+                    self.error = f"{kind}: {msg.get('error') or msg.get('message') or msg}"
+                    log(f"stt {self.error}")
+                    if self._final_sent:
+                        self._final_commit.set()
+        except ConnectionClosed as e:
+            log(f"stt socket closed: {e}")
+        finally:
+            self._final_commit.set()
+
+    async def send(self, frame: bytes, commit: bool = False) -> None:
+        assert self.ws
+        chunk = {
+            "message_type": "input_audio_chunk",
+            "audio_base_64": base64.b64encode(frame).decode(),
+            "commit": commit,
+            "sample_rate": SAMPLE_RATE,
+        }
+        await asyncio.wait_for(self.ws.send(json.dumps(chunk)), self.send_timeout)
+
+    async def finish(
+        self, trailing_silence_secs: float = 2.0, final_wait_secs: float = 5.0
+    ) -> None:
+        """Trailing silence, a final commit, then wait for the provider before closing,
+        or the last words are lost (there is no close message in the Scribe protocol)."""
+        if not self.alive:
+            await self.close()
+            return
+        silence = bytes(FRAME_BYTES)
+        try:
+            for _ in range(round(trailing_silence_secs / FRAME_SECS)):
+                await self.send(silence)
+            self._final_sent = True
+            await self.send(silence, commit=True)
+            await asyncio.wait_for(self._final_commit.wait(), final_wait_secs)
+        except (TimeoutError, ConnectionClosed):
+            log("stt: no committed transcript after the final commit (VAD may have taken it)")
+        await self.close()
+
+    async def close(self) -> None:
+        if self.ws:
+            await self.ws.close()
+        if self._reader:
+            self._reader.cancel()
+
+
 async def stream_to_scribe(
     pcm: bytes,
     on_partial: Callable[[str], None],
@@ -166,73 +278,15 @@ async def stream_to_scribe(
     final_wait_secs: float = 5.0,
 ) -> float:
     """Stream PCM in real-time 100 ms frames; return the monotonic time speech ended."""
-    query = urlencode(
-        {
-            "model_id": STT_MODEL,
-            "audio_format": "pcm_16000",
-            "commit_strategy": "vad",
-            "vad_silence_threshold_secs": vad_silence_secs,
-        }
-    )
-    url = f"{WSS}/v1/speech-to-text/realtime?{query}"
     speech_end = speech_end_offset(pcm)
-    final_commit = asyncio.Event()
-    final_sent = False
-
-    async with connect(url, additional_headers={"xi-api-key": api_key()}, open_timeout=10) as ws:
-
-        async def reader() -> None:
-            last_partial = ""
-            async for raw in ws:
-                msg = json.loads(raw)
-                kind = msg.get("message_type")
-                if kind == "session_started":
-                    log(f"stt session {msg.get('session_id')}")
-                elif kind == "partial_transcript":
-                    text = msg.get("text", "")
-                    if text and text != last_partial:
-                        last_partial = text
-                        on_partial(text)
-                elif kind == "committed_transcript":
-                    last_partial = ""
-                    if msg.get("text", "").strip():
-                        on_committed(msg["text"].strip(), time.monotonic())
-                    if final_sent:
-                        final_commit.set()
-                elif kind in STT_ERRORS:
-                    log(f"stt {kind}: {msg.get('error') or msg.get('message') or msg}")
-                    if final_sent:
-                        final_commit.set()
-
-        reader_task = asyncio.create_task(reader())
-
-        async def send(chunk: bytes, commit: bool = False) -> None:
-            await ws.send(
-                json.dumps(
-                    {
-                        "message_type": "input_audio_chunk",
-                        "audio_base_64": base64.b64encode(chunk).decode(),
-                        "commit": commit,
-                        "sample_rate": SAMPLE_RATE,
-                    }
-                )
-            )
-
-        silence = bytes(FRAME_BYTES)
-        frames = [pcm[i : i + FRAME_BYTES] for i in range(0, len(pcm), FRAME_BYTES)]
-        frames += [silence] * round(trailing_silence_secs / FRAME_SECS)
-        start = time.monotonic()
-        for n, frame in enumerate(frames):
-            await asyncio.sleep(max(0.0, start + n * FRAME_SECS - time.monotonic()))
-            await send(frame)
-        final_sent = True
-        await send(silence, commit=True)
-        try:
-            await asyncio.wait_for(final_commit.wait(), final_wait_secs)
-        except TimeoutError:
-            log("stt: no committed transcript after the final commit (VAD may have taken it)")
-        await ws.close()
-        reader_task.cancel()
+    stream = ScribeStream(on_partial, on_committed, vad_silence_secs=vad_silence_secs)
+    await stream.open()
+    frames = [pcm[i : i + FRAME_BYTES] for i in range(0, len(pcm), FRAME_BYTES)]
+    start = time.monotonic()
+    for n, frame in enumerate(frames):
+        await asyncio.sleep(max(0.0, start + n * FRAME_SECS - time.monotonic()))
+        await stream.send(frame)
+    await stream.finish(trailing_silence_secs, final_wait_secs)
     return start + speech_end
 
 
@@ -266,12 +320,28 @@ class AgentSession:
             )
             r.raise_for_status()
             signed_url = r.json()["signed_url"]
-        self.ws = await connect(signed_url, open_timeout=10)
+        self.ws = await connect(signed_url, open_timeout=HTTP_TIMEOUT)
         await self.ws.send(json.dumps({"type": "conversation_initiation_client_data"}))
         self._reader = asyncio.create_task(self._read())
-        await asyncio.wait_for(self._ready.wait(), 10)
+        await asyncio.wait_for(self._ready.wait(), HTTP_TIMEOUT)
+
+    @property
+    def alive(self) -> bool:
+        return self.ws is not None and self._reader is not None and not self._reader.done()
+
+    async def contextual_update(self, text: str) -> None:
+        """Tell the agent what the server did on the glasses (no reply expected)."""
+        if self.alive and self.ws:
+            payload = json.dumps({"type": "contextual_update", "text": text})
+            await asyncio.wait_for(self.ws.send(payload), 2.0)
 
     async def _read(self) -> None:
+        try:
+            await self._read_loop()
+        except ConnectionClosed as e:
+            log(f"agent socket closed: {e}")
+
+    async def _read_loop(self) -> None:
         assert self.ws
         async for raw in self.ws:
             msg = json.loads(raw)
@@ -319,9 +389,12 @@ class AgentSession:
         """Send one transcript segment and wait until the agent's turn is over."""
         assert self.ws
         self._replied.clear()
-        await self.ws.send(json.dumps({"type": "user_message", "text": text}))
+        payload = json.dumps({"type": "user_message", "text": text})
+        await asyncio.wait_for(self.ws.send(payload), 2.0)
         deadline = time.monotonic() + turn_timeout
         while time.monotonic() < deadline:
+            if not self.alive:
+                raise ConnectionError("agent socket closed")
             quiet = time.monotonic() - self._last_event >= quiet_secs
             if self._replied.is_set() and quiet and not self._tools_in_flight:
                 return

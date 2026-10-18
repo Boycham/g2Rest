@@ -33,4 +33,7 @@
   glasses does it.
 - **ElevenLabs text to speech** generates test audio for development only. No real audio is
   recorded or stored.
-- The server HUD in `glasses/` doesn't call ElevenLabs.
+- The glasses never call ElevenLabs and never hold the key: they stream G2 mic PCM to the voice
+  relay (`backend/voice/relay.py`), which talks to Scribe and the agent and sends back the draft.
+- Devin also wrote the voice relay, the order proposal guards, and the glasses' mic, draft screen
+  and debug PCM path, and tested them in the simulator. A human briefed and reviewed the work.

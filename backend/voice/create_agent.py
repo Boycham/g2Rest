@@ -29,7 +29,9 @@ Rules:
 - Remember the current table from earlier messages; every tool call needs it.
 - Call add_item once per dish per seat. Put requested changes such as "no butter" in
   alterations; never drop them.
-- "Actually, no X for seat N" or "scratch the X" means remove_item.
+- "Actually, no X for seat N" or "scratch the X" means remove_item. remove_item only
+  proposes; the server taps to apply it. If it returns an error (the dish is not on that
+  seat), do not remove a different dish instead.
 - Allergies go to set_allergy for that seat.
 - You CANNOT send or cancel orders. confirm_order and cancel_order only propose; the server
   taps on the glasses to do it. Never say an order was sent or cancelled. For "cancel the

@@ -106,8 +106,26 @@ Docs: [create speech](https://elevenlabs.io/docs/api-reference/text-to-speech/co
   conflicts with the menu allergens ("Scallop Crudo contains shellfish").
 - Every argument is validated; numeric strings like "12" are accepted. `dispatch()` never raises:
   unknown tools, wrong types and internal errors all come back as `is_error` results.
-- `remove_item` for a dish that isn't on the seat returns `status: not_found`, not an error. This
-  is fixture 2 ("no soup for seat two" when no soup was ordered).
+- `remove_item` for a dish that isn't on the seat is now an **error result** naming what is on
+  the seat ("seat 2 has no Roasted Tomato Soup (it has: Cedar Plank Salmon)"). This is the fix for
+  the noise finding below ("no suit" -> the agent removed the salmon): enforced in code.
+- Removals, cancels and confirms only add a pending proposal (with an id). `OrderBook.accept(id)`
+  applies one (the server's tap), `reject(id)` drops it (swipe up). `fire()` (tap with nothing
+  pending) refuses while anything is pending. A sent or cancelled table can't change.
+- Cancelling a course that wasn't ordered is an error too. Fixture 1 now also orders the torte
+  (seat 1) and the soup (seat 2), so fixtures 2 and 4 make pending proposals; after both taps the
+  order matches the original voice test (s1 halibut no butter, s2 salmon no dill, s3 shellfish).
+
+## Voice relay (`relay.py`)
+
+`python relay.py` serves ws://localhost:8790/ws. The dev fake backend proxies the glasses'
+capture.* / order.* messages to it. Per connection: capture.start opens a `ScribeStream` (VAD
+commit, 0.8 s silence) and the agent (8 s start timeout) while buffering up to 5 s of audio;
+committed segments go to the agent one turn at a time; every tool call is followed by an
+order.draft (lines by seat, allergies, pending proposals, voice state, code-written notice for a
+refused call). order.confirm / order.cancel_confirm / order.reject apply the server's gestures
+and tell the agent with a `contextual_update`. A provider failure sets `voice: offline`, which
+the glasses show as VOICE OFFLINE. Tests: `tests/test_relay.py` (fake STT and agent).
 
 ## Latency (end of speech → first tool call)
 

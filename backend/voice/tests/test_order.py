@@ -1,6 +1,6 @@
 import pytest
 
-from order import Menu, OrderBook
+from order import Menu, OrderBook, ToolError
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def test_unknown_dish_is_error_with_suggestions(book):
     assert err
     assert "not on the menu" in result["error"]
     assert "Pan-Roasted Halibut" in result["error"]
-    assert book.snapshot() == {"12": {"seats": {}, "pending_proposals": []}}
+    assert book.snapshot() == {"12": {"status": "draft", "seats": {}, "pending_proposals": []}}
 
 
 def test_allowed_alteration_applied(book):
@@ -79,16 +79,54 @@ def test_modify_missing_item_is_error(book):
     assert err and "add it first" in result["error"]
 
 
-def test_remove_absent_item_is_not_an_error(book):
+def test_remove_absent_item_is_an_error(book):
+    call(book, "add_item", table=12, seat=2, dish="salmon", qty=1)
     result, err = call(book, "remove_item", table=12, seat=2, dish="soup")
-    assert not err and result["status"] == "not_found"
+    assert err and "seat 2 has no Roasted Tomato Soup" in result["error"]
+    assert "Cedar Plank Salmon" in result["error"]
+    assert book.tables[12].proposals == []
+    assert [i.dish for i in book.tables[12].seats[2].items] == ["Cedar Plank Salmon"]
 
 
-def test_remove_item(book):
+def test_remove_on_empty_seat_is_an_error(book):
+    result, err = call(book, "remove_item", table=12, seat=4, dish="salmon")
+    assert err and "nothing removed" in result["error"]
+
+
+def test_remove_only_proposes_until_accepted(book):
     call(book, "add_item", table=12, seat=2, dish="soup", qty=1)
     result, err = call(book, "remove_item", table=12, seat=2, dish="tomato soup")
-    assert not err and result["removed"] == "Roasted Tomato Soup"
+    assert not err and result["status"] == "needs_confirmation"
+    assert result["dish"] == "Roasted Tomato Soup"
+    assert len(book.tables[12].seats[2].items) == 1
+    applied = book.accept(result["id"])
+    assert applied["status"] == "applied"
     assert book.tables[12].seats[2].items == []
+    assert book.tables[12].proposals == []
+
+
+def test_noisy_removal_rejected_keeps_dish(book):
+    # "no suit for seat two": the agent picks the salmon, which is on the seat.
+    call(book, "add_item", table=12, seat=2, dish="salmon", qty=1)
+    result, err = call(book, "remove_item", table=12, seat=2, dish="salmon")
+    assert not err and result["status"] == "needs_confirmation"
+    assert book.reject(result["id"])["status"] == "rejected"
+    assert [i.dish for i in book.tables[12].seats[2].items] == ["Cedar Plank Salmon"]
+    assert book.tables[12].proposals == []
+
+
+def test_repeated_proposal_is_not_duplicated(book):
+    call(book, "add_item", table=12, seat=2, dish="salmon", qty=1)
+    a, _ = call(book, "remove_item", table=12, seat=2, dish="salmon")
+    b, _ = call(book, "remove_item", table=12, seat=2, dish="salmon")
+    assert a["id"] == b["id"] and len(book.tables[12].proposals) == 1
+
+
+def test_unknown_proposal_raises_tool_error(book):
+    with pytest.raises(ToolError):
+        book.accept("p99")
+    with pytest.raises(ToolError):
+        book.reject("p99")
 
 
 def test_allergy_pinned_and_conflict_reported(book):
@@ -107,8 +145,63 @@ def test_confirm_and_cancel_only_propose(book):
     result, err = call(book, "confirm_order", table=12)
     assert not err and result["status"] == "needs_confirmation"
     assert len(book.tables[12].seats[1].items) == 1
+    assert book.tables[12].status == "draft"
     assert [p["action"] for p in book.tables[12].proposals] == ["cancel", "fire"]
     assert book.tables[12].proposals[0]["items"] == ["course:dessert"]
+
+
+def test_accepting_course_cancel_removes_only_that_course(book):
+    call(book, "add_item", table=12, seat=1, dish="halibut", qty=1)
+    call(book, "add_item", table=12, seat=1, dish="torte", qty=1)
+    result, _ = call(book, "cancel_order", table=12, items=["desserts"])
+    book.accept(result["id"])
+    assert [i.dish for i in book.tables[12].seats[1].items] == ["Pan-Roasted Halibut"]
+
+
+def test_cancel_dish_not_on_order_is_an_error(book):
+    call(book, "add_item", table=12, seat=1, dish="halibut", qty=1)
+    result, err = call(book, "cancel_order", table=12, items=["salmon"])
+    assert err and "nothing to cancel" in result["error"]
+
+
+def test_whole_order_cancel_needs_accept_then_locks_table(book):
+    call(book, "add_item", table=12, seat=1, dish="halibut", qty=1)
+    call(book, "set_allergy", table=12, seat=1, allergen="fish")
+    result, _ = call(book, "cancel_order", table=12)
+    assert result["items"] == ["whole order"] and book.tables[12].status == "draft"
+    book.accept(result["id"])
+    assert book.tables[12].status == "cancelled"
+    assert book.tables[12].seats[1].allergies == ["fish"]
+    _, err = call(book, "add_item", table=12, seat=1, dish="salmon", qty=1)
+    assert err
+
+
+def test_cancel_course_not_ordered_is_an_error(book):
+    call(book, "add_item", table=12, seat=1, dish="halibut", qty=1)
+    result, err = call(book, "cancel_order", table=12, items=["dessert"])
+    assert err and "no dessert ordered" in result["error"]
+    assert book.tables[12].proposals == []
+
+
+def test_confirm_needs_dishes(book):
+    result, err = call(book, "confirm_order", table=12)
+    assert err and "nothing to send" in result["error"]
+
+
+def test_fire_only_with_nothing_pending(book):
+    call(book, "add_item", table=12, seat=1, dish="halibut", qty=1)
+    call(book, "add_item", table=12, seat=2, dish="salmon", qty=1)
+    removal, _ = call(book, "remove_item", table=12, seat=2, dish="salmon")
+    with pytest.raises(ToolError):
+        book.fire(12)
+    fire, _ = call(book, "confirm_order", table=12)
+    with pytest.raises(ToolError):
+        book.accept(fire["id"])
+    book.reject(removal["id"])
+    assert book.accept(fire["id"])["status"] == "applied"
+    assert book.tables[12].status == "sent"
+    _, err = call(book, "remove_item", table=12, seat=1, dish="halibut")
+    assert err
 
 
 @pytest.mark.parametrize(

@@ -6,11 +6,13 @@
 //
 //   npx tsx dev/fake-backend.ts
 //
-// HTTP: GET / (state page), GET /state (JSON), GET /health, POST /reset, POST /add,
+// capture.* / order.* are proxied to the voice relay (dev/voice-proxy.ts).
+// HTTP: GET / (state page), GET /kitchen, GET /state (JSON), GET /health, POST /reset, POST /add,
 //       POST /late?table=T2 (make a table late now)
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { WebSocketServer, type WebSocket, type RawData } from 'ws'
 import type { Alert, BackendMessage, GlassesJsonMessage, Task, TableState, TableStatus } from '../src/contract'
+import { kitchen, kitchenPage, VOICE_TYPES, VoiceProxy } from './voice-proxy'
 
 const PORT = Number(process.env.FAKE_BACKEND_PORT ?? 8787)
 const tag = '[fake-backend]'
@@ -85,7 +87,12 @@ function startScript(): void {
   if (scriptStarted) return
   scriptStarted = true
   log('script started')
-  timers = SCRIPT.map(({ delayMs, task }) => setTimeout(() => assign({ ...task, state: 'assigned' }), delayMs))
+  // Tasks due now are created synchronously, before this connection's first message
+  // (e.g. a flushed offline task.accept) is handled.
+  for (const { delayMs, task } of SCRIPT) {
+    if (delayMs <= 0) assign({ ...task, state: 'assigned' })
+    else timers.push(setTimeout(() => assign({ ...task, state: 'assigned' }), delayMs))
+  }
 }
 
 function reset(): void {
@@ -248,6 +255,7 @@ const GLASSES_TYPES: readonly GlassesJsonMessage['type'][] = [
   'capture.stop',
   'order.confirm',
   'order.cancel_confirm',
+  'order.reject',
 ]
 
 function parseGlasses(raw: string): GlassesJsonMessage | null {
@@ -284,6 +292,7 @@ function handle(msg: GlassesJsonMessage): void {
     case 'capture.stop':
     case 'order.confirm':
     case 'order.cancel_confirm':
+    case 'order.reject':
       return
   }
 }
@@ -294,16 +303,23 @@ function record(line: string): void {
   log('<-', line)
 }
 
-function onMessage(data: RawData, isBinary: boolean): void {
+let audioFrames = 0
+
+function onMessage(voice: VoiceProxy, data: RawData, isBinary: boolean): void {
   if (isBinary) {
-    const bytes = Array.isArray(data) ? data.reduce((n, b) => n + b.length, 0) : data.byteLength
-    record(`capture.audio (binary, ${bytes} bytes)`)
+    const frame = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer)
+    // One log line per second of audio, not per 100 ms frame.
+    if (audioFrames++ % 10 === 0) record(`capture.audio (binary, ${frame.byteLength} bytes) #${audioFrames}`)
+    voice.forward(frame)
     return
   }
   const raw = data.toString()
   const msg = parseGlasses(raw)
   record(msg ? raw : `INVALID ${raw.slice(0, 200)}`)
-  if (msg) handle(msg)
+  if (msg && VOICE_TYPES.includes(msg.type)) {
+    if (msg.type === 'capture.start') audioFrames = 0
+    voice.forward(raw)
+  } else if (msg) handle(msg)
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`)
@@ -323,7 +339,7 @@ function page(): string {
 td,th{border:1px solid #444;padding:4px 8px;text-align:left}.accepted .state{color:#ff0}.done .state{color:#3cfa44}
 .u4 td{color:#ff0;font-weight:bold}.banner{background:#a40;color:#fff;padding:6px 10px;display:inline-block}pre{background:#000;padding:8px;max-height:300px;overflow:auto}</style>
 </head><body><div class="banner">FAKE BACKEND, stand-in for Coder A</div>
-<h1>Tasks</h1><p>${clients.size} glasses connected</p>
+<p><a href="/kitchen" style="color:#3cfa44">kitchen tickets (${kitchen.length})</a></p><h1>Tasks</h1><p>${clients.size} glasses connected</p>
 <table><tr><th>id</th><th>kind</th><th>table</th><th>items</th><th>allergies</th><th>notes</th><th>state</th></tr>
 ${rows || '<tr><td colspan="7">no tasks yet (waiting for glasses to connect)</td></tr>'}</table>
 <h2>Floor</h2><table><tr><th>table</th><th>status</th><th>min</th><th>urgency</th></tr>
@@ -342,6 +358,9 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   if (req.method === 'GET' && url.pathname === '/') {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
     res.end(page())
+  } else if (req.method === 'GET' && url.pathname === '/kitchen') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    res.end(kitchenPage())
   } else if (req.method === 'GET' && url.pathname === '/health') {
     json(res, 200, { ok: true, fake: true })
   } else if (req.method === 'GET' && url.pathname === '/state') {
@@ -351,6 +370,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       floor: (floorMsg() as { tables: TableState[] }).tables,
       alerts: alertMsgs().map(currentAlert),
       received,
+      kitchen,
     })
   } else if (req.method === 'POST' && url.pathname === '/reset') {
     reset()
@@ -385,8 +405,10 @@ wss.on('connection', (ws, req) => {
   for (const a of alertMsgs()) send(ws, currentAlert(a))
   startScript()
   startManager()
-  ws.on('message', onMessage)
+  const voice = new VoiceProxy(raw => ws.readyState === ws.OPEN && ws.send(raw), log)
+  ws.on('message', (data, isBinary) => onMessage(voice, data, isBinary))
   ws.on('close', () => {
+    voice.close()
     clients.delete(ws)
     log('glasses disconnected', `(${clients.size} left)`)
   })

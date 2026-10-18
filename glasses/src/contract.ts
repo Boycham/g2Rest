@@ -110,14 +110,26 @@ export interface CaptureStop {
   captureId: string
 }
 
+/** Tap on the draft. With `proposalId`: apply that pending change. Without: send the order. */
 export interface OrderConfirm {
   type: 'order.confirm'
   orderId: string
+  /** PROPOSED (voice capture): the pending proposal the tap applies. */
+  proposalId?: string
 }
 
 export interface OrderCancelConfirm {
   type: 'order.cancel_confirm'
   orderId: string
+  /** PROPOSED (voice capture): the pending cancel proposal the tap applies. */
+  proposalId?: string
+}
+
+/** PROPOSED (voice capture): swipe up on a pending proposal drops it; nothing changes. */
+export interface OrderReject {
+  type: 'order.reject'
+  orderId: string
+  proposalId: string
 }
 
 export type GlassesJsonMessage =
@@ -128,6 +140,7 @@ export type GlassesJsonMessage =
   | CaptureStop
   | OrderConfirm
   | OrderCancelConfirm
+  | OrderReject
 
 // ---------- backend -> glasses ----------
 
@@ -142,6 +155,18 @@ export interface TaskUpdated {
   task: Task
 }
 
+/** PROPOSED (voice capture): a destructive change the agent asked for, waiting for a tap. */
+export interface PendingProposal {
+  id: string
+  action: 'remove' | 'cancel' | 'confirm'
+  /** Ready to show, e.g. "REMOVE s2 salmon?". */
+  text: string
+}
+
+/** PROPOSED (voice capture): `connecting` until Scribe and the agent answer. */
+export type VoiceState = 'idle' | 'connecting' | 'listening' | 'offline'
+
+/** Full replacement of the order being taken, sent after every change. */
 export interface OrderDraft {
   type: 'order.draft'
   orderId: string
@@ -149,6 +174,14 @@ export interface OrderDraft {
   table: string | null
   lines: OrderLine[]
   allergies: Allergy[]
+  /** PROPOSED: `sent` / `cancelled` only after the server's tap. */
+  status?: 'draft' | 'sent' | 'cancelled'
+  /** PROPOSED: oldest first; only the first is shown and answered by tap / swipe up. */
+  pending?: PendingProposal[]
+  /** PROPOSED: speech pipeline state, `offline` shows VOICE OFFLINE. */
+  voice?: VoiceState
+  /** PROPOSED: one-line reason the last tool call was refused, e.g. "s2 has no soup". */
+  notice?: string | null
 }
 
 /** The agent proposes sending or cancelling; only a tap on the glasses does it. */
