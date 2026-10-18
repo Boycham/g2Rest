@@ -58,3 +58,20 @@ def test_scribe_spells_queue_as_q():
     assert find_commands("Verity Q.") == ["queue"]
     assert find_commands("Verity, cue.") == ["queue"]
     assert find_commands("Q is my favourite letter.") == []
+
+
+def test_verity_table_takes_the_number_in_digits_or_words():
+    assert parse_commands("Verity, table four.") == [Command("table", table=4)]
+    assert parse_commands("verity table 4") == [Command("table", table=4)]
+    assert parse_commands("Verity table number 12.") == [Command("table", table=12)]
+    assert parse_commands("Verity, table for.") == [Command("table", table=4)]
+    assert parse_commands("Verity table. Verity accept.") == [Command("table"), Command("accept")]
+    assert find_commands("A table for two, please.") == []
+
+
+def test_tables_said_in_a_clip_skips_homophones():
+    from commands import tables_said
+
+    assert tables_said("The halibut, no butter. Thanks, that was table four.") == [4]
+    assert tables_said("Table 2, sorry, table three.") == [2, 3]
+    assert tables_said("Can we get a table for two by the window?") == []

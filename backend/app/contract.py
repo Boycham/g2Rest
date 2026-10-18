@@ -258,8 +258,14 @@ class VoiceCommand(Strict):
         "revert",
         "menu",
         "queue",
+        "table",
     ]
     name: str | None = None
+    # "verity table N": the table heard ("T4"), the one it replaced, or why it was refused
+    # ("no table 12", "already sent"). The draft itself comes as order.draft.
+    table: str | None = None
+    was: str | None = None
+    reason: str | None = None
 
 
 class VoiceUnknown(Strict):

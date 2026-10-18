@@ -524,3 +524,66 @@ async def test_clip_with_no_order_still_shows_the_talk():
     assert d["lines"] == [] and d["summary"] and len(d["answers"]) == 2
     assert d["notice"] is None
     await session.close()
+
+
+TABLE_LAST = (
+    ("speaker_1", "I'll have the halibut, no butter."),
+    ("speaker_0", "Lovely. Thanks, that was table four."),
+)
+
+
+@run
+async def test_a_table_said_last_in_the_clip_binds_the_draft():
+    session, sent, made = clip_relay(turns=TABLE_LAST)
+    await send_clip(session, table=None)
+    assert sent[-1]["table"] == "T4"
+    assert "table 4 (said in a clip)" in made["agent"].heard[0]
+    await session.close()
+
+
+async def say_table(session, n):
+    from commands import Command
+
+    await session._command(Command("table", table=n))
+
+
+@run
+async def test_verity_table_binds_a_tableless_draft_and_the_card_updates():
+    session, sent, _ = clip_relay()
+    await send_clip(session, table=None)
+    assert sent[-1]["table"] is None
+    await say_table(session, 4)
+    draft = [m for m in sent if m["type"] == "order.draft"][-1]
+    assert draft["table"] == "T4" and draft["notice"] is None
+    assert sent[-1] == {"type": "voice.command", "intent": "table", "table": "T4"}
+    await session.close()
+
+
+@run
+async def test_verity_table_overrides_the_order_task_and_says_what_changed():
+    session, sent, _ = clip_relay()
+    await send_clip(session, table="T3")
+    await say_table(session, 4)
+    assert sent[-1] == {"type": "voice.command", "intent": "table", "table": "T4", "was": "T3"}
+    assert [m for m in sent if m["type"] == "order.draft"][-1]["table"] == "T4"
+    await session.close()
+
+
+@run
+async def test_verity_table_refuses_unknown_tables_sent_orders_and_no_order():
+    session, sent, _ = clip_relay()
+    await say_table(session, 4)
+    assert sent[-1]["reason"] == "no order to set the table for"
+    await send_clip(session, table=None)
+    await say_table(session, 12)
+    assert sent[-1] == {"type": "voice.command", "intent": "table", "table": "T12",
+                        "reason": "no table 12"}  # fmt: skip
+    await say_table(session, None)
+    assert sent[-1]["reason"].startswith("say verity table")
+    await say_table(session, 4)
+    d = sent[-2]
+    await session.handle_text(json.dumps({"type": "order.confirm", "orderId": d["orderId"]}))
+    assert sent[-1]["status"] == "sent"
+    await say_table(session, 2)
+    assert sent[-1]["reason"] == "already sent"
+    await session.close()

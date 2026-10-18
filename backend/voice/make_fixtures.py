@@ -88,6 +88,13 @@ CONVERSATIONS |= {
         (S, "Of course, take your time, I'll be right back."),
     ],
 }
+# The table only as the server's last words, after the order (no ORDER task): binds T4.
+CONVERSATIONS["conv_table_last"] = [
+    (S, "Hi folks, are we ready to order?"),
+    (G, "Yes. I'll have the pan-roasted halibut, no butter please."),
+    (G, "And I'd like the duck breast, and the lemon sorbet after."),
+    (S, "Perfect, I'll put that right in. Thanks, that was table four."),
+]
 # The same order before the server names the table: the draft shows TABLE? until a second
 # swipe down sends conv_tableless, whose last line is "that was table two".
 CONVERSATIONS["conv_notable"] = CONVERSATIONS["conv_tableless"][:-1]
