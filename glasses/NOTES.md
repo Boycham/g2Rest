@@ -212,9 +212,9 @@ little next to Scribe's 0.8 s VAD and the agent turn, and the spread run to run 
 - Owner: "make the queue have a seperate menu from the controls. Make it like the default dispaly with the 4
   different tabs that you can scroll up and down in. However only have 3 tabs, and the controls should be the
   top most tab, so move the control tip to be in the same tab as the queue."
-- Now Controls / Queue / Card stacked tabs (see Gesture map). Simulator, 2026-10-18: Card → swipe fwd → Queue
-  → swipe fwd → Controls → tap (page 2/2) → swipe fwd (stays) → swipe back → Queue → hold → Card; hold on the
-  Card → `Confirm handoff? (tap)`; swipe back on the Card → draft. Each rebuild 1-3 ms.
+- Now Controls / Queue / Task stacked tabs (see Gesture map). Simulator, 2026-10-18: Task → swipe fwd → Queue
+  → swipe fwd → Controls → tap (page 2/2) → swipe fwd (stays) → swipe back → Queue → hold → Task; hold on the
+  Task → `Confirm handoff? (tap)`; swipe back on the Task tab → draft. Each rebuild 1-3 ms.
 - HW-PENDING: compare the rail with the G2 dashboard's tabs on the lens; whether the rebuild flickers.
 
 ## Real G2 against the Vultr host (0.1.6)
@@ -364,15 +364,15 @@ once; the card shows `Heard: <command>` for 3 s. The backend decides: a refused 
 ### Gesture map (one place)
 
 The server HUD is three stacked tabs, top to bottom `TABS` in `src/controls.ts`: **Controls**, **Queue**,
-**Card** (home, where it starts). `CARD_GESTURES` there says what each gesture does on the Card (moving clip is
+**Task** (home, where it starts). `CARD_GESTURES` there says what each gesture does on the Task tab (moving clip is
 one line); `GESTURE_EVENTS` in `src/main.ts` maps OS events to gestures.
 
-| Gesture | Card (bottom) | Queue (middle) | Controls (top) | Voice |
+| Gesture | Task (bottom) | Queue (middle) | Controls (top) | Voice |
 |---|---|---|---|---|
-| Tap | accept, then done; confirms a popup or sends the draft | back to the Card | next page (1/3 → 2/3 → 3/3 → 1/3) | `verity accept` / `done` / `confirm` |
+| Tap | accept, then done; confirms a popup or sends the draft | back to the Task tab | next page (1/3 → 2/3 → 3/3 → 1/3) | `verity accept` / `done` / `confirm` |
 | Swipe fwd | to Queue | to Controls | nothing (top tab) | `verity up`; `verity queue` / `verity menu` jump to a tab |
-| Swipe back | clip the last minute | to the Card | to Queue | `verity down`; `verity clip` clips from any tab |
-| Long hold | handoff: `Confirm handoff?`, then tap | back to the Card | back to the Card | `verity handoff [name]` / `verity back` |
+| Swipe back | clip the last minute | to the Task tab | to Queue | `verity down`; `verity clip` clips from any tab |
+| Long hold | handoff: `Confirm handoff?`, then tap | back to the Task tab | back to the Task tab | `verity handoff [name]` / `verity back` |
 | Double tap | exit (`shutDownPageContainer(1)`, Even Hub review rule) | exit | exit | none |
 | Voice only | decline (`task.bounce`), revert (`task.revert`), cancel a popup, bind the unsent draft to table N | | | `verity decline` / `revert` / `nevermind` / `table N` |
 | Nod (IMU, HW-PENDING) | accept the waiting task (`task.accept`), only while one waits | same | same | `verity revert` undoes it |
@@ -381,7 +381,7 @@ one line); `GESTURE_EVENTS` in `src/main.ts` maps OS events to gestures.
 Controls is a read-only reference (swipes switch tabs, so there's nothing to move a selection with): every
 gesture and its voice command, 4 rows a page, `1/3 ... tap: more · back: queue` on the last line. Queue was
 removed from it. The Queue tab shows only tasks (`> T12 · RUN · ! SHELLFISH`, current one marked) with
-`fwd: controls` bottom right; the Card's hint is `fwd: queue`, beside `+N queued`. All measured with pretext
+`fwd: controls` bottom right; the Task tab's hint is `fwd: queue`, beside `+N queued`. All measured with pretext
 against the content width beside the rail (`controls.test.ts`, `card.test.ts`).
 
 The tab rail (`tabsPage` in `src/render.ts`) is three 88×96 text containers on the left, one per tab, the open
@@ -389,7 +389,7 @@ one bordered and bright, the others dim; the content (input capture, upgraded in
 it. Even's docs don't show how the G2's own dashboard draws its tabs, so this follows their documented
 patterns (stacked 96 px containers, `borderWidth` as the selection). Switching tabs is a
 `rebuildPageContainer` (1-3 ms in the simulator; flicker on hardware HW-PENDING). The draft stays a full-screen
-page without the rail. Leaving the Card drops an open handoff popup, so a tap on Queue can't confirm it unseen.
+page without the rail. Leaving the Task tab drops an open handoff popup, so a tap on Queue can't confirm it unseen.
 
 - Handoff sends `task.handoff {taskId, to?}` only after the popup is confirmed; "verity revert" sends
   `task.revert` and the un-accepted `task.updated` that answers it isn't replayed as a lost accept.
@@ -501,8 +501,8 @@ with `--automation-port 9898`, role switched on the phone page.
   only shows `Didn't get: ... (no key)` here) opens a full-width page per distinct dish of the current card
   (`src/ramp.ts`): `Pan-Roasted Halibut · s1+3  1/2`, the components (wrapped, 2 lines max), `allergens:` (a
   table allergy is upper-cased with its seats and the line starts with `!`: `! allergens: fish, DAIRY s1`),
-  `wine: Sancerre, Loire`, footer `tap: next · hold: card` on the bottom line. Tap = next dish (wraps), hold or a
-  swipe = back to the Card, "verity back" too. Refused with `No dishes to ramp` when the card names no dishes.
+  `wine: Sancerre, Loire`, footer `tap: next · hold: task` on the bottom line. Tap = next dish (wraps), hold or a
+  swipe = back to the Task tab, "verity back" too. Refused with `No dishes to ramp` when the card names no dishes.
   A dish not in the menu shows `<dish>: not in menu data`.
 - **Data:** `data/menu.json` dishes gained `components` and `pairing` (fictional). The glasses bundle the menu
   (`import ... from '../../data/menu.json'`, `server.fs.allow: ['..']` for Vite dev), so the card path never
@@ -557,7 +557,7 @@ back after a tap or when a task is assigned or something enters the queue".
 - State machine in `src/idle.ts` (`IdleBlank`): held while a task is queued, the draft, a popup, the processing
   indicator or the ramp view is open. Once nothing holds it, it blanks after `IDLE_MS` = 8 s with no input, or
   `DONE_BEAT_MS` = 1.5 s after the last task is done (the card shows `Done` meanwhile).
-- Wakes: tap (also swipe fwd, long press) -> Card with `No tasks`, no task action; `task.assigned` / anything in the
+- Wakes: tap (also swipe fwd, long press) -> Task tab with `No tasks`, no task action; `task.assigned` / anything in the
   queue; an 86 alert; `voice.unknown` (a processing result); an `order.draft` while blank -> the draft; `verity
   menu` / `queue` / `ramp`. Other voice commands while blank stay blank (their flash isn't shown).
 - While blank: mic buffer and command stream keep running, swipe back clips (opens the draft), double tap still
